@@ -20,6 +20,10 @@ must use the adapters and reconciliation process described in
 
 Demo credentials: `admin@example.com` / `change-me-now`.
 
+Full OpenEMR parity is tracked in
+[`docs/PARITY_MATRIX.md`](docs/PARITY_MATRIX.md). Integration consumers must use
+the contracts described in [`docs/INTEGRATION.md`](docs/INTEGRATION.md).
+
 ## First vertical slice
 
 - JWT authentication with role checks
@@ -27,4 +31,3 @@ Demo credentials: `admin@example.com` / `change-me-now`.
 - immutable audit events for reads and writes
 - API and UI tests
 - Docker-based local environment
-
