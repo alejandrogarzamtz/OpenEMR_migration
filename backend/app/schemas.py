@@ -274,3 +274,26 @@ class ClinicalFormOut(ClinicalFormCreate):
     status: str
     authored_at: datetime
     signed_at: datetime | None
+
+
+class QuestionnaireDefinitionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    code: str
+    version: str
+    title: str
+    questions: list[dict]
+
+
+class QuestionnaireResponseCreate(BaseModel):
+    questionnaire_uuid: str
+    encounter_uuid: str | None = None
+    answers: dict[str, int]
+
+
+class QuestionnaireResponseOut(QuestionnaireResponseCreate):
+    uuid: str
+    code: str
+    score: int
+    interpretation: str
+    authored_at: datetime

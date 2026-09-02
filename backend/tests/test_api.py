@@ -75,6 +75,15 @@ def test_patient_flow():
         assert signed.json()["status"] == "signed"
         assert client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers).status_code == 409
         assert client.get(f"/api/v1/patients/{patient_id}/clinical-forms?form_type=soap", headers=headers).json()[0]["content"]["assessment"] == "Migraine"
+        definitions = client.get("/api/v1/questionnaires", headers=headers).json()
+        phq9 = next(item for item in definitions if item["code"] == "PHQ-9")
+        answers = {f"q{x}": 1 for x in range(1, 10)}
+        response = client.post(f"/api/v1/patients/{patient_id}/questionnaire-responses", headers=headers, json={"questionnaire_uuid": phq9["uuid"], "encounter_uuid": encounter.json()["uuid"], "answers": answers})
+        assert response.status_code == 201
+        assert response.json()["score"] == 9
+        assert response.json()["interpretation"] == "mild"
+        assert client.get(f"/api/v1/patients/{patient_id}/questionnaire-responses", headers=headers).json()[0]["code"] == "PHQ-9"
+        assert client.post(f"/api/v1/patients/{patient_id}/questionnaire-responses", headers=headers, json={"questionnaire_uuid": phq9["uuid"], "answers": {"q1": 4}}).status_code == 422
 
 
 def test_auth_required():

@@ -9,10 +9,15 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, User, VitalSet
-from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, Token, VitalSetCreate, VitalSetOut
+from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
+from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, Token, VitalSetCreate, VitalSetOut
 from .security import clinical_user, create_token, password_hash
 from .fhir import router as fhir_router
+
+QUESTIONNAIRES = {
+    "PHQ-9": {"title": "Patient Health Questionnaire-9", "count": 9},
+    "GAD-7": {"title": "Generalized Anxiety Disorder-7", "count": 7},
+}
 
 
 @asynccontextmanager
@@ -24,7 +29,10 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         if not db.scalar(select(User).where(User.email == "admin@example.com")):
             db.add(User(email="admin@example.com", password_hash=password_hash.hash("change-me-now"), role="admin"))
-            db.commit()
+        for code, definition in QUESTIONNAIRES.items():
+            if not db.scalar(select(QuestionnaireDefinition).where(QuestionnaireDefinition.code == code, QuestionnaireDefinition.version == "1")):
+                db.add(QuestionnaireDefinition(code=code, version="1", title=definition["title"], questions=[{"id": f"q{x}", "text": f"{code} item {x}", "min": 0, "max": 3} for x in range(1, definition["count"] + 1)]))
+        db.commit()
     yield
 
 
@@ -417,3 +425,33 @@ def sign_clinical_form(patient_uuid: str, form_uuid: str, db: Session = Depends(
     if item.status == "signed": raise HTTPException(status_code=409, detail="Clinical form is already signed")
     item.status = "signed"; item.signed_at = datetime.now(timezone.utc); item.signed_by_id = user.id; db.add(AuditEvent(actor_id=user.id, action="sign", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
     return ClinicalFormOut(encounter_uuid=encounter_uuid, **{k: getattr(item, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")})
+
+
+@app.get("/api/v1/questionnaires", response_model=list[QuestionnaireDefinitionOut])
+def list_questionnaires(db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    rows = list(db.scalars(select(QuestionnaireDefinition).where(QuestionnaireDefinition.active.is_(True)).order_by(QuestionnaireDefinition.code)))
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="questionnaire_definition")); db.commit(); return rows
+
+
+def questionnaire_interpretation(code: str, score: int) -> str:
+    if code == "PHQ-9":
+        return "minimal" if score < 5 else "mild" if score < 10 else "moderate" if score < 15 else "moderately-severe" if score < 20 else "severe"
+    return "minimal" if score < 5 else "mild" if score < 10 else "moderate" if score < 15 else "severe"
+
+
+@app.post("/api/v1/patients/{patient_uuid}/questionnaire-responses", response_model=QuestionnaireResponseOut, status_code=201)
+def create_questionnaire_response(patient_uuid: str, body: QuestionnaireResponseCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); definition = db.scalar(select(QuestionnaireDefinition).where(QuestionnaireDefinition.uuid == body.questionnaire_uuid, QuestionnaireDefinition.active.is_(True)))
+    if not definition: raise HTTPException(status_code=404, detail="Questionnaire not found")
+    encounter = encounter_for_patient(db, patient, body.encounter_uuid); expected = {item["id"] for item in definition.questions}
+    if set(body.answers) != expected or any(not isinstance(value, int) or value < 0 or value > 3 for value in body.answers.values()): raise HTTPException(status_code=422, detail="Every questionnaire item requires an integer answer from 0 to 3")
+    score = sum(body.answers.values()); item = QuestionnaireResponse(patient_id=patient.id, encounter_id=encounter.id if encounter else None, questionnaire_id=definition.id, answers=body.answers, score=score, interpretation=questionnaire_interpretation(definition.code, score), author_id=user.id)
+    db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="questionnaire_response", resource_id=item.uuid, detail=f"{definition.code} score={score}")); db.commit(); db.refresh(item)
+    return QuestionnaireResponseOut(uuid=item.uuid, code=definition.code, score=item.score, interpretation=item.interpretation, authored_at=item.authored_at, **body.model_dump())
+
+
+@app.get("/api/v1/patients/{patient_uuid}/questionnaire-responses", response_model=list[QuestionnaireResponseOut])
+def list_questionnaire_responses(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); rows = db.execute(select(QuestionnaireResponse, QuestionnaireDefinition, Encounter.uuid).join(QuestionnaireDefinition).outerjoin(Encounter).where(QuestionnaireResponse.patient_id == patient.id).order_by(QuestionnaireResponse.authored_at.desc())).all()
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="questionnaire_response", resource_id=patient.uuid)); db.commit()
+    return [QuestionnaireResponseOut(uuid=x.uuid, questionnaire_uuid=q.uuid, encounter_uuid=e, answers=x.answers, code=q.code, score=x.score, interpretation=x.interpretation, authored_at=x.authored_at) for x, q, e in rows]
