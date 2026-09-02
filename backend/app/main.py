@@ -5,8 +5,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, Encounter, Patient, User
-from .schemas import AppointmentCreate, AppointmentOut, EncounterCreate, EncounterOut, Login, PatientCreate, PatientOut, PatientPage, Token
+from .models import Appointment, AuditEvent, ClinicalItem, Encounter, Patient, User
+from .schemas import AppointmentCreate, AppointmentOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, EncounterCreate, EncounterOut, Login, PatientCreate, PatientOut, PatientPage, Token
 from .security import clinical_user, create_token, password_hash
 
 
@@ -117,3 +117,51 @@ def list_encounters(patient_uuid: str, db: Session = Depends(get_db), user: User
     rows = db.execute(select(Encounter, Appointment.uuid).outerjoin(Appointment).where(Encounter.patient_id == patient.id).order_by(Encounter.occurred_at.desc())).all()
     db.add(AuditEvent(actor_id=user.id, action="search", resource_type="encounter", resource_id=patient.uuid)); db.commit()
     return [EncounterOut(patient_uuid=patient.uuid, appointment_uuid=a_uuid, **{k: getattr(item, k) for k in ("uuid", "occurred_at", "type", "status", "chief_complaint", "clinical_note")}) for item, a_uuid in rows]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/clinical-items", response_model=ClinicalItemOut, status_code=201)
+def create_clinical_item(patient_uuid: str, body: ClinicalItemCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = ClinicalItem(patient_id=patient.id, **body.model_dump())
+    db.add(item)
+    db.flush()
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type=body.category, resource_id=item.uuid))
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.get("/api/v1/patients/{patient_uuid}/clinical-items", response_model=list[ClinicalItemOut])
+def list_clinical_items(patient_uuid: str, category: str | None = Query(default=None, pattern="^(problem|allergy|medication)$"), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    query = select(ClinicalItem).where(ClinicalItem.patient_id == patient.id)
+    if category:
+        query = query.where(ClinicalItem.category == category)
+    items = db.scalars(query.order_by(ClinicalItem.created_at.desc())).all()
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type=category or "clinical_item", resource_id=patient.uuid))
+    db.commit()
+    return list(items)
+
+
+@app.patch("/api/v1/patients/{patient_uuid}/clinical-items/{item_uuid}/status", response_model=ClinicalItemOut)
+def update_clinical_item_status(patient_uuid: str, item_uuid: str, status_value: str = Query(pattern="^(active|inactive|resolved|entered-in-error)$"), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = db.scalar(select(ClinicalItem).where(ClinicalItem.uuid == item_uuid, ClinicalItem.patient_id == patient.id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Clinical item not found")
+    item.status = status_value
+    db.add(AuditEvent(actor_id=user.id, action="update", resource_type=item.category, resource_id=item.uuid, detail=f"status={status_value}"))
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.get("/api/v1/patients/{patient_uuid}/summary", response_model=ClinicalSummary)
+def clinical_summary(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    items = db.scalars(select(ClinicalItem).where(ClinicalItem.patient_id == patient.id, ClinicalItem.status == "active").order_by(ClinicalItem.created_at.desc())).all()
+    encounter_rows = db.execute(select(Encounter, Appointment.uuid).outerjoin(Appointment).where(Encounter.patient_id == patient.id).order_by(Encounter.occurred_at.desc()).limit(10)).all()
+    encounters = [EncounterOut(patient_uuid=patient.uuid, appointment_uuid=a_uuid, **{k: getattr(item, k) for k in ("uuid", "occurred_at", "type", "status", "chief_complaint", "clinical_note")}) for item, a_uuid in encounter_rows]
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="clinical_summary", resource_id=patient.uuid))
+    db.commit()
+    return ClinicalSummary(patient=patient, problems=[x for x in items if x.category == "problem"], allergies=[x for x in items if x.category == "allergy"], medications=[x for x in items if x.category == "medication"], encounters=encounters)

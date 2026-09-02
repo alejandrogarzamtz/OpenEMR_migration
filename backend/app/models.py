@@ -63,3 +63,25 @@ class Encounter(Base):
     status: Mapped[str] = mapped_column(String(30), default="open")
     chief_complaint: Mapped[str | None] = mapped_column(Text, nullable=True)
     clinical_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ClinicalItem(Base):
+    """Normalized replacement for OpenEMR's polymorphic `lists` records."""
+
+    __tablename__ = "clinical_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_list_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    category: Mapped[str] = mapped_column(String(30), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    code_system: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active")
+    onset_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    reaction: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dosage: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

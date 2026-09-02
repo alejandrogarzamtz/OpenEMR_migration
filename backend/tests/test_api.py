@@ -19,6 +19,17 @@ def test_patient_flow():
         encounter = client.post("/api/v1/encounters", headers=headers, json={"patient_uuid": patient_id, "appointment_uuid": appointment.json()["uuid"], "occurred_at": "2026-09-02T10:01:00Z", "chief_complaint": "Headache"})
         assert encounter.status_code == 201
         assert len(client.get(f"/api/v1/patients/{patient_id}/encounters", headers=headers).json()) == 1
+        problem = client.post(f"/api/v1/patients/{patient_id}/clinical-items", headers=headers, json={"category": "problem", "title": "Migraine", "code_system": "ICD-10-CM", "code": "G43.909"})
+        assert problem.status_code == 201
+        allergy = client.post(f"/api/v1/patients/{patient_id}/clinical-items", headers=headers, json={"category": "allergy", "title": "Penicillin", "reaction": "Rash", "severity": "moderate"})
+        assert allergy.status_code == 201
+        medication = client.post(f"/api/v1/patients/{patient_id}/clinical-items", headers=headers, json={"category": "medication", "title": "Sumatriptan", "dosage": "50 mg as needed"})
+        assert medication.status_code == 201
+        summary = client.get(f"/api/v1/patients/{patient_id}/summary", headers=headers)
+        assert summary.status_code == 200
+        assert summary.json()["problems"][0]["code"] == "G43.909"
+        resolved = client.patch(f"/api/v1/patients/{patient_id}/clinical-items/{problem.json()['uuid']}/status?status_value=resolved", headers=headers)
+        assert resolved.json()["status"] == "resolved"
 
 
 def test_auth_required():
