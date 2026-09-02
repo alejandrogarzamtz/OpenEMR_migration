@@ -14,6 +14,11 @@ def test_patient_flow():
         assert client.get(f"/api/v1/patients/{patient_id}", headers=headers).status_code == 200
         result = client.get("/api/v1/patients?q=Lovelace", headers=headers).json()
         assert result["total"] == 1
+        appointment = client.post("/api/v1/appointments", headers=headers, json={"patient_uuid": patient_id, "starts_at": "2026-09-02T10:00:00Z", "ends_at": "2026-09-02T10:30:00Z", "reason": "Follow-up"})
+        assert appointment.status_code == 201
+        encounter = client.post("/api/v1/encounters", headers=headers, json={"patient_uuid": patient_id, "appointment_uuid": appointment.json()["uuid"], "occurred_at": "2026-09-02T10:01:00Z", "chief_complaint": "Headache"})
+        assert encounter.status_code == 201
+        assert len(client.get(f"/api/v1/patients/{patient_id}/encounters", headers=headers).json()) == 1
 
 
 def test_auth_required():

@@ -34,3 +34,37 @@ class PatientPage(BaseModel):
     limit: int
     offset: int
 
+
+class AppointmentCreate(BaseModel):
+    patient_uuid: str
+    starts_at: datetime
+    ends_at: datetime
+    reason: str | None = Field(default=None, max_length=255)
+    provider_name: str | None = Field(default=None, max_length=150)
+
+
+class AppointmentOut(AppointmentCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    status: str
+
+
+class EncounterCreate(BaseModel):
+    patient_uuid: str
+    appointment_uuid: str | None = None
+    occurred_at: datetime
+    type: str = Field(default="ambulatory", max_length=50)
+    chief_complaint: str | None = None
+    clinical_note: str | None = None
+
+
+class EncounterOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    patient_uuid: str
+    appointment_uuid: str | None = None
+    occurred_at: datetime
+    type: str
+    status: str
+    chief_complaint: str | None
+    clinical_note: str | None

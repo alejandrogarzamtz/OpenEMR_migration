@@ -37,3 +37,29 @@ class AuditEvent(Base):
     resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_event_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="scheduled")
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+
+class Encounter(Base):
+    __tablename__ = "encounters"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_encounter_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    appointment_id: Mapped[int | None] = mapped_column(ForeignKey("appointments.id"), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    type: Mapped[str] = mapped_column(String(50), default="ambulatory")
+    status: Mapped[str] = mapped_column(String(30), default="open")
+    chief_complaint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clinical_note: Mapped[str | None] = mapped_column(Text, nullable=True)
