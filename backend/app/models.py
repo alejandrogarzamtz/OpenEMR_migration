@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 from uuid import uuid4
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -85,3 +85,48 @@ class ClinicalItem(Base):
     dosage: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class LabOrder(Base):
+    __tablename__ = "lab_orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_order_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    ordered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    code: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    priority: Mapped[str] = mapped_column(String(31), default="routine")
+    status: Mapped[str] = mapped_column(String(31), default="pending")
+    instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LabResult(Base):
+    __tablename__ = "lab_results"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_result_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("lab_orders.id"), index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    code: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    value: Mapped[str] = mapped_column(String(255))
+    unit: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    reference_range: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    interpretation: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    status: Mapped[str] = mapped_column(String(31), default="final")
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_document_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(255))
+    mime_type: Mapped[str] = mapped_column(String(100))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    sha256: Mapped[str] = mapped_column(String(64))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

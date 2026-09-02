@@ -96,3 +96,47 @@ class ClinicalSummary(BaseModel):
     allergies: list[ClinicalItemOut]
     medications: list[ClinicalItemOut]
     encounters: list[EncounterOut]
+
+
+class LabOrderCreate(BaseModel):
+    encounter_uuid: str | None = None
+    ordered_at: datetime
+    code: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    priority: str = Field(default="routine", pattern="^(routine|urgent|stat)$")
+    instructions: str | None = None
+
+
+class LabOrderOut(LabOrderCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    status: str
+
+
+class LabResultCreate(BaseModel):
+    observed_at: datetime
+    code: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    value: str = Field(min_length=1, max_length=255)
+    unit: str | None = Field(default=None, max_length=31)
+    reference_range: str | None = Field(default=None, max_length=255)
+    interpretation: str | None = Field(default=None, max_length=31)
+    status: str = Field(default="final", pattern="^(preliminary|final|corrected|cancelled)$")
+
+
+class LabResultOut(LabResultCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+
+
+class LabOrderDetail(LabOrderOut):
+    results: list[LabResultOut]
+
+
+class DocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    name: str
+    mime_type: str
+    sha256: str
+    uploaded_at: datetime
