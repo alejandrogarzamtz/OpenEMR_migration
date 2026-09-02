@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import AuditEvent, ClinicalItem, LabOrder, LabResult, Patient, User
+from .models import AuditEvent, ClinicalItem, Immunization, LabOrder, LabResult, Patient, Prescription, User, VitalSet
 from .security import clinical_user
 
 router = APIRouter(prefix="/fhir", tags=["FHIR R4"])
@@ -32,7 +32,7 @@ def audit(db: Session, user: User, resource_type: str, patient_uuid: str):
 
 @router.get("/metadata")
 def metadata():
-    return {"resourceType": "CapabilityStatement", "status": "active", "date": "2026-09-01", "kind": "instance", "fhirVersion": "4.0.1", "format": ["json"], "rest": [{"mode": "server", "security": {"cors": True, "service": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/restful-security-service", "code": "OAuth"}]}]}, "resource": [{"type": "Patient", "interaction": [{"code": "read"}, {"code": "search-type"}]}, {"type": "Condition", "interaction": [{"code": "search-type"}]}, {"type": "AllergyIntolerance", "interaction": [{"code": "search-type"}]}, {"type": "MedicationStatement", "interaction": [{"code": "search-type"}]}, {"type": "Observation", "interaction": [{"code": "search-type"}]}]}]}
+    return {"resourceType": "CapabilityStatement", "status": "active", "date": "2026-09-01", "kind": "instance", "fhirVersion": "4.0.1", "format": ["json"], "rest": [{"mode": "server", "security": {"cors": True, "service": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/restful-security-service", "code": "OAuth"}]}]}, "resource": [{"type": "Patient", "interaction": [{"code": "read"}, {"code": "search-type"}]}, {"type": "Condition", "interaction": [{"code": "search-type"}]}, {"type": "AllergyIntolerance", "interaction": [{"code": "search-type"}]}, {"type": "MedicationStatement", "interaction": [{"code": "search-type"}]}, {"type": "Observation", "interaction": [{"code": "search-type"}]}, {"type": "Immunization", "interaction": [{"code": "search-type"}]}, {"type": "MedicationRequest", "interaction": [{"code": "search-type"}]}]}]}
 
 
 @router.get("/Patient/{patient_uuid}")
@@ -80,4 +80,20 @@ def observations(patient: str = Query(), db: Session = Depends(get_db), user: Us
     for result in rows:
         value={"valueQuantity":{"value":float(result.value),"unit":result.unit}} if result.value.replace(".","",1).isdigit() else {"valueString":result.value}
         resources.append({"resourceType":"Observation","id":result.uuid,"status":result.status,"category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"laboratory"}]}],"code":{"coding":[{"system":"http://loinc.org","code":result.code,"display":result.name}],"text":result.name},"subject":{"reference":f"Patient/{item.uuid}"},"effectiveDateTime":result.observed_at.isoformat(),**value,**({"referenceRange":[{"text":result.reference_range}]} if result.reference_range else {})})
+    vitals=db.scalars(select(VitalSet).where(VitalSet.patient_id==item.id)).all()
+    vital_codes=(("systolic","8480-6","Systolic blood pressure","mm[Hg]"),("diastolic","8462-4","Diastolic blood pressure","mm[Hg]"),("weight_kg","29463-7","Body weight","kg"),("height_cm","8302-2","Body height","cm"),("temperature_c","8310-5","Body temperature","Cel"),("heart_rate","8867-4","Heart rate","/min"),("respiratory_rate","9279-1","Respiratory rate","/min"),("oxygen_saturation","2708-6","Oxygen saturation","%"),("bmi","39156-5","Body mass index","kg/m2"))
+    for vital in vitals:
+        for field,code,name,unit in vital_codes:
+            value=getattr(vital,field)
+            if value is not None: resources.append({"resourceType":"Observation","id":f"{vital.uuid}-{field}","status":"final","category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"vital-signs"}]}],"code":{"coding":[{"system":"http://loinc.org","code":code,"display":name}]},"subject":{"reference":f"Patient/{item.uuid}"},"effectiveDateTime":vital.observed_at.isoformat(),"valueQuantity":{"value":float(value),"unit":unit}})
     audit(db,user,"Observation",item.uuid); return bundle("Observation",resources)
+
+
+@router.get("/Immunization")
+def fhir_immunizations(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    item=patient_or_404(db,patient); rows=db.scalars(select(Immunization).where(Immunization.patient_id==item.id)).all(); resources=[{"resourceType":"Immunization","id":x.uuid,"status":x.status,"vaccineCode":{"coding":[{"system":"http://hl7.org/fhir/sid/cvx","code":x.cvx_code,"display":x.vaccine_name}]},"patient":{"reference":f"Patient/{item.uuid}"},"occurrenceDateTime":x.administered_at.isoformat(),**({"lotNumber":x.lot_number} if x.lot_number else {})} for x in rows]; audit(db,user,"Immunization",item.uuid); return bundle("Immunization",resources)
+
+
+@router.get("/MedicationRequest")
+def medication_requests(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    item=patient_or_404(db,patient); rows=db.scalars(select(Prescription).where(Prescription.patient_id==item.id)).all(); resources=[{"resourceType":"MedicationRequest","id":x.uuid,"status":x.status,"intent":"order","medicationCodeableConcept":{"coding":[{"system":"http://www.nlm.nih.gov/research/umls/rxnorm","code":x.rxnorm_code,"display":x.drug_name}] if x.rxnorm_code else [],"text":x.drug_name},"subject":{"reference":f"Patient/{item.uuid}"},"authoredOn":x.prescribed_at.isoformat(),"dosageInstruction":[{"text":x.dosage_instructions}],"dispenseRequest":{"numberOfRepeatsAllowed":x.refills,**({"quantity":{"value":float(x.quantity)}} if x.quantity and x.quantity.replace(".","",1).isdigit() else {})},"substitution":{"allowedBoolean":x.substitutions_allowed}} for x in rows]; audit(db,user,"MedicationRequest",item.uuid); return bundle("MedicationRequest",resources)

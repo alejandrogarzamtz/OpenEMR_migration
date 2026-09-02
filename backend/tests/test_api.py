@@ -64,6 +64,9 @@ def test_patient_flow():
         assert prescription.status_code == 201
         assert len(client.get(f"/api/v1/patients/{patient_id}/immunizations",headers=headers).json()) == 1
         assert len(client.get(f"/api/v1/patients/{patient_id}/prescriptions",headers=headers).json()) == 1
+        assert client.get(f"/fhir/Immunization?patient={patient_id}",headers=headers).json()["total"] == 1
+        assert client.get(f"/fhir/MedicationRequest?patient={patient_id}",headers=headers).json()["total"] == 1
+        assert client.get(f"/fhir/Observation?patient={patient_id}",headers=headers).json()["total"] >= 7
 
 
 def test_auth_required():
