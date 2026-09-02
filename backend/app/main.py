@@ -17,7 +17,10 @@ from .fhir import router as fhir_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(engine)
+    # Unit tests use an isolated in-memory database. Deployed databases are
+    # changed exclusively through Alembic before the API process starts.
+    if settings.database_url == "sqlite://":
+        Base.metadata.create_all(engine)
     with SessionLocal() as db:
         if not db.scalar(select(User).where(User.email == "admin@example.com")):
             db.add(User(email="admin@example.com", password_hash=password_hash.hash("change-me-now"), role="admin"))

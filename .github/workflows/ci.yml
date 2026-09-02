@@ -1,0 +1,19 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build api
+      - run: docker compose run --rm api python -m pytest -q
+      - run: docker compose run --rm api sh -c 'alembic upgrade head && alembic check'
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build web
+      - run: docker compose run --rm --no-deps web npm run build
