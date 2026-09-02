@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import uuid4
-from sqlalchemy import Date, DateTime, ForeignKey, LargeBinary, String, Text
+from decimal import Decimal
+from sqlalchemy import Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -130,3 +131,70 @@ class Document(Base):
     content: Mapped[bytes] = mapped_column(LargeBinary)
     sha256: Mapped[str] = mapped_column(String(64))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Payer(Base):
+    __tablename__ = "payers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_payer_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    payer_identifier: Mapped[str | None] = mapped_column(String(25), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class Coverage(Base):
+    __tablename__ = "coverages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_insurance_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    payer_id: Mapped[int] = mapped_column(ForeignKey("payers.id"))
+    priority: Mapped[str] = mapped_column(String(20), default="primary")
+    plan_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    policy_number: Mapped[str] = mapped_column(String(255))
+    group_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subscriber_name: Mapped[str] = mapped_column(String(255))
+    relationship: Mapped[str] = mapped_column(String(50), default="self")
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class Claim(Base):
+    __tablename__ = "claims"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_claim_key: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int] = mapped_column(ForeignKey("encounters.id"), index=True)
+    coverage_id: Mapped[int | None] = mapped_column(ForeignKey("coverages.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Charge(Base):
+    __tablename__ = "charges"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_billing_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int] = mapped_column(ForeignKey("encounters.id"), index=True)
+    claim_id: Mapped[int | None] = mapped_column(ForeignKey("claims.id"), nullable=True, index=True)
+    code_system: Mapped[str] = mapped_column(String(15))
+    code: Mapped[str] = mapped_column(String(20))
+    description: Mapped[str] = mapped_column(String(255))
+    units: Mapped[int] = mapped_column(default=1)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+
+
+class ClaimPayment(Base):
+    __tablename__ = "claim_payments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()))
+    claim_id: Mapped[int] = mapped_column(ForeignKey("claims.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    method: Mapped[str] = mapped_column(String(50))
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

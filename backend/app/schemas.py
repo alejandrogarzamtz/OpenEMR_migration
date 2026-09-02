@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -140,3 +141,64 @@ class DocumentOut(BaseModel):
     mime_type: str
     sha256: str
     uploaded_at: datetime
+
+
+class CoverageCreate(BaseModel):
+    payer_name: str = Field(min_length=1, max_length=255)
+    payer_identifier: str | None = Field(default=None, max_length=25)
+    priority: str = Field(default="primary", pattern="^(primary|secondary|tertiary)$")
+    plan_name: str | None = Field(default=None, max_length=255)
+    policy_number: str = Field(min_length=1, max_length=255)
+    group_number: str | None = Field(default=None, max_length=255)
+    subscriber_name: str = Field(min_length=1, max_length=255)
+    relationship: str = Field(default="self", max_length=50)
+    starts_on: date | None = None
+    ends_on: date | None = None
+
+
+class CoverageOut(CoverageCreate):
+    uuid: str
+
+
+class ChargeCreate(BaseModel):
+    encounter_uuid: str
+    code_system: str = Field(max_length=15)
+    code: str = Field(max_length=20)
+    description: str = Field(max_length=255)
+    units: int = Field(default=1, ge=1, le=999)
+    unit_price: Decimal = Field(gt=0, decimal_places=2)
+
+
+class ChargeOut(ChargeCreate):
+    uuid: str
+
+
+class ClaimCreate(BaseModel):
+    encounter_uuid: str
+    coverage_uuid: str | None = None
+    charge_uuids: list[str] = Field(min_length=1)
+
+
+class PaymentCreate(BaseModel):
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    method: str = Field(min_length=1, max_length=50)
+    reference: str | None = Field(default=None, max_length=255)
+
+
+class PaymentOut(PaymentCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    posted_at: datetime
+
+
+class ClaimOut(BaseModel):
+    uuid: str
+    encounter_uuid: str
+    coverage_uuid: str | None
+    status: str
+    total: Decimal
+    paid: Decimal
+    balance: Decimal
+    charges: list[ChargeOut]
+    payments: list[PaymentOut]
+    created_at: datetime
