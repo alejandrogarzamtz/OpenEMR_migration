@@ -67,6 +67,14 @@ def test_patient_flow():
         assert client.get(f"/fhir/Immunization?patient={patient_id}",headers=headers).json()["total"] == 1
         assert client.get(f"/fhir/MedicationRequest?patient={patient_id}",headers=headers).json()["total"] == 1
         assert client.get(f"/fhir/Observation?patient={patient_id}",headers=headers).json()["total"] >= 7
+        soap = client.post(f"/api/v1/patients/{patient_id}/clinical-forms", headers=headers, json={"encounter_uuid": encounter.json()["uuid"], "form_type": "soap", "title": "SOAP note", "content": {"subjective": "Headache improving", "objective": "Neurologic exam normal", "assessment": "Migraine", "plan": "Continue treatment"}})
+        assert soap.status_code == 201
+        assert soap.json()["status"] == "draft"
+        signed = client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers)
+        assert signed.status_code == 200
+        assert signed.json()["status"] == "signed"
+        assert client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers).status_code == 409
+        assert client.get(f"/api/v1/patients/{patient_id}/clinical-forms?form_type=soap", headers=headers).json()[0]["content"]["assessment"] == "Migraine"
 
 
 def test_auth_required():
