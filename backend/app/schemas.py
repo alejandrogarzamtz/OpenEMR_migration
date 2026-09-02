@@ -68,3 +68,31 @@ class EncounterOut(BaseModel):
     status: str
     chief_complaint: str | None
     clinical_note: str | None
+
+
+class ClinicalItemCreate(BaseModel):
+    category: str = Field(pattern="^(problem|allergy|medication)$")
+    title: str = Field(min_length=1, max_length=255)
+    code_system: str | None = Field(default=None, max_length=30)
+    code: str | None = Field(default=None, max_length=50)
+    status: str = Field(default="active", pattern="^(active|inactive|resolved|entered-in-error)$")
+    onset_date: date | None = None
+    end_date: date | None = None
+    severity: str | None = Field(default=None, max_length=30)
+    reaction: str | None = Field(default=None, max_length=255)
+    dosage: str | None = Field(default=None, max_length=255)
+    note: str | None = None
+
+
+class ClinicalItemOut(ClinicalItemCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    created_at: datetime
+
+
+class ClinicalSummary(BaseModel):
+    patient: PatientOut
+    problems: list[ClinicalItemOut]
+    allergies: list[ClinicalItemOut]
+    medications: list[ClinicalItemOut]
+    encounters: list[EncounterOut]
