@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import ClinicalItem, Document, Encounter, LabOrder, LabResult, Patient
+from .models import Charge, Claim, ClinicalItem, Coverage, Document, Encounter, LabOrder, LabResult, Patient, Payer
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 
@@ -27,7 +27,7 @@ def valid_dob(value):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents")
+    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT pid,fname,lname,DOB,sex,email,phone_cell,phone_home FROM patient_data ORDER BY pid"))
@@ -83,6 +83,43 @@ def run(source_url: str, commit: bool = False) -> dict:
             payload = content.encode() if isinstance(content, str) else bytes(content)
             target.add(Document(legacy_document_id=row["id"], patient_id=patient.id, name=clean(row["name"]) or f"document-{row['id']}", mime_type=clean(row["mimetype"]) or "application/octet-stream", content=payload, sha256=hashlib.sha256(payload).hexdigest(), uploaded_at=row["date"] or datetime.now(timezone.utc)))
             stats["documents"]["inserted"] += 1
+        payers = legacy.execute(text("SELECT id,name,cms_id,x12_receiver_id,inactive FROM insurance_companies ORDER BY id"))
+        for row in payers.mappings():
+            stats["payers"]["source"] += 1
+            if target.scalar(select(Payer.id).where(Payer.legacy_payer_id == row["id"])): stats["payers"]["existing"] += 1; continue
+            if not clean(row["name"]): stats["payers"]["rejected"] += 1; continue
+            target.add(Payer(legacy_payer_id=row["id"], name=clean(row["name"]), payer_identifier=clean(row["x12_receiver_id"]) or clean(row["cms_id"]), active=not bool(row["inactive"])))
+            stats["payers"]["inserted"] += 1
+        target.flush()
+        coverages = legacy.execute(text("SELECT id,pid,type,provider,plan_name,policy_number,group_number,subscriber_fname,subscriber_lname,subscriber_relationship,date,date_end FROM insurance_data ORDER BY id"))
+        for row in coverages.mappings():
+            stats["coverages"]["source"] += 1
+            if target.scalar(select(Coverage.id).where(Coverage.legacy_insurance_id == row["id"])): stats["coverages"]["existing"] += 1; continue
+            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"])); payer=target.scalar(select(Payer).where(Payer.legacy_payer_id==int(row["provider"]))) if str(row["provider"] or "").isdigit() else None
+            subscriber=" ".join(filter(None,(clean(row["subscriber_fname"]),clean(row["subscriber_lname"]))))
+            if not patient or not payer or not clean(row["policy_number"]) or not subscriber: stats["coverages"]["rejected"] += 1; continue
+            target.add(Coverage(legacy_insurance_id=row["id"],patient_id=patient.id,payer_id=payer.id,priority=clean(row["type"]) or "primary",plan_name=clean(row["plan_name"]),policy_number=clean(row["policy_number"]),group_number=clean(row["group_number"]),subscriber_name=subscriber,relationship=clean(row["subscriber_relationship"]) or "self",starts_on=row["date"],ends_on=row["date_end"]))
+            stats["coverages"]["inserted"] += 1
+        target.flush()
+        charges=legacy.execute(text("SELECT id,pid,encounter,code_type,code,code_text,units,fee,activity FROM billing ORDER BY id"))
+        for row in charges.mappings():
+            stats["charges"]["source"] += 1
+            if target.scalar(select(Charge.id).where(Charge.legacy_billing_id==row["id"])): stats["charges"]["existing"] += 1; continue
+            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
+            if not patient or not encounter or not row["activity"] or not clean(row["code"]) or not row["fee"]: stats["charges"]["rejected"] += 1; continue
+            target.add(Charge(legacy_billing_id=row["id"],patient_id=patient.id,encounter_id=encounter.id,code_system=clean(row["code_type"]) or "CPT",code=clean(row["code"]),description=clean(row["code_text"]) or clean(row["code"]),units=row["units"] or 1,unit_price=row["fee"]))
+            stats["charges"]["inserted"] += 1
+        target.flush()
+        claims=legacy.execute(text("SELECT patient_id,encounter_id,version,payer_id,status,bill_time FROM claims ORDER BY patient_id,encounter_id,version"))
+        for row in claims.mappings():
+            stats["claims"]["source"] += 1; key=f"{row['patient_id']}:{row['encounter_id']}:{row['version']}"
+            if target.scalar(select(Claim.id).where(Claim.legacy_claim_key==key)): stats["claims"]["existing"] += 1; continue
+            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])); coverage=target.scalar(select(Coverage).where(Coverage.patient_id==patient.id,Coverage.payer_id==target.scalar(select(Payer.id).where(Payer.legacy_payer_id==row["payer_id"])))) if patient and row["payer_id"] else None
+            claim_charges=list(target.scalars(select(Charge).where(Charge.patient_id==patient.id,Charge.encounter_id==encounter.id,Charge.claim_id.is_(None)))) if patient and encounter else []
+            if not patient or not encounter or not claim_charges: stats["claims"]["rejected"] += 1; continue
+            total=sum((x.unit_price*x.units for x in claim_charges),0); claim=Claim(legacy_claim_key=key,patient_id=patient.id,encounter_id=encounter.id,coverage_id=coverage.id if coverage else None,status="submitted" if row["bill_time"] else "draft",total=total,submitted_at=row["bill_time"]); target.add(claim); target.flush()
+            for charge in claim_charges: charge.claim_id=claim.id
+            stats["claims"]["inserted"] += 1
         if commit: target.commit()
         else: target.rollback()
     stats["mode"] = "committed" if commit else "dry-run"

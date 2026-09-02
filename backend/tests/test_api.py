@@ -39,6 +39,18 @@ def test_patient_flow():
         assert uploaded.status_code == 201
         downloaded = client.get(f"/api/v1/patients/{patient_id}/documents/{uploaded.json()['uuid']}/content", headers=headers)
         assert downloaded.content == b"clinical note"
+        coverage = client.post(f"/api/v1/patients/{patient_id}/coverages", headers=headers, json={"payer_name":"Acme Health","payer_identifier":"99999","policy_number":"P-123","subscriber_name":"Ada Lovelace"})
+        assert coverage.status_code == 201
+        charge = client.post(f"/api/v1/patients/{patient_id}/charges", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"code_system":"CPT","code":"99213","description":"Office visit","units":1,"unit_price":"125.00"})
+        assert charge.status_code == 201
+        claim = client.post(f"/api/v1/patients/{patient_id}/claims", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"coverage_uuid":coverage.json()["uuid"],"charge_uuids":[charge.json()["uuid"]]})
+        assert claim.json()["total"] == "125.00"
+        submitted = client.post(f"/api/v1/claims/{claim.json()['uuid']}/submit", headers=headers)
+        assert submitted.json()["status"] == "submitted"
+        paid = client.post(f"/api/v1/claims/{claim.json()['uuid']}/payments", headers=headers, json={"amount":"125.00","method":"EFT","reference":"EOB-1"})
+        assert paid.json()["status"] == "paid"
+        assert paid.json()["balance"] == "0.00"
+        assert client.get(f"/api/v1/patients/{patient_id}/claims", headers=headers).json()[0]["status"] == "paid"
 
 
 def test_auth_required():

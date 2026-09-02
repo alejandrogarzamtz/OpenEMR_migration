@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from decimal import Decimal
 from hashlib import sha256
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -7,8 +9,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, ClinicalItem, Document, Encounter, LabOrder, LabResult, Patient, User
-from .schemas import AppointmentCreate, AppointmentOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, DocumentOut, EncounterCreate, EncounterOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, Token
+from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalItem, Coverage, Document, Encounter, LabOrder, LabResult, Patient, Payer, User
+from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, Token
 from .security import clinical_user, create_token, password_hash
 
 
@@ -252,3 +254,91 @@ def download_document(patient_uuid: str, document_uuid: str, db: Session = Depen
     db.add(AuditEvent(actor_id=user.id, action="read", resource_type="document", resource_id=document.uuid)); db.commit()
     safe_name = document.name.replace('"', "")
     return Response(document.content, media_type=document.mime_type, headers={"Content-Disposition": f'attachment; filename="{safe_name}"', "ETag": document.sha256})
+
+
+@app.post("/api/v1/patients/{patient_uuid}/coverages", response_model=CoverageOut, status_code=201)
+def create_coverage(patient_uuid: str, body: CoverageCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    payer = db.scalar(select(Payer).where(Payer.name == body.payer_name, Payer.payer_identifier == body.payer_identifier))
+    if not payer:
+        payer = Payer(name=body.payer_name, payer_identifier=body.payer_identifier); db.add(payer); db.flush()
+    coverage = Coverage(patient_id=patient.id, payer_id=payer.id, **body.model_dump(exclude={"payer_name", "payer_identifier"}))
+    db.add(coverage); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="coverage", resource_id=coverage.uuid)); db.commit(); db.refresh(coverage)
+    return CoverageOut(uuid=coverage.uuid, **body.model_dump())
+
+
+@app.get("/api/v1/patients/{patient_uuid}/coverages", response_model=list[CoverageOut])
+def list_coverages(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    rows = db.execute(select(Coverage, Payer).join(Payer).where(Coverage.patient_id == patient.id).order_by(Coverage.priority)).all()
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="coverage", resource_id=patient.uuid)); db.commit()
+    return [CoverageOut(uuid=c.uuid, payer_name=p.name, payer_identifier=p.payer_identifier, **{k:getattr(c,k) for k in ("priority","plan_name","policy_number","group_number","subscriber_name","relationship","starts_on","ends_on")}) for c,p in rows]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/charges", response_model=ChargeOut, status_code=201)
+def create_charge(patient_uuid: str, body: ChargeCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); encounter = encounter_for_patient(db, patient, body.encounter_uuid)
+    charge = Charge(patient_id=patient.id, encounter_id=encounter.id, **body.model_dump(exclude={"encounter_uuid"}))
+    db.add(charge); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="charge", resource_id=charge.uuid)); db.commit(); db.refresh(charge)
+    return ChargeOut(uuid=charge.uuid, **body.model_dump())
+
+
+@app.get("/api/v1/patients/{patient_uuid}/charges", response_model=list[ChargeOut])
+def list_unclaimed_charges(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    rows = db.execute(select(Charge, Encounter.uuid).join(Encounter).where(Charge.patient_id == patient.id, Charge.claim_id.is_(None)).order_by(Charge.id)).all()
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="charge", resource_id=patient.uuid)); db.commit()
+    return [ChargeOut(uuid=charge.uuid, encounter_uuid=encounter_uuid, code_system=charge.code_system, code=charge.code, description=charge.description, units=charge.units, unit_price=charge.unit_price) for charge,encounter_uuid in rows]
+
+
+def serialize_claim(db: Session, claim: Claim) -> ClaimOut:
+    encounter = db.get(Encounter, claim.encounter_id); coverage = db.get(Coverage, claim.coverage_id) if claim.coverage_id else None
+    charges = list(db.scalars(select(Charge).where(Charge.claim_id == claim.id))); payments = list(db.scalars(select(ClaimPayment).where(ClaimPayment.claim_id == claim.id)))
+    paid = sum((payment.amount for payment in payments), Decimal("0.00"))
+    return ClaimOut(uuid=claim.uuid, encounter_uuid=encounter.uuid, coverage_uuid=coverage.uuid if coverage else None, status=claim.status, total=claim.total, paid=paid, balance=claim.total-paid, charges=[ChargeOut(uuid=x.uuid, encounter_uuid=encounter.uuid, code_system=x.code_system, code=x.code, description=x.description, units=x.units, unit_price=x.unit_price) for x in charges], payments=payments, created_at=claim.created_at)
+
+
+@app.post("/api/v1/patients/{patient_uuid}/claims", response_model=ClaimOut, status_code=201)
+def create_claim(patient_uuid: str, body: ClaimCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); encounter = encounter_for_patient(db, patient, body.encounter_uuid)
+    coverage = None
+    if body.coverage_uuid:
+        coverage = db.scalar(select(Coverage).where(Coverage.uuid == body.coverage_uuid, Coverage.patient_id == patient.id))
+        if not coverage: raise HTTPException(status_code=404, detail="Coverage not found for patient")
+    charges = list(db.scalars(select(Charge).where(Charge.uuid.in_(body.charge_uuids), Charge.patient_id == patient.id, Charge.encounter_id == encounter.id, Charge.claim_id.is_(None))))
+    if len(charges) != len(set(body.charge_uuids)): raise HTTPException(status_code=422, detail="Charges must be unclaimed and belong to encounter")
+    total = sum((charge.unit_price * charge.units for charge in charges), Decimal("0.00"))
+    claim = Claim(patient_id=patient.id, encounter_id=encounter.id, coverage_id=coverage.id if coverage else None, total=total)
+    db.add(claim); db.flush()
+    for charge in charges: charge.claim_id = claim.id
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="claim", resource_id=claim.uuid)); db.commit(); db.refresh(claim)
+    return serialize_claim(db, claim)
+
+
+@app.post("/api/v1/claims/{claim_uuid}/submit", response_model=ClaimOut)
+def submit_claim(claim_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    claim = db.scalar(select(Claim).where(Claim.uuid == claim_uuid))
+    if not claim: raise HTTPException(status_code=404, detail="Claim not found")
+    if claim.status != "draft": raise HTTPException(status_code=409, detail="Only draft claims can be submitted")
+    claim.status="submitted"; claim.submitted_at=datetime.now(timezone.utc); db.add(AuditEvent(actor_id=user.id, action="submit", resource_type="claim", resource_id=claim.uuid)); db.commit(); db.refresh(claim)
+    return serialize_claim(db, claim)
+
+
+@app.post("/api/v1/claims/{claim_uuid}/payments", response_model=ClaimOut, status_code=201)
+def post_payment(claim_uuid: str, body: PaymentCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    claim = db.scalar(select(Claim).where(Claim.uuid == claim_uuid))
+    if not claim: raise HTTPException(status_code=404, detail="Claim not found")
+    paid = db.scalar(select(func.coalesce(func.sum(ClaimPayment.amount), 0)).where(ClaimPayment.claim_id == claim.id))
+    if Decimal(paid) + body.amount > claim.total: raise HTTPException(status_code=422, detail="Payment exceeds claim balance")
+    payment=ClaimPayment(claim_id=claim.id, **body.model_dump()); db.add(payment); db.flush()
+    if Decimal(paid)+body.amount == claim.total: claim.status="paid"
+    db.add(AuditEvent(actor_id=user.id, action="payment", resource_type="claim", resource_id=claim.uuid, detail=f"amount={body.amount}")); db.commit(); db.refresh(claim)
+    return serialize_claim(db, claim)
+
+
+@app.get("/api/v1/patients/{patient_uuid}/claims", response_model=list[ClaimOut])
+def list_claims(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    claims = list(db.scalars(select(Claim).where(Claim.patient_id == patient.id).order_by(Claim.created_at.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="claim", resource_id=patient.uuid)); db.commit()
+    return [serialize_claim(db, claim) for claim in claims]

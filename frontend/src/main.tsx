@@ -8,7 +8,10 @@ type Patient = { uuid:string; first_name:string; last_name:string; date_of_birth
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
 type LabOrder = { uuid:string; ordered_at:string; code:string; name:string; status:string };
 type ClinicalDocument = { uuid:string; name:string; mime_type:string; uploaded_at:string };
-type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:{uuid:string;occurred_at:string;chief_complaint?:string}[]; labOrders:LabOrder[]; documents:ClinicalDocument[] };
+type Coverage = { uuid:string; payer_name:string; policy_number:string; priority:string };
+type Charge = { uuid:string; encounter_uuid:string; code:string; description:string; unit_price:string; units:number };
+type Claim = { uuid:string; status:string; total:string; balance:string };
+type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:{uuid:string;occurred_at:string;chief_complaint?:string}[]; labOrders:LabOrder[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[] };
 
 function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
@@ -41,8 +44,8 @@ function App(){
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
   async function openPatient(patient:Patient){
     setError("");
-    const [summary,labOrders,documents]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`)]);
-    setSelected({...summary,labOrders,documents});
+    const [summary,labOrders,documents,coverages,charges,claims]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`)]);
+    setSelected({...summary,labOrders,documents,coverages,charges,claims});
   }
   async function addItem(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); if(!selected)return; const data=new FormData(event.currentTarget);
@@ -65,6 +68,22 @@ function App(){
     if(!response.ok)return setError("No se pudo descargar el documento");
     const url=URL.createObjectURL(await response.blob()); const link=globalThis.document.createElement("a"); link.href=url; link.download=document.name; link.click(); URL.revokeObjectURL(url);
   }
+  async function addCoverage(event:FormEvent<HTMLFormElement>){
+    event.preventDefault(); if(!selected)return; const data=new FormData(event.currentTarget);
+    await api(`/api/v1/patients/${selected.patient.uuid}/coverages`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({payer_name:data.get("payer_name"),policy_number:data.get("policy_number"),subscriber_name:`${selected.patient.first_name} ${selected.patient.last_name}`})});
+    event.currentTarget.reset(); await openPatient(selected.patient);
+  }
+  async function addCharge(event:FormEvent<HTMLFormElement>){
+    event.preventDefault(); if(!selected?.encounters.length)return; const data=new FormData(event.currentTarget);
+    await api(`/api/v1/patients/${selected.patient.uuid}/charges`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({encounter_uuid:selected.encounters[0].uuid,code_system:"CPT",code:data.get("code"),description:data.get("description"),units:1,unit_price:data.get("unit_price")})});
+    event.currentTarget.reset(); await openPatient(selected.patient);
+  }
+  async function createClaim(){
+    if(!selected?.encounters.length||!selected.charges.length)return;
+    const chargeUuids=selected.charges.filter(charge=>charge.encounter_uuid===selected.encounters[0].uuid).map(charge=>charge.uuid); if(!chargeUuids.length)return setError("No hay cargos del encuentro más reciente");
+    await api(`/api/v1/patients/${selected.patient.uuid}/claims`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({encounter_uuid:selected.encounters[0].uuid,coverage_uuid:selected.coverages[0]?.uuid??null,charge_uuids:chargeUuids})});
+    await openPatient(selected.patient);
+  }
   useEffect(()=>{if(token)void loadPatients("");},[token]);
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
@@ -83,6 +102,11 @@ function App(){
         <section className="summary-group"><h3>Documentos<span>{selected.documents.length}</span></h3>{selected.documents.map(document=><article key={document.uuid}><button className="text-button" onClick={()=>void downloadDocument(document)}>{document.name}</button><small>{document.mime_type}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={uploadDocument}><input name="file" type="file" required/><button>Subir documento</button></form>
         <section className="summary-group"><h3>Encuentros<span>{selected.encounters.length}</span></h3>{selected.encounters.map(encounter=><article key={encounter.uuid}><strong>{encounter.chief_complaint||"Encuentro clínico"}</strong><small>{new Date(encounter.occurred_at).toLocaleString()}</small></article>)}</section>
+        <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>
+        <form className="quick-add compact" onSubmit={addCoverage}><input name="payer_name" placeholder="Aseguradora" required/><input name="policy_number" placeholder="Póliza" required/><button>Agregar cobertura</button></form>
+        <section className="summary-group"><h3>Facturación<span>{selected.claims.length}</span></h3>{selected.claims.map(claim=><article key={claim.uuid}><strong>${claim.total} · {claim.status}</strong><small>Saldo ${claim.balance}</small></article>)}{selected.charges.map(charge=><article key={charge.uuid}><strong>{charge.code} · ${charge.unit_price}</strong><small>Cargo sin reclamar</small></article>)}</section>
+        {selected.encounters.length>0&&<form className="quick-add compact" onSubmit={addCharge}><input name="code" placeholder="Código CPT" required/><input name="description" placeholder="Descripción" required/><input name="unit_price" type="number" step="0.01" min="0.01" placeholder="Importe" required/><button>Agregar cargo</button></form>}
+        {selected.charges.length>0&&<button className="wide-action" onClick={()=>void createClaim()}>Crear reclamación</button>}
         <form className="quick-add" onSubmit={addItem}><h3>Agregar al expediente</h3><select name="category"><option value="problem">Problema</option><option value="allergy">Alergia</option><option value="medication">Medicamento</option></select><input name="title" placeholder="Descripción" required/><button>Guardar</button></form>
       </aside>}</div>
     </main>
