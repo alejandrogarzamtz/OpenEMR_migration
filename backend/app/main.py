@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from hashlib import sha256
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, ClinicalItem, Encounter, Patient, User
-from .schemas import AppointmentCreate, AppointmentOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, EncounterCreate, EncounterOut, Login, PatientCreate, PatientOut, PatientPage, Token
+from .models import Appointment, AuditEvent, ClinicalItem, Document, Encounter, LabOrder, LabResult, Patient, User
+from .schemas import AppointmentCreate, AppointmentOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, DocumentOut, EncounterCreate, EncounterOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, Token
 from .security import clinical_user, create_token, password_hash
 
 
@@ -165,3 +167,88 @@ def clinical_summary(patient_uuid: str, db: Session = Depends(get_db), user: Use
     db.add(AuditEvent(actor_id=user.id, action="read", resource_type="clinical_summary", resource_id=patient.uuid))
     db.commit()
     return ClinicalSummary(patient=patient, problems=[x for x in items if x.category == "problem"], allergies=[x for x in items if x.category == "allergy"], medications=[x for x in items if x.category == "medication"], encounters=encounters)
+
+
+def encounter_for_patient(db: Session, patient: Patient, encounter_uuid: str | None) -> Encounter | None:
+    if not encounter_uuid:
+        return None
+    encounter = db.scalar(select(Encounter).where(Encounter.uuid == encounter_uuid, Encounter.patient_id == patient.id))
+    if not encounter:
+        raise HTTPException(status_code=404, detail="Encounter not found for patient")
+    return encounter
+
+
+def order_out(order: LabOrder, encounter_uuid: str | None = None) -> LabOrderOut:
+    return LabOrderOut(encounter_uuid=encounter_uuid, **{key: getattr(order, key) for key in ("uuid", "ordered_at", "code", "name", "priority", "instructions", "status")})
+
+
+@app.post("/api/v1/patients/{patient_uuid}/lab-orders", response_model=LabOrderOut, status_code=201)
+def create_lab_order(patient_uuid: str, body: LabOrderCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    encounter = encounter_for_patient(db, patient, body.encounter_uuid)
+    order = LabOrder(patient_id=patient.id, encounter_id=encounter.id if encounter else None, **body.model_dump(exclude={"encounter_uuid"}))
+    db.add(order); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="lab_order", resource_id=order.uuid)); db.commit(); db.refresh(order)
+    return order_out(order, encounter.uuid if encounter else None)
+
+
+@app.get("/api/v1/patients/{patient_uuid}/lab-orders", response_model=list[LabOrderOut])
+def list_lab_orders(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    rows = db.execute(select(LabOrder, Encounter.uuid).outerjoin(Encounter).where(LabOrder.patient_id == patient.id).order_by(LabOrder.ordered_at.desc())).all()
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="lab_order", resource_id=patient.uuid)); db.commit()
+    return [order_out(order, encounter_uuid) for order, encounter_uuid in rows]
+
+
+@app.post("/api/v1/lab-orders/{order_uuid}/results", response_model=LabResultOut, status_code=201)
+def create_lab_result(order_uuid: str, body: LabResultCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    order = db.scalar(select(LabOrder).where(LabOrder.uuid == order_uuid))
+    if not order:
+        raise HTTPException(status_code=404, detail="Lab order not found")
+    result = LabResult(order_id=order.id, **body.model_dump())
+    order.status = "complete" if body.status in {"final", "corrected"} else "in-progress"
+    db.add(result); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="lab_result", resource_id=result.uuid)); db.commit(); db.refresh(result)
+    return result
+
+
+@app.get("/api/v1/lab-orders/{order_uuid}", response_model=LabOrderDetail)
+def get_lab_order(order_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    row = db.execute(select(LabOrder, Encounter.uuid).outerjoin(Encounter).where(LabOrder.uuid == order_uuid)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lab order not found")
+    order, encounter_uuid = row
+    results = list(db.scalars(select(LabResult).where(LabResult.order_id == order.id).order_by(LabResult.observed_at)))
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="lab_order", resource_id=order.uuid)); db.commit()
+    return LabOrderDetail(**order_out(order, encounter_uuid).model_dump(), results=results)
+
+
+@app.post("/api/v1/patients/{patient_uuid}/documents", response_model=DocumentOut, status_code=201)
+async def upload_document(patient_uuid: str, encounter_uuid: str | None = None, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    encounter = encounter_for_patient(db, patient, encounter_uuid)
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Document exceeds 10 MiB limit")
+    if not content:
+        raise HTTPException(status_code=422, detail="Document is empty")
+    document = Document(patient_id=patient.id, encounter_id=encounter.id if encounter else None, name=file.filename or "document", mime_type=file.content_type or "application/octet-stream", content=content, sha256=sha256(content).hexdigest())
+    db.add(document); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="document", resource_id=document.uuid)); db.commit(); db.refresh(document)
+    return document
+
+
+@app.get("/api/v1/patients/{patient_uuid}/documents", response_model=list[DocumentOut])
+def list_documents(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    documents = list(db.scalars(select(Document).where(Document.patient_id == patient.id).order_by(Document.uploaded_at.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="document", resource_id=patient.uuid)); db.commit()
+    return documents
+
+
+@app.get("/api/v1/patients/{patient_uuid}/documents/{document_uuid}/content")
+def download_document(patient_uuid: str, document_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    document = db.scalar(select(Document).where(Document.uuid == document_uuid, Document.patient_id == patient.id))
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="document", resource_id=document.uuid)); db.commit()
+    safe_name = document.name.replace('"', "")
+    return Response(document.content, media_type=document.mime_type, headers={"Content-Disposition": f'attachment; filename="{safe_name}"', "ETag": document.sha256})

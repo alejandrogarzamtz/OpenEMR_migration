@@ -30,6 +30,15 @@ def test_patient_flow():
         assert summary.json()["problems"][0]["code"] == "G43.909"
         resolved = client.patch(f"/api/v1/patients/{patient_id}/clinical-items/{problem.json()['uuid']}/status?status_value=resolved", headers=headers)
         assert resolved.json()["status"] == "resolved"
+        order = client.post(f"/api/v1/patients/{patient_id}/lab-orders", headers=headers, json={"encounter_uuid": encounter.json()["uuid"], "ordered_at": "2026-09-02T10:05:00Z", "code": "718-7", "name": "Hemoglobin"})
+        assert order.status_code == 201
+        result = client.post(f"/api/v1/lab-orders/{order.json()['uuid']}/results", headers=headers, json={"observed_at": "2026-09-02T11:00:00Z", "code": "718-7", "name": "Hemoglobin", "value": "13.4", "unit": "g/dL", "reference_range": "12-16", "status": "final"})
+        assert result.status_code == 201
+        assert client.get(f"/api/v1/lab-orders/{order.json()['uuid']}", headers=headers).json()["results"][0]["value"] == "13.4"
+        uploaded = client.post(f"/api/v1/patients/{patient_id}/documents", headers=headers, files={"file": ("note.txt", b"clinical note", "text/plain")})
+        assert uploaded.status_code == 201
+        downloaded = client.get(f"/api/v1/patients/{patient_id}/documents/{uploaded.json()['uuid']}/content", headers=headers)
+        assert downloaded.content == b"clinical note"
 
 
 def test_auth_required():
