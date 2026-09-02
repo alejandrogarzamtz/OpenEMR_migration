@@ -12,6 +12,7 @@ from .db import Base, SessionLocal, engine, get_db
 from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalItem, Coverage, Document, Encounter, LabOrder, LabResult, Patient, Payer, User
 from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, Token
 from .security import clinical_user, create_token, password_hash
+from .fhir import router as fhir_router
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="OpenEMR Next API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.include_router(fhir_router)
 
 
 @app.get("/health")

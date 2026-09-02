@@ -51,6 +51,10 @@ def test_patient_flow():
         assert paid.json()["status"] == "paid"
         assert paid.json()["balance"] == "0.00"
         assert client.get(f"/api/v1/patients/{patient_id}/claims", headers=headers).json()[0]["status"] == "paid"
+        assert client.get(f"/fhir/Patient/{patient_id}", headers=headers).json()["resourceType"] == "Patient"
+        assert client.get(f"/fhir/Condition?patient={patient_id}", headers=headers).json()["total"] == 1
+        observation = client.get(f"/fhir/Observation?patient={patient_id}", headers=headers).json()
+        assert observation["entry"][0]["resource"]["code"]["coding"][0]["system"] == "http://loinc.org"
 
 
 def test_auth_required():
