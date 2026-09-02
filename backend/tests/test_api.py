@@ -55,6 +55,15 @@ def test_patient_flow():
         assert client.get(f"/fhir/Condition?patient={patient_id}", headers=headers).json()["total"] == 1
         observation = client.get(f"/fhir/Observation?patient={patient_id}", headers=headers).json()
         assert observation["entry"][0]["resource"]["code"]["coding"][0]["system"] == "http://loinc.org"
+        immunization = client.post(f"/api/v1/patients/{patient_id}/immunizations", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"administered_at":"2026-09-02T10:10:00Z","cvx_code":"207","vaccine_name":"COVID-19 mRNA"})
+        assert immunization.status_code == 201
+        vitals = client.post(f"/api/v1/patients/{patient_id}/vitals", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"observed_at":"2026-09-02T10:02:00Z","systolic":"120","diastolic":"80","weight_kg":"60","height_cm":"165","oxygen_saturation":"98"})
+        assert vitals.status_code == 201
+        assert vitals.json()["bmi"] == "22.04"
+        prescription = client.post(f"/api/v1/patients/{patient_id}/prescriptions", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"prescribed_at":"2026-09-02T10:15:00Z","drug_name":"Sumatriptan 50 MG","rxnorm_code":"313161","dosage_instructions":"Take one tablet as needed","quantity":"9","refills":2})
+        assert prescription.status_code == 201
+        assert len(client.get(f"/api/v1/patients/{patient_id}/immunizations",headers=headers).json()) == 1
+        assert len(client.get(f"/api/v1/patients/{patient_id}/prescriptions",headers=headers).json()) == 1
 
 
 def test_auth_required():

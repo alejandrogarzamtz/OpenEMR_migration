@@ -198,3 +198,75 @@ class ClaimPayment(Base):
     method: Mapped[str] = mapped_column(String(50))
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Immunization(Base):
+    __tablename__ = "immunizations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_immunization_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    administered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cvx_code: Mapped[str] = mapped_column(String(64))
+    vaccine_name: Mapped[str] = mapped_column(String(255))
+    manufacturer: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lot_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    route: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    site: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    dose: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="completed")
+    refusal_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class VitalSet(Base):
+    __tablename__ = "vital_sets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_vitals_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    systolic: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    diastolic: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    height_cm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    temperature_c: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    heart_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    respiratory_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    oxygen_saturation: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    bmi: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class Pharmacy(Base):
+    __tablename__ = "pharmacies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()))
+    legacy_pharmacy_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(255))
+    ncpdp: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    npi: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class Prescription(Base):
+    __tablename__ = "prescriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_prescription_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True)
+    prescribed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    drug_name: Mapped[str] = mapped_column(String(150))
+    rxnorm_code: Mapped[str | None] = mapped_column(String(25), nullable=True)
+    dosage_instructions: Mapped[str] = mapped_column(Text)
+    quantity: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    refills: Mapped[int] = mapped_column(default=0)
+    substitutions_allowed: Mapped[bool] = mapped_column(default=True)
+    indication: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active")
