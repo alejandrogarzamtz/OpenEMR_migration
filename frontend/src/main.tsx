@@ -11,7 +11,10 @@ type ClinicalDocument = { uuid:string; name:string; mime_type:string; uploaded_a
 type Coverage = { uuid:string; payer_name:string; policy_number:string; priority:string };
 type Charge = { uuid:string; encounter_uuid:string; code:string; description:string; unit_price:string; units:number };
 type Claim = { uuid:string; status:string; total:string; balance:string };
-type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:{uuid:string;occurred_at:string;chief_complaint?:string}[]; labOrders:LabOrder[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[] };
+type Immunization = { uuid:string; vaccine_name:string; cvx_code:string; administered_at:string };
+type Vitals = { uuid:string; observed_at:string; systolic?:string; diastolic?:string; heart_rate?:string; oxygen_saturation?:string; bmi?:string };
+type Prescription = { uuid:string; drug_name:string; dosage_instructions:string; status:string };
+type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:{uuid:string;occurred_at:string;chief_complaint?:string}[]; labOrders:LabOrder[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[]; immunizations:Immunization[]; vitals:Vitals[]; prescriptions:Prescription[] };
 
 function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
@@ -44,8 +47,8 @@ function App(){
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
   async function openPatient(patient:Patient){
     setError("");
-    const [summary,labOrders,documents,coverages,charges,claims]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`)]);
-    setSelected({...summary,labOrders,documents,coverages,charges,claims});
+    const [summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`),api(`/api/v1/patients/${patient.uuid}/immunizations`),api(`/api/v1/patients/${patient.uuid}/vitals`),api(`/api/v1/patients/${patient.uuid}/prescriptions`)]);
+    setSelected({...summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions});
   }
   async function addItem(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); if(!selected)return; const data=new FormData(event.currentTarget);
@@ -97,6 +100,9 @@ function App(){
       </section>{selected&&<aside className="patient-drawer">
         <button className="close" onClick={()=>setSelected(null)}>×</button><p className="eyebrow">RESUMEN CLÍNICO</p><h2>{selected.patient.first_name} {selected.patient.last_name}</h2><p>{selected.patient.date_of_birth} · {selected.patient.sex}</p>
         <Group title="Problemas" items={selected.problems}/><Group title="Alergias" items={selected.allergies}/><Group title="Medicamentos" items={selected.medications}/>
+        <section className="summary-group"><h3>Inmunizaciones<span>{selected.immunizations.length}</span></h3>{selected.immunizations.map(item=><article key={item.uuid}><strong>{item.vaccine_name}</strong><small>CVX {item.cvx_code} · {new Date(item.administered_at).toLocaleDateString()}</small></article>)}</section>
+        <section className="summary-group"><h3>Signos vitales<span>{selected.vitals.length}</span></h3>{selected.vitals.slice(0,3).map(item=><article key={item.uuid}><strong>{item.systolic&&item.diastolic?`${item.systolic}/${item.diastolic} mmHg`:"Registro de vitales"}</strong><small>FC {item.heart_rate??"—"} · SpO₂ {item.oxygen_saturation??"—"}% · BMI {item.bmi??"—"}</small></article>)}</section>
+        <section className="summary-group"><h3>Recetas<span>{selected.prescriptions.length}</span></h3>{selected.prescriptions.map(item=><article key={item.uuid}><strong>{item.drug_name}</strong><small>{item.dosage_instructions} · {item.status}</small></article>)}</section>
         <section className="summary-group"><h3>Laboratorio<span>{selected.labOrders.length}</span></h3>{selected.labOrders.map(order=><article key={order.uuid}><strong>{order.name}</strong><small>{order.code} · {order.status}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={addLabOrder}><input name="code" placeholder="Código LOINC" required/><input name="name" placeholder="Estudio" required/><button>Crear orden</button></form>
         <section className="summary-group"><h3>Documentos<span>{selected.documents.length}</span></h3>{selected.documents.map(document=><article key={document.uuid}><button className="text-button" onClick={()=>void downloadDocument(document)}>{document.name}</button><small>{document.mime_type}</small></article>)}</section>

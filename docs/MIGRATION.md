@@ -47,10 +47,11 @@ python -m app.import_legacy --source 'mysql+pymysql://user:pass@openemr/openemr'
 ```
 
 It currently migrates `patient_data`, the problem/allergy/medication records in
-`lists`, `form_encounter`, laboratory orders/results, and database-backed
-documents. File-system document references are counted as rejected until their
-storage volume is mounted. Insurance companies, patient coverages, charges,
-and claim versions are also migrated with their legacy relationships. Legacy identifiers are unique keys, making
+`lists`, `form_encounter`, `form_vitals`, `immunizations`, `pharmacies`,
+`prescriptions`, laboratory orders/results, and database-backed documents.
+File-system document references are counted as rejected until their storage
+volume is mounted. Insurance companies, patient coverages, charges, and claim
+versions are also migrated with their legacy relationships. Legacy identifiers are unique keys, making
 reruns idempotent. Compare `source`, `inserted`, and `existing` counts before
 enabling `--commit`; every domain also reports `rejected` records requiring
 storage remediation or clinical review.

@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Charge, Claim, ClinicalItem, Coverage, Document, Encounter, LabOrder, LabResult, Patient, Payer
+from .models import Charge, Claim, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, VitalSet
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 
@@ -27,7 +27,7 @@ def valid_dob(value):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims")
+    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT pid,fname,lname,DOB,sex,email,phone_cell,phone_home FROM patient_data ORDER BY pid"))
@@ -120,6 +120,37 @@ def run(source_url: str, commit: bool = False) -> dict:
             total=sum((x.unit_price*x.units for x in claim_charges),0); claim=Claim(legacy_claim_key=key,patient_id=patient.id,encounter_id=encounter.id,coverage_id=coverage.id if coverage else None,status="submitted" if row["bill_time"] else "draft",total=total,submitted_at=row["bill_time"]); target.add(claim); target.flush()
             for charge in claim_charges: charge.claim_id=claim.id
             stats["claims"]["inserted"] += 1
+        immunizations=legacy.execute(text("SELECT id,patient_id,administered_date,cvx_code,manufacturer,lot_number,route,administration_site,amount_administered,amount_administered_unit,completion_status,refusal_reason,note,encounter_id FROM immunizations ORDER BY id"))
+        for row in immunizations.mappings():
+            stats["immunizations"]["source"]+=1
+            if target.scalar(select(Immunization.id).where(Immunization.legacy_immunization_id==row["id"])): stats["immunizations"]["existing"]+=1; continue
+            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])) if row["encounter_id"] else None; cvx=clean(row["cvx_code"])
+            if not patient or not row["administered_date"] or not cvx: stats["immunizations"]["rejected"]+=1; continue
+            dose=" ".join(filter(None,(str(row["amount_administered"]) if row["amount_administered"] else None,clean(row["amount_administered_unit"])))) or None
+            target.add(Immunization(legacy_immunization_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,administered_at=row["administered_date"],cvx_code=cvx,vaccine_name=f"CVX {cvx}",manufacturer=clean(row["manufacturer"]),lot_number=clean(row["lot_number"]),route=clean(row["route"]),site=clean(row["administration_site"]),dose=dose,status=clean(row["completion_status"]) or "completed",refusal_reason=clean(row["refusal_reason"]),note=clean(row["note"])))
+            stats["immunizations"]["inserted"]+=1
+        vitals=legacy.execute(text("SELECT id,pid,date,bps,bpd,weight,height,temperature,pulse,respiration,oxygen_saturation,BMI,note FROM form_vitals WHERE activity=1 ORDER BY id"))
+        for row in vitals.mappings():
+            stats["vitals"]["source"]+=1
+            if target.scalar(select(VitalSet.id).where(VitalSet.legacy_vitals_id==row["id"])): stats["vitals"]["existing"]+=1; continue
+            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"]))
+            if not patient or not row["date"]: stats["vitals"]["rejected"]+=1; continue
+            target.add(VitalSet(legacy_vitals_id=row["id"],patient_id=patient.id,observed_at=row["date"],systolic=row["bps"] or None,diastolic=row["bpd"] or None,weight_kg=row["weight"] or None,height_cm=row["height"] or None,temperature_c=row["temperature"] or None,heart_rate=row["pulse"] or None,respiratory_rate=row["respiration"] or None,oxygen_saturation=row["oxygen_saturation"] or None,bmi=row["BMI"] or None,note=clean(row["note"])))
+            stats["vitals"]["inserted"]+=1
+        pharmacies=legacy.execute(text("SELECT id,name,email,ncpdp,npi FROM pharmacies ORDER BY id"))
+        for row in pharmacies.mappings():
+            stats["pharmacies"]["source"]+=1
+            if target.scalar(select(Pharmacy.id).where(Pharmacy.legacy_pharmacy_id==row["id"])): stats["pharmacies"]["existing"]+=1; continue
+            if not clean(row["name"]): stats["pharmacies"]["rejected"]+=1; continue
+            target.add(Pharmacy(legacy_pharmacy_id=row["id"],name=clean(row["name"]),email=clean(row["email"]),ncpdp=str(row["ncpdp"]) if row["ncpdp"] else None,npi=str(row["npi"]) if row["npi"] else None)); stats["pharmacies"]["inserted"]+=1
+        target.flush()
+        prescriptions=legacy.execute(text("SELECT id,patient_id,pharmacy_id,encounter,date_added,start_date,end_date,drug,rxnorm_drugcode,drug_dosage_instructions,dosage,quantity,refills,substitute,indication,active FROM prescriptions ORDER BY id"))
+        for row in prescriptions.mappings():
+            stats["prescriptions"]["source"]+=1
+            if target.scalar(select(Prescription.id).where(Prescription.legacy_prescription_id==row["id"])): stats["prescriptions"]["existing"]+=1; continue
+            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; pharmacy=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["pharmacy_id"])) if row["pharmacy_id"] else None
+            if not patient or not clean(row["drug"]): stats["prescriptions"]["rejected"]+=1; continue
+            target.add(Prescription(legacy_prescription_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,prescribed_at=row["date_added"] or datetime.now(timezone.utc),start_date=row["start_date"],end_date=row["end_date"],drug_name=clean(row["drug"]),rxnorm_code=clean(row["rxnorm_drugcode"]),dosage_instructions=clean(row["drug_dosage_instructions"]) or clean(row["dosage"]) or "As directed",quantity=clean(row["quantity"]),refills=row["refills"] or 0,substitutions_allowed=bool(row["substitute"]),indication=clean(row["indication"]),status="active" if row["active"] else "stopped")); stats["prescriptions"]["inserted"]+=1
         if commit: target.commit()
         else: target.rollback()
     stats["mode"] = "committed" if commit else "dry-run"

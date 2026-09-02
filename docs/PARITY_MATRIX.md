@@ -14,13 +14,13 @@ are all verified. “Partial” never counts as final parity.
 | Scheduling and holidays | Partial | recurring events, resources, facilities, statuses, reminders and wait list |
 | Patient flow board | Missing | tracker stages, rooms, timestamps and operational dashboard |
 | Encounters | Partial | lifecycle, locking, signing, diagnoses, providers and encounter forms |
-| Clinical forms | Missing | SOAP, ROS, vitals, physical exam, notes, dictation and every installed form |
+| Clinical forms | Partial | vital-sign capture exists; SOAP, ROS, physical exam, notes, dictation and every installed form remain |
 | Problems and surgeries | Partial | full coding, verification, occurrence, associations and surgery workflow |
 | Allergies | Partial | verification, intolerance detail, substance coding and reconciliation |
 | Medications | Partial | adherence, devices, medication history and reconciliation |
-| Prescriptions/eRx | Missing | prescribing, renewals, controlled substances, pharmacy and eRx integration |
-| Immunizations | Missing | CVX/MVX, registry consent, refusals, inventory and registry exchange |
-| Vitals and observations | Missing | capture, calculated values, growth charts and abnormal flags |
+| Prescriptions/eRx | Partial | core prescriptions/pharmacies exist; renewals, controlled substances and eRx integration remain |
+| Immunizations | Partial | CVX administration exists; MVX, registry consent, refusals, inventory and registry exchange remain |
+| Vitals and observations | Partial | capture, BMI and FHIR observations exist; growth charts and abnormal flags remain |
 | Labs and procedures | Partial | multi-line orders, specimens, questions, HL7, Quest/LabCorp and review/sign-off |
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
@@ -63,4 +63,3 @@ The system will not be called complete until all rows above are complete and:
 5. Audit, backup/restore, disaster recovery, security and load tests pass.
 6. A production-like parallel run demonstrates clinical and financial parity.
 7. The external consuming project passes contract and end-to-end tests.
-
