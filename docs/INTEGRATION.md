@@ -15,3 +15,10 @@ retry behavior and webhook verification. Integration-specific requirements
 belong in this document and in executable tests, not in undocumented database
 coupling.
 
+## Database lifecycle
+
+Schema changes are versioned under `backend/alembic/versions`. The API image
+runs `alembic upgrade head` before accepting traffic. Installations created
+before Alembic are stamped at the exact baseline without rewriting their data;
+all later revisions execute normally. CI rejects model changes that do not have
+a corresponding migration.

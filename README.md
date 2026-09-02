@@ -10,6 +10,9 @@ and `frontend/`.
 docker compose up --build
 ```
 
+Database migrations run automatically before FastAPI starts. To inspect the
+current revision use `docker compose exec api alembic current`.
+
 - React: http://localhost:5173
 - API docs: http://localhost:8000/docs
 - API health: http://localhost:8000/health
