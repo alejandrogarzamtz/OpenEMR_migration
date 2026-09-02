@@ -202,3 +202,61 @@ class ClaimOut(BaseModel):
     charges: list[ChargeOut]
     payments: list[PaymentOut]
     created_at: datetime
+
+
+class ImmunizationCreate(BaseModel):
+    encounter_uuid: str | None = None
+    administered_at: datetime
+    cvx_code: str = Field(min_length=1, max_length=64)
+    vaccine_name: str = Field(min_length=1, max_length=255)
+    manufacturer: str | None = Field(default=None, max_length=100)
+    lot_number: str | None = Field(default=None, max_length=50)
+    route: str | None = Field(default=None, max_length=100)
+    site: str | None = Field(default=None, max_length=100)
+    dose: str | None = Field(default=None, max_length=50)
+    status: str = Field(default="completed", pattern="^(completed|not-done|entered-in-error)$")
+    refusal_reason: str | None = Field(default=None, max_length=255)
+    note: str | None = None
+
+
+class ImmunizationOut(ImmunizationCreate):
+    uuid: str
+
+
+class VitalSetCreate(BaseModel):
+    encounter_uuid: str | None = None
+    observed_at: datetime
+    systolic: Decimal | None = Field(default=None, gt=0)
+    diastolic: Decimal | None = Field(default=None, gt=0)
+    weight_kg: Decimal | None = Field(default=None, gt=0)
+    height_cm: Decimal | None = Field(default=None, gt=0)
+    temperature_c: Decimal | None = Field(default=None, gt=20, lt=50)
+    heart_rate: Decimal | None = Field(default=None, gt=0)
+    respiratory_rate: Decimal | None = Field(default=None, gt=0)
+    oxygen_saturation: Decimal | None = Field(default=None, ge=0, le=100)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class VitalSetOut(VitalSetCreate):
+    uuid: str
+    bmi: Decimal | None
+
+
+class PrescriptionCreate(BaseModel):
+    encounter_uuid: str | None = None
+    pharmacy_uuid: str | None = None
+    prescribed_at: datetime
+    start_date: date | None = None
+    end_date: date | None = None
+    drug_name: str = Field(min_length=1, max_length=150)
+    rxnorm_code: str | None = Field(default=None, max_length=25)
+    dosage_instructions: str = Field(min_length=1)
+    quantity: str | None = Field(default=None, max_length=31)
+    refills: int = Field(default=0, ge=0, le=99)
+    substitutions_allowed: bool = True
+    indication: str | None = None
+
+
+class PrescriptionOut(PrescriptionCreate):
+    uuid: str
+    status: str

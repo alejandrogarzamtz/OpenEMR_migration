@@ -9,8 +9,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalItem, Coverage, Document, Encounter, LabOrder, LabResult, Patient, Payer, User
-from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, Token
+from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, User, VitalSet
+from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, Token, VitalSetCreate, VitalSetOut
 from .security import clinical_user, create_token, password_hash
 from .fhir import router as fhir_router
 
@@ -347,3 +347,46 @@ def list_claims(patient_uuid: str, db: Session = Depends(get_db), user: User = D
     claims = list(db.scalars(select(Claim).where(Claim.patient_id == patient.id).order_by(Claim.created_at.desc())))
     db.add(AuditEvent(actor_id=user.id, action="search", resource_type="claim", resource_id=patient.uuid)); db.commit()
     return [serialize_claim(db, claim) for claim in claims]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/immunizations", response_model=ImmunizationOut, status_code=201)
+def create_immunization(patient_uuid: str, body: ImmunizationCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient=patient_by_uuid(db,patient_uuid); encounter=encounter_for_patient(db,patient,body.encounter_uuid)
+    item=Immunization(patient_id=patient.id,encounter_id=encounter.id if encounter else None,**body.model_dump(exclude={"encounter_uuid"})); db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id,action="create",resource_type="immunization",resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return ImmunizationOut(uuid=item.uuid,encounter_uuid=encounter.uuid if encounter else None,**body.model_dump(exclude={"encounter_uuid"}))
+
+
+@app.get("/api/v1/patients/{patient_uuid}/immunizations", response_model=list[ImmunizationOut])
+def list_immunizations(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient=patient_by_uuid(db,patient_uuid); rows=db.execute(select(Immunization,Encounter.uuid).outerjoin(Encounter).where(Immunization.patient_id==patient.id).order_by(Immunization.administered_at.desc())).all(); db.add(AuditEvent(actor_id=user.id,action="search",resource_type="immunization",resource_id=patient.uuid)); db.commit()
+    return [ImmunizationOut(uuid=x.uuid,encounter_uuid=e,**{k:getattr(x,k) for k in ("administered_at","cvx_code","vaccine_name","manufacturer","lot_number","route","site","dose","status","refusal_reason","note")}) for x,e in rows]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/vitals", response_model=VitalSetOut, status_code=201)
+def create_vitals(patient_uuid: str, body: VitalSetCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient=patient_by_uuid(db,patient_uuid); encounter=encounter_for_patient(db,patient,body.encounter_uuid); data=body.model_dump(exclude={"encounter_uuid"}); bmi=None
+    if body.weight_kg and body.height_cm: bmi=(body.weight_kg/((body.height_cm/Decimal("100"))**2)).quantize(Decimal("0.01"))
+    item=VitalSet(patient_id=patient.id,encounter_id=encounter.id if encounter else None,bmi=bmi,**data); db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id,action="create",resource_type="vitals",resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return VitalSetOut(uuid=item.uuid,encounter_uuid=encounter.uuid if encounter else None,bmi=item.bmi,**data)
+
+
+@app.get("/api/v1/patients/{patient_uuid}/vitals", response_model=list[VitalSetOut])
+def list_vitals(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient=patient_by_uuid(db,patient_uuid); rows=db.execute(select(VitalSet,Encounter.uuid).outerjoin(Encounter).where(VitalSet.patient_id==patient.id).order_by(VitalSet.observed_at.desc())).all(); db.add(AuditEvent(actor_id=user.id,action="search",resource_type="vitals",resource_id=patient.uuid)); db.commit()
+    return [VitalSetOut(uuid=x.uuid,encounter_uuid=e,**{k:getattr(x,k) for k in ("observed_at","systolic","diastolic","weight_kg","height_cm","temperature_c","heart_rate","respiratory_rate","oxygen_saturation","bmi","note")}) for x,e in rows]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/prescriptions", response_model=PrescriptionOut, status_code=201)
+def create_prescription(patient_uuid: str, body: PrescriptionCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient=patient_by_uuid(db,patient_uuid); encounter=encounter_for_patient(db,patient,body.encounter_uuid); pharmacy=None
+    if body.pharmacy_uuid:
+        pharmacy=db.scalar(select(Pharmacy).where(Pharmacy.uuid==body.pharmacy_uuid))
+        if not pharmacy: raise HTTPException(status_code=404,detail="Pharmacy not found")
+    item=Prescription(patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,**body.model_dump(exclude={"encounter_uuid","pharmacy_uuid"})); db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id,action="create",resource_type="prescription",resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return PrescriptionOut(uuid=item.uuid,status=item.status,**body.model_dump())
+
+
+@app.get("/api/v1/patients/{patient_uuid}/prescriptions", response_model=list[PrescriptionOut])
+def list_prescriptions(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient=patient_by_uuid(db,patient_uuid); rows=db.execute(select(Prescription,Encounter.uuid,Pharmacy.uuid).outerjoin(Encounter,Prescription.encounter_id==Encounter.id).outerjoin(Pharmacy,Prescription.pharmacy_id==Pharmacy.id).where(Prescription.patient_id==patient.id).order_by(Prescription.prescribed_at.desc())).all(); db.add(AuditEvent(actor_id=user.id,action="search",resource_type="prescription",resource_id=patient.uuid)); db.commit()
+    return [PrescriptionOut(uuid=x.uuid,encounter_uuid=e,pharmacy_uuid=p,status=x.status,**{k:getattr(x,k) for k in ("prescribed_at","start_date","end_date","drug_name","rxnorm_code","dosage_instructions","quantity","refills","substitutions_allowed","indication")}) for x,e,p in rows]
