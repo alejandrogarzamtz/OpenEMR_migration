@@ -9,8 +9,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, User, VitalSet
-from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, Token, VitalSetCreate, VitalSetOut
+from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, User, VitalSet
+from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, Token, VitalSetCreate, VitalSetOut
 from .security import clinical_user, create_token, password_hash
 from .fhir import router as fhir_router
 
@@ -390,3 +390,30 @@ def create_prescription(patient_uuid: str, body: PrescriptionCreate, db: Session
 def list_prescriptions(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     patient=patient_by_uuid(db,patient_uuid); rows=db.execute(select(Prescription,Encounter.uuid,Pharmacy.uuid).outerjoin(Encounter,Prescription.encounter_id==Encounter.id).outerjoin(Pharmacy,Prescription.pharmacy_id==Pharmacy.id).where(Prescription.patient_id==patient.id).order_by(Prescription.prescribed_at.desc())).all(); db.add(AuditEvent(actor_id=user.id,action="search",resource_type="prescription",resource_id=patient.uuid)); db.commit()
     return [PrescriptionOut(uuid=x.uuid,encounter_uuid=e,pharmacy_uuid=p,status=x.status,**{k:getattr(x,k) for k in ("prescribed_at","start_date","end_date","drug_name","rxnorm_code","dosage_instructions","quantity","refills","substitutions_allowed","indication")}) for x,e,p in rows]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/clinical-forms", response_model=ClinicalFormOut, status_code=201)
+def create_clinical_form(patient_uuid: str, body: ClinicalFormCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); encounter = encounter_for_patient(db, patient, body.encounter_uuid)
+    item = ClinicalForm(patient_id=patient.id, encounter_id=encounter.id, author_id=user.id, **body.model_dump(exclude={"encounter_uuid"})); db.add(item); db.flush()
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return ClinicalFormOut(encounter_uuid=encounter.uuid, **{k: getattr(item, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")})
+
+
+@app.get("/api/v1/patients/{patient_uuid}/clinical-forms", response_model=list[ClinicalFormOut])
+def list_clinical_forms(patient_uuid: str, encounter_uuid: str | None = None, form_type: str | None = None, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); query = select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.patient_id == patient.id)
+    if encounter_uuid: query = query.where(Encounter.uuid == encounter_uuid)
+    if form_type: query = query.where(ClinicalForm.form_type == form_type)
+    rows = db.execute(query.order_by(ClinicalForm.authored_at.desc())).all(); db.add(AuditEvent(actor_id=user.id, action="search", resource_type="clinical_form", resource_id=patient.uuid)); db.commit()
+    return [ClinicalFormOut(encounter_uuid=e, **{k: getattr(x, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")}) for x, e in rows]
+
+
+@app.post("/api/v1/patients/{patient_uuid}/clinical-forms/{form_uuid}/sign", response_model=ClinicalFormOut)
+def sign_clinical_form(patient_uuid: str, form_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); row = db.execute(select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.uuid == form_uuid, ClinicalForm.patient_id == patient.id)).first()
+    if not row: raise HTTPException(status_code=404, detail="Clinical form not found")
+    item, encounter_uuid = row
+    if item.status == "signed": raise HTTPException(status_code=409, detail="Clinical form is already signed")
+    item.status = "signed"; item.signed_at = datetime.now(timezone.utc); item.signed_by_id = user.id; db.add(AuditEvent(actor_id=user.id, action="sign", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return ClinicalFormOut(encounter_uuid=encounter_uuid, **{k: getattr(item, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")})

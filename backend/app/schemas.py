@@ -260,3 +260,17 @@ class PrescriptionCreate(BaseModel):
 class PrescriptionOut(PrescriptionCreate):
     uuid: str
     status: str
+
+
+class ClinicalFormCreate(BaseModel):
+    encounter_uuid: str
+    form_type: str = Field(pattern="^(soap|ros|physical_exam|clinic_note|custom)$")
+    title: str = Field(min_length=1, max_length=255)
+    content: dict
+
+
+class ClinicalFormOut(ClinicalFormCreate):
+    uuid: str
+    status: str
+    authored_at: datetime
+    signed_at: datetime | None

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import uuid4
 from decimal import Decimal
-from sqlalchemy import Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -270,3 +270,22 @@ class Prescription(Base):
     substitutions_allowed: Mapped[bool] = mapped_column(default=True)
     indication: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="active")
+
+
+class ClinicalForm(Base):
+    """Versionable encounter form that preserves both standard and custom OpenEMR data."""
+
+    __tablename__ = "clinical_forms"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_form_key: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int] = mapped_column(ForeignKey("encounters.id"), index=True)
+    form_type: Mapped[str] = mapped_column(String(80), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    content: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    authored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
