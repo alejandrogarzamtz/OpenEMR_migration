@@ -37,3 +37,16 @@ encryption/key management, backups, disaster recovery, retention, monitoring,
 threat modelling, and regulatory validation. The development credentials are
 not suitable for any real patient data.
 
+## Import and reconciliation
+
+The importer reads OpenEMR without modifying it and is a dry run by default:
+
+```bash
+python -m app.import_legacy --source 'mysql+pymysql://user:pass@openemr/openemr'
+python -m app.import_legacy --source 'mysql+pymysql://user:pass@openemr/openemr' --commit
+```
+
+It currently migrates `patient_data`, the problem/allergy/medication records in
+`lists`, and `form_encounter`. Legacy identifiers are unique keys, making
+reruns idempotent. Compare `source`, `inserted`, and `existing` counts before
+enabling `--commit`; rejected/incomplete records require clinical review.
