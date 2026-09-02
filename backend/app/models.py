@@ -289,3 +289,28 @@ class ClinicalForm(Base):
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     signed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class QuestionnaireDefinition(Base):
+    __tablename__ = "questionnaire_definitions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    code: Mapped[str] = mapped_column(String(50), index=True)
+    version: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(255))
+    questions: Mapped[list] = mapped_column(JSON)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class QuestionnaireResponse(Base):
+    __tablename__ = "questionnaire_responses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    questionnaire_id: Mapped[int] = mapped_column(ForeignKey("questionnaire_definitions.id"), index=True)
+    answers: Mapped[dict] = mapped_column(JSON)
+    score: Mapped[int] = mapped_column()
+    interpretation: Mapped[str] = mapped_column(String(100))
+    authored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

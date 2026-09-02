@@ -25,7 +25,7 @@ are all verified. “Partial” never counts as final parity.
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
 | Care plans and care teams | Missing | goals, participants, preferences and longitudinal workflow |
-| Questionnaires/PRO/SDOH | Missing | repository, responses, PHQ-9, GAD-7, PROMIS and assessments |
+| Questionnaires/PRO/SDOH | Partial | versioned PHQ-9/GAD-7 responses and scoring exist; PROMIS, SDOH sets, patient delivery and broader repository remain |
 | Clinical decision support | Missing | rules, reminders, alerts, measures and intervention feedback |
 | Insurance and eligibility | Partial | eligibility checks, coordination of benefits and authorization workflows |
 | Fee sheet and coding | Partial | configurable fee sheets, modifiers, diagnoses, NDC and price levels |
