@@ -55,3 +55,9 @@ versions are also migrated with their legacy relationships. Legacy identifiers a
 reruns idempotent. Compare `source`, `inserted`, and `existing` counts before
 enabling `--commit`; every domain also reports `rejected` records requiring
 storage remediation or clinical review.
+
+The `forms` registry is reconciled against the actual `form_*` tables installed
+in the source system. SOAP, ROS, physical-exam and clinic-note forms receive
+normalized types; every other installed form is retained as a custom JSON
+payload so module-specific clinical data is not silently discarded. Deleted,
+orphaned, or missing-table registrations are reported as rejected.

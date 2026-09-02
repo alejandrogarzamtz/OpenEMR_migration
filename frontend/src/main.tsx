@@ -14,7 +14,8 @@ type Claim = { uuid:string; status:string; total:string; balance:string };
 type Immunization = { uuid:string; vaccine_name:string; cvx_code:string; administered_at:string };
 type Vitals = { uuid:string; observed_at:string; systolic?:string; diastolic?:string; heart_rate?:string; oxygen_saturation?:string; bmi?:string };
 type Prescription = { uuid:string; drug_name:string; dosage_instructions:string; status:string };
-type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:{uuid:string;occurred_at:string;chief_complaint?:string}[]; labOrders:LabOrder[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[]; immunizations:Immunization[]; vitals:Vitals[]; prescriptions:Prescription[] };
+type ClinicalForm = { uuid:string; encounter_uuid:string; form_type:string; title:string; content:Record<string,unknown>; status:string; authored_at:string; signed_at?:string };
+type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:{uuid:string;occurred_at:string;chief_complaint?:string}[]; labOrders:LabOrder[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[]; immunizations:Immunization[]; vitals:Vitals[]; prescriptions:Prescription[]; clinicalForms:ClinicalForm[] };
 
 function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
@@ -47,8 +48,8 @@ function App(){
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
   async function openPatient(patient:Patient){
     setError("");
-    const [summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`),api(`/api/v1/patients/${patient.uuid}/immunizations`),api(`/api/v1/patients/${patient.uuid}/vitals`),api(`/api/v1/patients/${patient.uuid}/prescriptions`)]);
-    setSelected({...summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions});
+    const [summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`),api(`/api/v1/patients/${patient.uuid}/immunizations`),api(`/api/v1/patients/${patient.uuid}/vitals`),api(`/api/v1/patients/${patient.uuid}/prescriptions`),api(`/api/v1/patients/${patient.uuid}/clinical-forms`)]);
+    setSelected({...summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms});
   }
   async function addItem(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); if(!selected)return; const data=new FormData(event.currentTarget);
@@ -87,6 +88,15 @@ function App(){
     await api(`/api/v1/patients/${selected.patient.uuid}/claims`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({encounter_uuid:selected.encounters[0].uuid,coverage_uuid:selected.coverages[0]?.uuid??null,charge_uuids:chargeUuids})});
     await openPatient(selected.patient);
   }
+  async function addClinicalForm(event:FormEvent<HTMLFormElement>){
+    event.preventDefault(); if(!selected?.encounters.length)return; const data=new FormData(event.currentTarget); const formType=String(data.get("form_type"));
+    const content=formType==="soap"?{subjective:data.get("subjective"),objective:data.get("objective"),assessment:data.get("assessment"),plan:data.get("plan")}:{note:data.get("note")};
+    await api(`/api/v1/patients/${selected.patient.uuid}/clinical-forms`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({encounter_uuid:selected.encounters[0].uuid,form_type:formType,title:data.get("title"),content})});
+    event.currentTarget.reset(); await openPatient(selected.patient);
+  }
+  async function signClinicalForm(item:ClinicalForm){
+    if(!selected)return; await api(`/api/v1/patients/${selected.patient.uuid}/clinical-forms/${item.uuid}/sign`,{method:"POST"}); await openPatient(selected.patient);
+  }
   useEffect(()=>{if(token)void loadPatients("");},[token]);
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
@@ -108,6 +118,8 @@ function App(){
         <section className="summary-group"><h3>Documentos<span>{selected.documents.length}</span></h3>{selected.documents.map(document=><article key={document.uuid}><button className="text-button" onClick={()=>void downloadDocument(document)}>{document.name}</button><small>{document.mime_type}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={uploadDocument}><input name="file" type="file" required/><button>Subir documento</button></form>
         <section className="summary-group"><h3>Encuentros<span>{selected.encounters.length}</span></h3>{selected.encounters.map(encounter=><article key={encounter.uuid}><strong>{encounter.chief_complaint||"Encuentro clínico"}</strong><small>{new Date(encounter.occurred_at).toLocaleString()}</small></article>)}</section>
+        <section className="summary-group"><h3>Formularios clínicos<span>{selected.clinicalForms.length}</span></h3>{selected.clinicalForms.map(item=><article key={item.uuid}><strong>{item.title}</strong><small>{item.form_type} · {item.status}</small>{item.status!=="signed"&&<button className="text-button" onClick={()=>void signClinicalForm(item)}>Firmar</button>}</article>)}</section>
+        {selected.encounters.length>0&&<form className="quick-add compact" onSubmit={addClinicalForm}><select name="form_type"><option value="soap">SOAP</option><option value="ros">Revisión por sistemas</option><option value="physical_exam">Examen físico</option><option value="clinic_note">Nota clínica</option><option value="custom">Personalizado</option></select><input name="title" placeholder="Título" required/><textarea name="subjective" placeholder="Subjetivo / nota"/><textarea name="objective" placeholder="Objetivo"/><textarea name="assessment" placeholder="Evaluación"/><textarea name="plan" placeholder="Plan"/><textarea name="note" placeholder="Contenido de formulario no SOAP"/><button>Guardar borrador</button></form>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={addCoverage}><input name="payer_name" placeholder="Aseguradora" required/><input name="policy_number" placeholder="Póliza" required/><button>Agregar cobertura</button></form>
         <section className="summary-group"><h3>Facturación<span>{selected.claims.length}</span></h3>{selected.claims.map(claim=><article key={claim.uuid}><strong>${claim.total} · {claim.status}</strong><small>Saldo ${claim.balance}</small></article>)}{selected.charges.map(charge=><article key={charge.uuid}><strong>{charge.code} · ${charge.unit_price}</strong><small>Cargo sin reclamar</small></article>)}</section>
