@@ -14,7 +14,7 @@ are all verified. “Partial” never counts as final parity.
 | Scheduling and holidays | Partial | recurring events, resources, facilities, statuses, reminders and wait list |
 | Patient flow board | Missing | tracker stages, rooms, timestamps and operational dashboard |
 | Encounters | Partial | lifecycle, locking, signing, diagnoses, providers and encounter forms |
-| Clinical forms | Partial | vital-sign capture exists; SOAP, ROS, physical exam, notes, dictation and every installed form remain |
+| Clinical forms | Partial | structured/custom capture, signing and generic legacy preservation exist; specialized editors, dictation and per-form semantic validation remain |
 | Problems and surgeries | Partial | full coding, verification, occurrence, associations and surgery workflow |
 | Allergies | Partial | verification, intolerance detail, substance coding and reconciliation |
 | Medications | Partial | adherence, devices, medication history and reconciliation |

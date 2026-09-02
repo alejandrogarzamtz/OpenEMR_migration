@@ -8,10 +8,10 @@ import argparse
 import hashlib
 import json
 from datetime import date, datetime, timezone
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Charge, Claim, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, VitalSet
+from .models import Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, VitalSet
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 
@@ -24,10 +24,17 @@ def valid_dob(value):
     return value if isinstance(value, date) and value.year > 1800 else date(1900, 1, 1)
 
 
+def json_value(value):
+    if isinstance(value, (date, datetime)): return value.isoformat()
+    if hasattr(value, "as_tuple"): return str(value)
+    if isinstance(value, bytes): return value.hex()
+    return value
+
+
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions")
+    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT pid,fname,lname,DOB,sex,email,phone_cell,phone_home FROM patient_data ORDER BY pid"))
@@ -151,6 +158,25 @@ def run(source_url: str, commit: bool = False) -> dict:
             patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; pharmacy=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["pharmacy_id"])) if row["pharmacy_id"] else None
             if not patient or not clean(row["drug"]): stats["prescriptions"]["rejected"]+=1; continue
             target.add(Prescription(legacy_prescription_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,prescribed_at=row["date_added"] or datetime.now(timezone.utc),start_date=row["start_date"],end_date=row["end_date"],drug_name=clean(row["drug"]),rxnorm_code=clean(row["rxnorm_drugcode"]),dosage_instructions=clean(row["drug_dosage_instructions"]) or clean(row["dosage"]) or "As directed",quantity=clean(row["quantity"]),refills=row["refills"] or 0,substitutions_allowed=bool(row["substitute"]),indication=clean(row["indication"]),status="active" if row["active"] else "stopped")); stats["prescriptions"]["inserted"]+=1
+        # OpenEMR's `forms` registry points to both core and installed/custom form tables.
+        # Reflecting only tables that actually exist preserves every registered form payload.
+        legacy_tables = set(inspect(source).get_table_names())
+        forms = legacy.execute(text("SELECT id,date,encounter,form_name,form_id,pid,authorized,deleted,formdir FROM forms ORDER BY id"))
+        known_types = {"soap": "soap", "ros": "ros", "physical_exam": "physical_exam", "clinic_note": "clinic_note"}
+        for row in forms.mappings():
+            stats["clinical_forms"]["source"] += 1; legacy_key = f"forms:{row['id']}"
+            if target.scalar(select(ClinicalForm.id).where(ClinicalForm.legacy_form_key == legacy_key)): stats["clinical_forms"]["existing"] += 1; continue
+            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"])); encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"]))
+            formdir = clean(row["formdir"]) or "custom"; table_name = f"form_{formdir}"
+            if not patient or not encounter or row["deleted"] or table_name not in legacy_tables: stats["clinical_forms"]["rejected"] += 1; continue
+            columns = {item["name"] for item in inspect(source).get_columns(table_name)}
+            key_column = "forms_id" if "forms_id" in columns else "id"
+            payload_rows = legacy.execute(text(f"SELECT * FROM `{table_name}` WHERE `{key_column}`=:form_id"), {"form_id": row["form_id"] if key_column == "id" else row["id"]}).mappings().all()
+            if not payload_rows: stats["clinical_forms"]["rejected"] += 1; continue
+            content = {"rows": [{key: json_value(value) for key, value in payload.items()} for payload in payload_rows]}
+            if formdir == "soap": content = {key: json_value(payload_rows[0].get(key)) for key in ("subjective", "objective", "assessment", "plan")}
+            target.add(ClinicalForm(legacy_form_key=legacy_key, patient_id=patient.id, encounter_id=encounter.id, form_type=known_types.get(formdir, "custom"), title=clean(row["form_name"]) or formdir.replace("_", " ").title(), content=content, status="signed" if row["authorized"] else "draft", authored_at=row["date"] or encounter.occurred_at))
+            stats["clinical_forms"]["inserted"] += 1
         if commit: target.commit()
         else: target.rollback()
     stats["mode"] = "committed" if commit else "dry-run"
