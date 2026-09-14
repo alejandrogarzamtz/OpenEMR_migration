@@ -25,7 +25,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `destroyed_drugs_report` | MIGRATED |
 | `direct_message_log` | MIGRATED |
 | `encounters_report` | MIGRATED |
-| `external_data` | PENDING |
+| `external_data` | MIGRATED — patient-scoped external encounters and procedures with dates, diagnosis/code text, provider/facility provenance, source identifiers, filters, totals and CSV |
 | `front_receipts_report` | PENDING |
 | `immunization_report` | MIGRATED |
 | `insurance_allocation_report` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 22 migrated, 26 pending**.
+Current accounting: **48 cataloged, 23 migrated, 25 pending**.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

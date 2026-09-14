@@ -13,6 +13,7 @@ import { CarePlanWorkspace } from "./features/patients/CarePlanWorkspace";
 import { ClinicalFormLinks } from "./features/patients/ClinicalFormLinks";
 import { CareTeamWorkspace } from "./features/patients/CareTeamWorkspace";
 import { ReferralWorkspace } from "./features/patients/ReferralWorkspace";
+import { ExternalClinicalData } from "./features/patients/ExternalClinicalData";
 import { PatientPreferencesWorkspace } from "./features/patients/PatientPreferencesWorkspace";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
@@ -178,6 +179,7 @@ function App(){
         {selected.encounters.length>0&&<CarePlanWorkspace api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} locked={selected.encounters[0].locked}/>}
         <CareTeamWorkspace api={api} patientUuid={selected.patient.uuid}/>
         <ReferralWorkspace api={api} patientUuid={selected.patient.uuid}/>
+        <ExternalClinicalData api={api} patientUuid={selected.patient.uuid}/>
         <PatientPreferencesWorkspace api={api} patientUuid={selected.patient.uuid}/>
         {selected.encounters.length>0&&!selected.encounters[0].locked&&<ClinicalFormEditor api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} onSaved={()=>openPatient(selected.patient)}/>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>

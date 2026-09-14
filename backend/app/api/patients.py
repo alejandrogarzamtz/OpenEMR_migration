@@ -6,8 +6,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, ChartLocationEvent, Encounter, Facility, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, Practitioner, Referral, User
-from ..schemas import ChartLocationEventCreate, ChartLocationEventOut, InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate, ReferralCreate, ReferralOut, ReferralReply
+from ..models import AuditEvent, ChartLocationEvent, Encounter, ExternalEncounter, ExternalProcedure, Facility, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, Practitioner, Referral, User
+from ..schemas import ChartLocationEventCreate, ChartLocationEventOut, ExternalClinicalDataOut, ExternalEncounterOut, ExternalProcedureOut, InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate, ReferralCreate, ReferralOut, ReferralReply
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.access import facility_scope, require_facility_access
 from ..services.patients import patient_by_uuid
@@ -17,6 +17,19 @@ from ..services.patient_merges import merge_patients, merge_preview
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 PHOTO_LIMIT = 5 * 1024 * 1024
+
+
+@router.get("/{patient_uuid}/external-data", response_model=ExternalClinicalDataOut)
+def external_clinical_data(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    encounters = list(db.scalars(select(ExternalEncounter).where(ExternalEncounter.patient_id == patient.id).order_by(ExternalEncounter.occurred_on.desc(), ExternalEncounter.id.desc())))
+    procedures = list(db.scalars(select(ExternalProcedure).where(ExternalProcedure.patient_id == patient.id).order_by(ExternalProcedure.occurred_on.desc(), ExternalProcedure.id.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="external_clinical_data", resource_id=patient.uuid, detail=f"encounters={len(encounters)}; procedures={len(procedures)}"))
+    db.commit()
+    return ExternalClinicalDataOut(
+        encounters=[ExternalEncounterOut(**{field: getattr(item, field) for field in ("uuid", "occurred_on", "diagnosis", "provider_name", "facility_name", "external_id")}) for item in encounters],
+        procedures=[ExternalProcedureOut(**{field: getattr(item, field) for field in ("uuid", "occurred_on", "code_system", "code", "code_text", "facility_name", "external_id")}) for item in procedures],
+    )
 
 
 def referral_out(db,item,patient):

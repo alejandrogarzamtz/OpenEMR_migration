@@ -783,6 +783,39 @@ class IpLoginTracker(Base):
     skip_timing_protection: Mapped[bool] = mapped_column(default=False)
 
 
+class ExternalEncounter(Base):
+    __tablename__ = "external_encounters"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_external_encounter_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    diagnosis: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    facility_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_provider_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_facility_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class ExternalProcedure(Base):
+    __tablename__ = "external_procedures"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_external_procedure_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    code_system: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    code: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    code_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_encounter_id: Mapped[int | None] = mapped_column(nullable=True)
+    facility_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_facility_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class Encounter(Base):
     __tablename__ = "encounters"
     id: Mapped[int] = mapped_column(primary_key=True)

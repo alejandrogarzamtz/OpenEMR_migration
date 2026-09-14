@@ -6,19 +6,20 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, SecureMessage, ServiceCode, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, SecureMessage, ServiceCode, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
     "collections_report":"acct:rep_a:read", "custom_report_range":"encounters:coding_a:read",
     "chart_location_activity":"patients:demo:read", "charts_checked_out":"patients:demo:read",
     "daily_summary_report":"acct:rep_a:read", "direct_message_log":"admin:super:read",
+    "external_data":"patients:med:read",
     "encounters_report":"encounters:coding_a:read", "front_receipts_report":"acct:rep_a:read",
     "insurance_allocation_report":"acct:rep_a:read", "inventory_activity":"acct:rep:read",
     "inventory_list":"inventory:reporting:read", "inventory_transactions":"acct:rep:read",
@@ -212,6 +213,21 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
         if status:query=query.where(Referral.status==status)
         rows=rows_from(db.execute(query.order_by(Referral.recipient_organization,Referral.recipient_name,Referral.referred_at,Referral.id)).all(),columns)
         return columns,rows,{"referrals":len(rows),"completed":sum(row["status"]=="completed" for row in rows),"pending":sum(row["status"]!="completed" for row in rows)}
+    if key == "external_data":
+        patient_id=params.get("_patient_id")
+        if not patient_id: raise HTTPException(status_code=422,detail="patient_uuid is required")
+        columns=["record_uuid","record_type","date","code","description","provider","facility","external_id"]
+        encounter_query=select(ExternalEncounter).where(ExternalEncounter.patient_id==patient_id)
+        procedure_query=select(ExternalProcedure).where(ExternalProcedure.patient_id==patient_id)
+        if start:
+            encounter_query=encounter_query.where(ExternalEncounter.occurred_on>=start.date());procedure_query=procedure_query.where(ExternalProcedure.occurred_on>=start.date())
+        if end:
+            encounter_query=encounter_query.where(ExternalEncounter.occurred_on<end.date());procedure_query=procedure_query.where(ExternalProcedure.occurred_on<end.date())
+        encounters=list(db.scalars(encounter_query));procedures=list(db.scalars(procedure_query))
+        rows=[{"record_uuid":item.uuid,"record_type":"encounter","date":item.occurred_on.isoformat(),"code":None,"description":item.diagnosis,"provider":item.provider_name,"facility":item.facility_name,"external_id":item.external_id} for item in encounters]
+        rows += [{"record_uuid":item.uuid,"record_type":"procedure","date":item.occurred_on.isoformat(),"code":f"{item.code_system}:{item.code}" if item.code_system and item.code else item.code,"description":item.code_text,"provider":None,"facility":item.facility_name,"external_id":item.external_id} for item in procedures]
+        rows.sort(key=lambda row:(row["date"],row["record_type"],row["record_uuid"]),reverse=True)
+        return columns,rows,{"records":len(rows),"encounters":len(encounters),"procedures":len(procedures)}
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "chart_location_activity":
         patient_id=params.get("_patient_id")

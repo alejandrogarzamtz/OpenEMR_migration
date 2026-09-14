@@ -214,6 +214,30 @@ class ReferralOut(BaseModel):
     replied_at: datetime | None;reply: str | None
 
 
+class ExternalEncounterOut(BaseModel):
+    uuid: str
+    occurred_on: date
+    diagnosis: str | None
+    provider_name: str | None
+    facility_name: str | None
+    external_id: str | None
+
+
+class ExternalProcedureOut(BaseModel):
+    uuid: str
+    occurred_on: date
+    code_system: str | None
+    code: str | None
+    code_text: str | None
+    facility_name: str | None
+    external_id: str | None
+
+
+class ExternalClinicalDataOut(BaseModel):
+    encounters: list[ExternalEncounterOut]
+    procedures: list[ExternalProcedureOut]
+
+
 class PatientDuplicateCandidate(BaseModel):
     patient: PatientOut
     score: int = Field(ge=0, le=100)

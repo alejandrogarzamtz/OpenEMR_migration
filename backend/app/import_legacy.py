@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, Referral, SecureMessage, ServiceCode, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, Referral, SecureMessage, ServiceCode, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -821,6 +821,36 @@ def run(source_url: str, commit: bool = False) -> dict:
                     legacy_payload={field: json_value(value) for field, value in row.items()},
                 ))
                 stats["chart_location_events"]["inserted"] += 1
+
+        external_users = {}
+        if "users" in legacy_tables and ({"external_encounters", "external_procedures"} & legacy_tables):
+            for row in legacy.execute(text("SELECT id, username, fname, mname, lname, organization FROM users ORDER BY id")).mappings():
+                display = " ".join(filter(None, (clean(row.get("fname")), clean(row.get("mname")), clean(row.get("lname")))))
+                external_users[str(row["id"])] = {"name": display or clean(row.get("username")), "organization": clean(row.get("organization"))}
+        if "external_encounters" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM external_encounters ORDER BY ee_id")).mappings():
+                stats["external_encounters"]["source"] += 1
+                if target.scalar(select(ExternalEncounter.id).where(ExternalEncounter.legacy_external_encounter_id == row["ee_id"])):
+                    stats["external_encounters"]["existing"] += 1; continue
+                patient = patient_for_legacy(target, row.get("ee_pid")); occurred = row.get("ee_date")
+                if not patient or not occurred:
+                    stats["external_encounters"]["rejected"] += 1; continue
+                provider = external_users.get(str(row.get("ee_provider_id") or ""), {})
+                facility = external_users.get(str(row.get("ee_facility_id") or ""), {})
+                target.add(ExternalEncounter(legacy_external_encounter_id=row["ee_id"], patient_id=patient.id, occurred_on=occurred, diagnosis=clean(row.get("ee_encounter_diagnosis")), provider_name=provider.get("name"), facility_name=facility.get("organization") or facility.get("name"), legacy_provider_id=clean(row.get("ee_provider_id")), legacy_facility_id=clean(row.get("ee_facility_id")), external_id=clean(row.get("ee_external_id")), legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["external_encounters"]["inserted"] += 1
+        if "external_procedures" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM external_procedures ORDER BY ep_id")).mappings():
+                stats["external_procedures"]["source"] += 1
+                if target.scalar(select(ExternalProcedure.id).where(ExternalProcedure.legacy_external_procedure_id == row["ep_id"])):
+                    stats["external_procedures"]["existing"] += 1; continue
+                patient = patient_for_legacy(target, row.get("ep_pid")); occurred = row.get("ep_date")
+                if not patient or not occurred:
+                    stats["external_procedures"]["rejected"] += 1; continue
+                facility = external_users.get(str(row.get("ep_facility_id") or ""), {})
+                target.add(ExternalProcedure(legacy_external_procedure_id=row["ep_id"], patient_id=patient.id, occurred_on=occurred, code_system=clean(row.get("ep_code_type")), code=clean(row.get("ep_code")), code_text=clean(row.get("ep_code_text")), legacy_encounter_id=row.get("ep_encounter"), facility_name=facility.get("organization") or facility.get("name"), legacy_facility_id=clean(row.get("ep_facility_id")), external_id=clean(row.get("ep_external_id")), legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["external_procedures"]["inserted"] += 1
+
         if "transactions" in legacy_tables and "lbt_data" in legacy_tables:
             referral_users = {}
             if "users" in legacy_tables:

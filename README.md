@@ -106,12 +106,18 @@ end-to-end healthcare workflows:
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history
-- append-only physical chart location and custody history, with current-checkout and patient activity reports
-- an auditable background-service registry with lease-aware operational reporting
-- configurable IP-scoped login throttling, automatic/manual blocking and administrative reporting
-- a normalized billable-service catalog with superbill categories, related codes and multi-level pricing
-- longitudinal referral-loop tracking with specialist responses and scoped operational reporting
   synchronized with scheduled appointments;
+- append-only physical chart location and custody history, with current-checkout
+  and patient activity reports;
+- an auditable background-service registry with lease-aware operational reporting;
+- configurable IP-scoped login throttling, automatic/manual blocking and
+  administrative reporting;
+- a normalized billable-service catalog with superbill categories, related
+  codes and multi-level pricing;
+- longitudinal referral-loop tracking with specialist responses and scoped
+  operational reporting;
+- provenance-preserving external encounter and procedure history in the
+  longitudinal patient chart;
 - medication and supply inventory with warehouse lots, expiration-aware FEFO
   dispensing, stock movements, destruction records, and lossless legacy import;
 - administration of facilities, practitioners and warehouses, with explicit
