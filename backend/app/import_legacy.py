@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, ServiceCode, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, Referral, SecureMessage, ServiceCode, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -821,6 +821,28 @@ def run(source_url: str, commit: bool = False) -> dict:
                     legacy_payload={field: json_value(value) for field, value in row.items()},
                 ))
                 stats["chart_location_events"]["inserted"] += 1
+        if "transactions" in legacy_tables and "lbt_data" in legacy_tables:
+            referral_users = {}
+            if "users" in legacy_tables:
+                for legacy_user in legacy.execute(text("SELECT id, username, fname, mname, lname, organization FROM users ORDER BY id")).mappings():
+                    display = " ".join(filter(None, (clean(legacy_user.get("fname")), clean(legacy_user.get("mname")), clean(legacy_user.get("lname")))))
+                    referral_users[legacy_user["id"]] = {
+                        "name": display or clean(legacy_user.get("username")),
+                        "organization": clean(legacy_user.get("organization")),
+                    }
+            referral_sql="""SELECT t.id,t.pid,t.date,MAX(CASE WHEN d.field_id='refer_date' THEN d.field_value END) refer_date,MAX(CASE WHEN d.field_id='reply_date' THEN d.field_value END) reply_date,MAX(CASE WHEN d.field_id='body' THEN d.field_value END) body,MAX(CASE WHEN d.field_id='refer_to' THEN d.field_value END) refer_to,MAX(CASE WHEN d.field_id='refer_from' THEN d.field_value END) refer_from,MAX(CASE WHEN d.field_id='reply_init_diag' THEN d.field_value END) reply_text FROM transactions t JOIN lbt_data d ON d.form_id=t.id WHERE t.title='LBTref' GROUP BY t.id,t.pid,t.date ORDER BY t.id"""
+            for row in legacy.execute(text(referral_sql)).mappings():
+                stats["referrals"]["source"]+=1
+                if target.scalar(select(Referral.id).where(Referral.legacy_transaction_id==row["id"])):stats["referrals"]["existing"]+=1;continue
+                patient=patient_for_legacy(target,row["pid"]);referred=legacy_datetime(row["refer_date"]);replied=legacy_datetime(row["reply_date"]);to_id=int(row["refer_to"]) if str(row["refer_to"] or "").isdigit() else None;from_id=int(row["refer_from"]) if str(row["refer_from"] or "").isdigit() else None;recipient=target.scalar(select(Practitioner).where(Practitioner.legacy_user_id==to_id)) if to_id else None;referrer=target.scalar(select(Practitioner).where(Practitioner.legacy_user_id==from_id)) if from_id else None
+                if not patient or not referred or not clean(row["body"]):stats["referrals"]["rejected"]+=1;continue
+                recipient_details = referral_users.get(to_id, {})
+                recipient_name=" ".join(filter(None,(recipient.first_name,recipient.last_name))) if recipient else recipient_details.get("name") or f"Legacy user {to_id}" if to_id else "External referral"
+                legacy_fields = {
+                    item["field_id"]: json_value(item["field_value"])
+                    for item in legacy.execute(text("SELECT field_id, field_value FROM lbt_data WHERE form_id=:form_id ORDER BY field_id"), {"form_id": row["id"]}).mappings()
+                }
+                target.add(Referral(legacy_transaction_id=row["id"],patient_id=patient.id,facility_id=referrer.primary_facility_id if referrer else None,referring_practitioner_id=referrer.id if referrer else None,recipient_practitioner_id=recipient.id if recipient else None,legacy_referring_user_id=from_id,legacy_recipient_user_id=to_id,recipient_name=recipient_name,recipient_organization=recipient_details.get("organization"),referred_at=referred,reason=clean(row["body"]),status="completed" if replied else "requested",replied_at=replied,reply=clean(row["reply_text"]),legacy_fields=legacy_fields));stats["referrals"]["inserted"]+=1
 
         if "background_services" in legacy_tables:
             for row in legacy.execute(text("SELECT name, title, active, running, next_run, execute_interval, function, require_once, sort_order, lock_expires_at FROM background_services ORDER BY sort_order, name")).mappings():

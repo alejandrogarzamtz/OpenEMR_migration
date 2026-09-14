@@ -12,6 +12,7 @@ import { ClinicalFormEditor } from "./features/patients/ClinicalFormEditor";
 import { CarePlanWorkspace } from "./features/patients/CarePlanWorkspace";
 import { ClinicalFormLinks } from "./features/patients/ClinicalFormLinks";
 import { CareTeamWorkspace } from "./features/patients/CareTeamWorkspace";
+import { ReferralWorkspace } from "./features/patients/ReferralWorkspace";
 import { PatientPreferencesWorkspace } from "./features/patients/PatientPreferencesWorkspace";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
@@ -176,6 +177,7 @@ function App(){
         <section className="summary-group"><h3>Formularios clínicos<span>{selected.clinicalForms.length}</span></h3>{selected.clinicalForms.map(item=><article key={item.uuid}><strong>{item.title}</strong><small>{item.form_type} · {item.status}{item.locked?" · bloqueado":""} · {item.signature_count} firma(s) · {item.released_to_patient_at?"Publicado en portal":"Privado"}</small><ClinicalFormLinks api={api} patientUuid={selected.patient.uuid} formUuid={item.uuid} documents={selected.documents} results={selected.labResults} locked={item.locked}/>{item.status!=="signed"?<button className="text-button" onClick={()=>void signClinicalForm(item)}>Firmar y bloquear</button>:<button className="text-button" onClick={()=>void toggleFormRelease(item)}>{item.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button>}</article>)}</section>
         {selected.encounters.length>0&&<CarePlanWorkspace api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} locked={selected.encounters[0].locked}/>}
         <CareTeamWorkspace api={api} patientUuid={selected.patient.uuid}/>
+        <ReferralWorkspace api={api} patientUuid={selected.patient.uuid}/>
         <PatientPreferencesWorkspace api={api} patientUuid={selected.patient.uuid}/>
         {selected.encounters.length>0&&!selected.encounters[0].locked&&<ClinicalFormEditor api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} onSaved={()=>openPatient(selected.patient)}/>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>

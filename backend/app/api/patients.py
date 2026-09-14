@@ -6,9 +6,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, ChartLocationEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import ChartLocationEventCreate, ChartLocationEventOut, InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, ChartLocationEvent, Encounter, Facility, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, Practitioner, Referral, User
+from ..schemas import ChartLocationEventCreate, ChartLocationEventOut, InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate, ReferralCreate, ReferralOut, ReferralReply
 from ..security import patient_demographics_user, patient_demographics_write_user
+from ..services.access import facility_scope, require_facility_access
 from ..services.patients import patient_by_uuid
 from ..services.patient_duplicates import duplicate_candidates
 from ..services.patient_merges import merge_patients, merge_preview
@@ -16,6 +17,40 @@ from ..services.patient_merges import merge_patients, merge_preview
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 PHOTO_LIMIT = 5 * 1024 * 1024
+
+
+def referral_out(db,item,patient):
+    encounter=db.get(Encounter,item.encounter_id) if item.encounter_id else None;facility=db.get(Facility,item.facility_id) if item.facility_id else None;recipient=db.get(Practitioner,item.recipient_practitioner_id) if item.recipient_practitioner_id else None
+    return ReferralOut(uuid=item.uuid,patient_uuid=patient.uuid,encounter_uuid=encounter.uuid if encounter else None,facility_uuid=facility.uuid if facility else None,recipient_practitioner_uuid=recipient.uuid if recipient else None,recipient_name=item.recipient_name,recipient_organization=item.recipient_organization,referred_at=item.referred_at,reason=item.reason,status=item.status,replied_at=item.replied_at,reply=item.reply)
+
+
+@router.get("/{patient_uuid}/referrals",response_model=list[ReferralOut])
+def referrals(patient_uuid:str,db:Session=Depends(get_db),user:User=Depends(patient_demographics_user)):
+    patient=patient_by_uuid(db,patient_uuid);query=select(Referral).where(Referral.patient_id==patient.id);scope=facility_scope(db,user)
+    if scope is not None:query=query.where(Referral.facility_id.in_(scope))
+    items=list(db.scalars(query.order_by(Referral.referred_at.desc())))
+    db.add(AuditEvent(actor_id=user.id,action="read",resource_type="referral",resource_id=patient.uuid,detail=f"records={len(items)}"));db.commit();return [referral_out(db,x,patient) for x in items]
+
+
+@router.post("/{patient_uuid}/referrals",response_model=ReferralOut,status_code=201)
+def create_referral(patient_uuid:str,body:ReferralCreate,db:Session=Depends(get_db),user:User=Depends(patient_demographics_write_user)):
+    patient=patient_by_uuid(db,patient_uuid);encounter=db.scalar(select(Encounter).where(Encounter.uuid==body.encounter_uuid,Encounter.patient_id==patient.id)) if body.encounter_uuid else None;facility=db.scalar(select(Facility).where(Facility.uuid==body.facility_uuid)) if body.facility_uuid else None;recipient=db.scalar(select(Practitioner).where(Practitioner.uuid==body.recipient_practitioner_uuid,Practitioner.active.is_(True))) if body.recipient_practitioner_uuid else None
+    if body.encounter_uuid and not encounter:raise HTTPException(404,"Encounter not found")
+    if body.facility_uuid and not facility:raise HTTPException(404,"Facility not found")
+    if body.recipient_practitioner_uuid and not recipient:raise HTTPException(404,"Practitioner not found")
+    require_facility_access(db,user,facility.id if facility else None)
+    item=Referral(patient_id=patient.id,encounter_id=encounter.id if encounter else None,facility_id=facility.id if facility else None,recipient_practitioner_id=recipient.id if recipient else None,recipient_name=body.recipient_name,recipient_organization=body.recipient_organization,referred_at=body.referred_at,reason=body.reason);db.add(item);db.flush();db.add(AuditEvent(actor_id=user.id,action="create",resource_type="referral",resource_id=item.uuid));db.commit();db.refresh(item);return referral_out(db,item,patient)
+
+
+@router.post("/{patient_uuid}/referrals/{referral_uuid}/reply",response_model=ReferralOut)
+def reply_referral(patient_uuid:str,referral_uuid:str,body:ReferralReply,db:Session=Depends(get_db),user:User=Depends(patient_demographics_write_user)):
+    patient=patient_by_uuid(db,patient_uuid);item=db.scalar(select(Referral).where(Referral.uuid==referral_uuid,Referral.patient_id==patient.id).with_for_update())
+    if not item:raise HTTPException(404,"Referral not found")
+    require_facility_access(db,user,item.facility_id)
+    if item.status=="completed":raise HTTPException(409,"Referral already completed")
+    referred=item.referred_at if item.referred_at.tzinfo else item.referred_at.replace(tzinfo=timezone.utc)
+    if body.replied_at<referred:raise HTTPException(422,"Reply cannot precede referral")
+    item.replied_at=body.replied_at;item.reply=body.reply;item.status="completed";db.add(AuditEvent(actor_id=user.id,action="reply",resource_type="referral",resource_id=item.uuid));db.commit();db.refresh(item);return referral_out(db,item,patient)
 
 
 def chart_location_out(item: ChartLocationEvent, patient: Patient, custodian: User | None) -> ChartLocationEventOut:

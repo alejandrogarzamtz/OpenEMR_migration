@@ -110,6 +110,7 @@ end-to-end healthcare workflows:
 - an auditable background-service registry with lease-aware operational reporting
 - configurable IP-scoped login throttling, automatic/manual blocking and administrative reporting
 - a normalized billable-service catalog with superbill categories, related codes and multi-level pricing
+- longitudinal referral-loop tracking with specialist responses and scoped operational reporting
   synchronized with scheduled appointments;
 - medication and supply inventory with warehouse lots, expiration-aware FEFO
   dispensing, stock movements, destruction records, and lossless legacy import;

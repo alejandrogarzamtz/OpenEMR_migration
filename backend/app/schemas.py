@@ -178,6 +178,42 @@ class ChartLocationEventOut(BaseModel):
     note: str | None
 
 
+class ReferralCreate(BaseModel):
+    encounter_uuid: str | None = Field(default=None,min_length=36,max_length=36)
+    facility_uuid: str | None = Field(default=None,min_length=36,max_length=36)
+    recipient_practitioner_uuid: str | None = Field(default=None,min_length=36,max_length=36)
+    recipient_name: str = Field(min_length=1,max_length=255)
+    recipient_organization: str | None = Field(default=None,max_length=255)
+    referred_at: datetime
+    reason: str = Field(min_length=1,max_length=10000)
+
+    @field_validator("referred_at")
+    @classmethod
+    def referral_timezone(cls,value):
+        if value.tzinfo is None:raise ValueError("referred_at must include a timezone")
+        return value
+
+
+class ReferralReply(BaseModel):
+    replied_at: datetime
+    reply: str = Field(min_length=1,max_length=20000)
+
+    @field_validator("replied_at")
+    @classmethod
+    def reply_timezone(cls,value):
+        if value.tzinfo is None:raise ValueError("replied_at must include a timezone")
+        return value
+
+
+class ReferralOut(BaseModel):
+    uuid: str;patient_uuid: str
+    encounter_uuid: str | None;facility_uuid: str | None
+    recipient_practitioner_uuid: str | None
+    recipient_name: str;recipient_organization: str | None
+    referred_at: datetime;reason: str;status: str
+    replied_at: datetime | None;reply: str | None
+
+
 class PatientDuplicateCandidate(BaseModel):
     patient: PatientOut
     score: int = Field(ge=0, le=100)

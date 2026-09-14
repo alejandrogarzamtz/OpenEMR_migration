@@ -47,7 +47,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `prepayment_balance_report` | PENDING |
 | `prescriptions_report` | MIGRATED |
 | `receipts_by_method_report` | PENDING |
-| `referrals_report` | PENDING |
+| `referrals_report` | MIGRATED — facility/date/status scoped referral-loop report with recipient organization, request/reply dates, patient identifiers and reason |
 | `report.script` | PENDING |
 | `report_results` | PENDING |
 | `rwt_2026_report` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 21 migrated, 27 pending**.
+Current accounting: **48 cataloged, 22 migrated, 26 pending**.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

@@ -1174,6 +1174,29 @@ class CarePlanOutcome(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class Referral(Base):
+    __tablename__="referrals"
+    id: Mapped[int]=mapped_column(primary_key=True)
+    uuid: Mapped[str]=mapped_column(String(36),unique=True,default=lambda:str(uuid4()),index=True)
+    legacy_transaction_id: Mapped[int | None]=mapped_column(unique=True,nullable=True)
+    patient_id: Mapped[int]=mapped_column(ForeignKey("patients.id"),index=True)
+    encounter_id: Mapped[int | None]=mapped_column(ForeignKey("encounters.id"),nullable=True,index=True)
+    facility_id: Mapped[int | None]=mapped_column(ForeignKey("facilities.id"),nullable=True,index=True)
+    referring_practitioner_id: Mapped[int | None]=mapped_column(ForeignKey("practitioners.id"),nullable=True,index=True)
+    recipient_practitioner_id: Mapped[int | None]=mapped_column(ForeignKey("practitioners.id"),nullable=True,index=True)
+    legacy_referring_user_id: Mapped[int | None]=mapped_column(nullable=True)
+    legacy_recipient_user_id: Mapped[int | None]=mapped_column(nullable=True)
+    recipient_name: Mapped[str]=mapped_column(String(255))
+    recipient_organization: Mapped[str | None]=mapped_column(String(255),nullable=True)
+    referred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),index=True)
+    reason: Mapped[str]=mapped_column(Text)
+    status: Mapped[str]=mapped_column(String(30),default="requested",index=True)
+    replied_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True),nullable=True,index=True)
+    reply: Mapped[str | None]=mapped_column(Text,nullable=True)
+    legacy_fields: Mapped[dict | None]=mapped_column(JSON,nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class CareTeam(Base):
     __tablename__ = "care_teams"
     id: Mapped[int] = mapped_column(primary_key=True)
