@@ -9,7 +9,7 @@ are all verified. “Partial” never counts as final parity.
 |---|---|---|
 | Authentication and sessions | Partial | revocable staff/portal sessions, refresh rotation/replay detection, logout, separate one-time recovery and encrypted TOTP MFA exist for both identity types; WebAuthn/U2F, SSO, password policy/history, admin MFA reset and device/session management remain |
 | Users, practitioners and roles | Partial | full ACL/ACO migration, user lifecycle, practitioner roles and preferences |
-| Patient demographics | Partial | addresses, contacts, employers, guardians, name history, consent/custom fields |
+| Patient demographics | Partial | normalized multiple addresses, telecoms and related people now preserve priority, validity, primary/emergency status and medical-information/decision flags with audited inactivation; employers, name history, advanced editing, consent/custom fields and complete legacy reconciliation remain |
 | Patient search and chart | Partial | duplicate detection, merges, photos, chart locking and printable report |
 | Scheduling and holidays | Partial | facility-aware events, resources, conflicts and statuses exist; recurrence expansion, categories, holidays, reminder delivery and wait list remain |
 | Patient flow board | Partial | immutable tracker stages, rooms, timestamps and dashboard exist; configurable stage rules, analytics and remaining legacy actions remain |

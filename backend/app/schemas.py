@@ -144,6 +144,84 @@ class PatientPage(BaseModel):
     offset: int
 
 
+class PatientAddressCreate(BaseModel):
+    use: str = Field(default="home", pattern="^(home|work|temp|old|billing)$")
+    type: str = Field(default="both", pattern="^(postal|physical|both)$")
+    line1: str = Field(min_length=1, max_length=255)
+    line2: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=30)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    district: str | None = Field(default=None, max_length=255)
+    priority: int = Field(default=1, ge=1)
+    is_primary: bool = False
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def valid_period(self):
+        if self.period_start and self.period_end and self.period_end <= self.period_start:
+            raise ValueError("period_end must be after period_start")
+        if self.country_code:
+            self.country_code = self.country_code.upper()
+        return self
+
+
+class PatientAddressOut(PatientAddressCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    active: bool
+    inactivated_reason: str | None
+
+
+class PatientTelecomCreate(BaseModel):
+    system: str = Field(pattern="^(phone|fax|email|pager|url|sms|other)$")
+    use: str = Field(default="home", pattern="^(home|work|temp|old|mobile)$")
+    value: str = Field(min_length=1, max_length=255)
+    rank: int = Field(default=1, ge=1)
+    is_primary: bool = False
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    notes: str | None = None
+
+
+class PatientTelecomOut(PatientTelecomCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    active: bool
+    inactivated_reason: str | None
+
+
+class PatientRelatedPersonCreate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=100)
+    middle_name: str | None = Field(default=None, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    relationship_code: str = Field(min_length=1, max_length=63)
+    role_code: str = Field(min_length=1, max_length=63)
+    phone: str | None = Field(default=None, max_length=50)
+    email: EmailStr | None = None
+    priority: int = Field(default=1, ge=1)
+    is_primary_contact: bool = False
+    is_emergency_contact: bool = False
+    can_make_medical_decisions: bool = False
+    can_receive_medical_info: bool = False
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    notes: str | None = None
+
+
+class PatientRelatedPersonOut(PatientRelatedPersonCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    active: bool
+
+
+class InactivationRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=255)
+
+
 class AppointmentBase(BaseModel):
     patient_uuid: str
     facility_uuid: str | None = None

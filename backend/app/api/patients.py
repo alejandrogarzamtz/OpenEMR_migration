@@ -3,12 +3,95 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, User
-from ..schemas import PatientCreate, PatientOut, PatientPage, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientCreate, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
+
+
+@router.post("/{patient_uuid}/related-people/{person_uuid}/inactivate", response_model=PatientRelatedPersonOut)
+def inactivate_related_person(patient_uuid: str, person_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = db.scalar(select(PatientRelatedPerson).where(PatientRelatedPerson.uuid == person_uuid, PatientRelatedPerson.patient_id == patient.id))
+    if not item: raise HTTPException(status_code=404, detail="Related person not found")
+    item.active = False; item.is_primary_contact = False; item.is_emergency_contact = False
+    item.can_make_medical_decisions = False; item.can_receive_medical_info = False
+    item.notes = f"{item.notes + ' | ' if item.notes else ''}Inactivated: {body.reason}"
+    db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_related_person", resource_id=item.uuid, detail=body.reason)); db.commit(); db.refresh(item)
+    return item
+
+
+@router.post("/{patient_uuid}/telecoms/{telecom_uuid}/inactivate", response_model=PatientTelecomOut)
+def inactivate_telecom(patient_uuid: str, telecom_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = db.scalar(select(PatientTelecom).where(PatientTelecom.uuid == telecom_uuid, PatientTelecom.patient_id == patient.id))
+    if not item: raise HTTPException(status_code=404, detail="Patient telecom not found")
+    item.active = False; item.is_primary = False; item.inactivated_reason = body.reason
+    db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_telecom", resource_id=item.uuid, detail=body.reason)); db.commit(); db.refresh(item)
+    return item
+
+
+@router.post("/{patient_uuid}/addresses/{address_uuid}/inactivate", response_model=PatientAddressOut)
+def inactivate_address(patient_uuid: str, address_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = db.scalar(select(PatientAddress).where(PatientAddress.uuid == address_uuid, PatientAddress.patient_id == patient.id))
+    if not item: raise HTTPException(status_code=404, detail="Patient address not found")
+    item.active = False; item.is_primary = False; item.inactivated_reason = body.reason
+    db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_address", resource_id=item.uuid, detail=body.reason)); db.commit(); db.refresh(item)
+    return item
+
+
+@router.get("/{patient_uuid}/related-people", response_model=list[PatientRelatedPersonOut])
+def list_related_people(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    return list(db.scalars(select(PatientRelatedPerson).where(PatientRelatedPerson.patient_id == patient.id).order_by(PatientRelatedPerson.active.desc(), PatientRelatedPerson.priority, PatientRelatedPerson.last_name)))
+
+
+@router.post("/{patient_uuid}/related-people", response_model=PatientRelatedPersonOut, status_code=status.HTTP_201_CREATED)
+def create_related_person(patient_uuid: str, body: PatientRelatedPersonCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    if body.is_primary_contact:
+        for current in db.scalars(select(PatientRelatedPerson).where(PatientRelatedPerson.patient_id == patient.id, PatientRelatedPerson.active.is_(True))): current.is_primary_contact = False
+    item = PatientRelatedPerson(patient_id=patient.id, **body.model_dump()); db.add(item); db.flush()
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_related_person", resource_id=item.uuid, detail="relationship-does-not-authorize-portal")); db.commit(); db.refresh(item)
+    return item
+
+
+@router.get("/{patient_uuid}/telecoms", response_model=list[PatientTelecomOut])
+def list_telecoms(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    return list(db.scalars(select(PatientTelecom).where(PatientTelecom.patient_id == patient.id).order_by(PatientTelecom.active.desc(), PatientTelecom.rank)))
+
+
+@router.post("/{patient_uuid}/telecoms", response_model=PatientTelecomOut, status_code=status.HTTP_201_CREATED)
+def create_telecom(patient_uuid: str, body: PatientTelecomCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    if body.is_primary:
+        for current in db.scalars(select(PatientTelecom).where(PatientTelecom.patient_id == patient.id, PatientTelecom.system == body.system, PatientTelecom.active.is_(True))): current.is_primary = False
+    item = PatientTelecom(patient_id=patient.id, **body.model_dump()); db.add(item); db.flush()
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_telecom", resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return item
+
+
+@router.get("/{patient_uuid}/addresses", response_model=list[PatientAddressOut])
+def list_addresses(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    return list(db.scalars(select(PatientAddress).where(PatientAddress.patient_id == patient.id).order_by(PatientAddress.active.desc(), PatientAddress.priority, PatientAddress.id)))
+
+
+@router.post("/{patient_uuid}/addresses", response_model=PatientAddressOut, status_code=status.HTTP_201_CREATED)
+def create_address(patient_uuid: str, body: PatientAddressCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    if body.is_primary:
+        for item in db.scalars(select(PatientAddress).where(PatientAddress.patient_id == patient.id, PatientAddress.active.is_(True))):
+            item.is_primary = False
+    item = PatientAddress(patient_id=patient.id, **body.model_dump())
+    db.add(item); db.flush()
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_address", resource_id=item.uuid, detail=f"patient={patient.uuid}"))
+    db.commit(); db.refresh(item)
+    return item
 
 
 @router.get("", response_model=PatientPage)

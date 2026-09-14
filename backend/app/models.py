@@ -54,6 +54,69 @@ class Patient(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class PatientAddress(Base):
+    __tablename__ = "patient_addresses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    use: Mapped[str] = mapped_column(String(30), default="home")
+    type: Mapped[str] = mapped_column(String(30), default="both")
+    line1: Mapped[str] = mapped_column(String(255))
+    line2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    priority: Mapped[int] = mapped_column(default=1)
+    active: Mapped[bool] = mapped_column(default=True)
+    is_primary: Mapped[bool] = mapped_column(default=False)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PatientTelecom(Base):
+    __tablename__ = "patient_telecoms"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    system: Mapped[str] = mapped_column(String(30))
+    use: Mapped[str] = mapped_column(String(30), default="home")
+    value: Mapped[str] = mapped_column(String(255))
+    rank: Mapped[int] = mapped_column(default=1)
+    active: Mapped[bool] = mapped_column(default=True)
+    is_primary: Mapped[bool] = mapped_column(default=False)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PatientRelatedPerson(Base):
+    __tablename__ = "patient_related_persons"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    first_name: Mapped[str] = mapped_column(String(100))
+    middle_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str] = mapped_column(String(100))
+    relationship_code: Mapped[str] = mapped_column(String(63), index=True)
+    role_code: Mapped[str] = mapped_column(String(63), index=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    priority: Mapped[int] = mapped_column(default=1)
+    active: Mapped[bool] = mapped_column(default=True)
+    is_primary_contact: Mapped[bool] = mapped_column(default=False)
+    is_emergency_contact: Mapped[bool] = mapped_column(default=False)
+    can_make_medical_decisions: Mapped[bool] = mapped_column(default=False)
+    can_receive_medical_info: Mapped[bool] = mapped_column(default=False)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[int] = mapped_column(primary_key=True)
