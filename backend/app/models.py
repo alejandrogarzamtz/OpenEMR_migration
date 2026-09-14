@@ -1042,6 +1042,48 @@ class CarePlan(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class CareTeam(Base):
+    __tablename__ = "care_teams"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_care_team_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class CareTeamMember(Base):
+    __tablename__ = "care_team_members"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_member_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    care_team_id: Mapped[int] = mapped_column(ForeignKey("care_teams.id"), index=True)
+    practitioner_id: Mapped[int | None] = mapped_column(ForeignKey("practitioners.id"), nullable=True, index=True)
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
+    legacy_user_id: Mapped[int | None] = mapped_column(nullable=True)
+    legacy_facility_id: Mapped[int | None] = mapped_column(nullable=True)
+    legacy_contact_id: Mapped[int | None] = mapped_column(nullable=True)
+    member_type: Mapped[str] = mapped_column(String(20), index=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(50), index=True)
+    provider_since: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class ClinicalSignature(Base):
     """Append-only evidence for a form signature or amendment."""
 

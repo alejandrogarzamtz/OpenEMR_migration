@@ -1152,6 +1152,65 @@ class CarePlanOut(CarePlanBase):
     updated_at: datetime
 
 
+CARE_TEAM_STATUS = "^(proposed|active|suspended|inactive|entered-in-error)$"
+
+
+class CareTeamBase(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    status: str = Field(default="active", pattern=CARE_TEAM_STATUS)
+    note: str | None = Field(default=None, max_length=20_000)
+
+
+class CareTeamCreate(CareTeamBase):
+    pass
+
+
+class CareTeamUpdate(CareTeamBase):
+    pass
+
+
+class CareTeamMemberCreate(BaseModel):
+    member_type: str = Field(pattern="^(practitioner|facility|contact)$")
+    practitioner_uuid: str | None = None
+    facility_uuid: str | None = None
+    contact_name: str | None = Field(default=None, max_length=255)
+    role: str = Field(min_length=1, max_length=50)
+    provider_since: date | None = None
+    status: str = Field(default="active", pattern=CARE_TEAM_STATUS)
+    note: str | None = Field(default=None, max_length=20_000)
+
+    @model_validator(mode="after")
+    def valid_member_target(self):
+        if self.member_type == "practitioner" and not self.practitioner_uuid: raise ValueError("practitioner_uuid is required")
+        if self.member_type == "facility" and not self.facility_uuid: raise ValueError("facility_uuid is required")
+        if self.member_type == "contact" and not (self.contact_name or "").strip(): raise ValueError("contact_name is required")
+        if self.member_type != "practitioner" and self.practitioner_uuid: raise ValueError("practitioner_uuid is only valid for practitioner members")
+        return self
+
+
+class CareTeamMemberOut(CareTeamMemberCreate):
+    uuid: str
+    display_name: str
+    inactivated_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CareTeamMemberUpdate(BaseModel):
+    role: str = Field(min_length=1, max_length=50)
+    provider_since: date | None = None
+    status: str = Field(default="active", pattern=CARE_TEAM_STATUS)
+    note: str | None = Field(default=None, max_length=20_000)
+
+
+class CareTeamOut(CareTeamBase):
+    uuid: str
+    members: list[CareTeamMemberOut] = Field(default_factory=list)
+    inactivated_reason: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ClinicalFormCreate(BaseModel):
     encounter_uuid: str
     form_type: str = Field(pattern="^(soap|ros|physical_exam|dictation|note|clinic_note|clinical_instructions|aftercare_plan|treatment_plan|transfer_summary|custom)$")

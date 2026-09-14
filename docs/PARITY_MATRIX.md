@@ -24,7 +24,7 @@ are all verified. “Partial” never counts as final parity.
 | Labs and procedures | Partial | multi-line orders, specimens, questions, HL7, Quest/LabCorp and review/sign-off |
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
-| Care plans and care teams | Partial | relational coded plans, reason periods, targets, lifecycle, locking, auditing, React workflows and deterministic lossless row import exist; care-team participants, patient preferences, goal/intervention outcome history, FHIR resources and production reconciliation remain |
+| Care plans and care teams | Partial | relational coded plans plus named care teams and practitioner/facility/contact participants now have lifecycle, auditing, React workflows and deterministic lossless import; patient preferences, goal/intervention outcome history, FHIR resources and production reconciliation remain |
 | Questionnaires/PRO/SDOH | Partial | versioned PHQ-9/GAD-7 responses and scoring exist; PROMIS, SDOH sets, patient delivery and broader repository remain |
 | Clinical decision support | Missing | rules, reminders, alerts, measures and intervention feedback |
 | Insurance and eligibility | Partial | eligibility checks, coordination of benefits and authorization workflows |
