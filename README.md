@@ -128,8 +128,8 @@ end-to-end healthcare workflows:
   immunizations, vital signs, prescriptions, signable clinical forms,
   questionnaires, and an authenticated FHIR surface including care plans, goals,
   care teams, appointments, encounters, clinical and payer directories,
-  coverage, document references and binary retrieval, observations, medications
-  and immunizations;
+  coverage, document references and binary retrieval, observations, medications,
+  immunizations, laboratory service requests and diagnostic reports;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 

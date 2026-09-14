@@ -36,7 +36,7 @@ are all verified. “Partial” never counts as final parity.
 | Internal messaging | Partial | patient-bound secure threads, staff replies, clinical tasks and notification outbox exist; staff-to-staff groups, preferences, SMS and Direct remain |
 | Reports | Partial | all 48 legacy surfaces are cataloged and 11 report families have reproducible runs; 37 implementations remain |
 | Quality measures | Missing | CQM/AMC calculation, exports, dashboards and result history |
-| FHIR R4 API | Partial | Patient, problems, allergies, medications, immunizations, observations, appointments, encounters, organizations, locations, practitioners, coverage, document references/binaries, CarePlan, Goal and CareTeam have audited contracts; remaining resources, broader search parameters, formal validation and bulk export remain |
+| FHIR R4 API | Partial | Patient, problems, allergies, medications, immunizations, observations, laboratory ServiceRequest/DiagnosticReport, appointments, encounters, organizations, locations, practitioners, coverage, document references/binaries, CarePlan, Goal and CareTeam have audited contracts; remaining resources, broader search parameters, formal validation and bulk export remain |
 | SMART on FHIR/OAuth | Missing | discovery, clients, scopes, launch context, refresh and revocation |
 | Standard OpenEMR API | Missing | compatibility routes and portal API contracts |
 | C-CDA/CCR/EHI export | Missing | generate, import, validate and complete patient export |

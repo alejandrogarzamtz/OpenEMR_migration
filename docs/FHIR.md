@@ -5,8 +5,8 @@ The compatibility API is exposed below `/fhir` and advertised by
 Patient, Condition, AllergyIntolerance, MedicationStatement, MedicationRequest,
 Immunization, Observation, Appointment, Encounter, Organization, Location,
 Practitioner, Coverage, DocumentReference, Binary, CarePlan, Goal, and CareTeam
-resources. Observation searches
-combine laboratory results and LOINC-coded vital signs. Patient-bound searches
+resources, plus laboratory ServiceRequest and DiagnosticReport. Observation
+searches combine laboratory results and LOINC-coded vital signs. Patient-bound searches
 require a patient compartment; Appointment, Encounter, and care-coordination
 searches also support normalized FHIR status filtering. Individual reads,
 searches, and missing-resource OperationOutcomes have contract coverage.
@@ -36,6 +36,15 @@ the stored media type, ETag and safe filename. Document searches support exact
 MIME type plus the `eq`, `gt`, `ge`, `lt`, and `le` FHIR date prefixes. The
 legacy `$docref` clinical-document generation operation remains separate parity
 work; it is not claimed by the read-only document surface.
+
+Each relational laboratory order is exposed as a ServiceRequest with normalized
+status and priority, LOINC code, authored time, instructions, patient and
+encounter. A DiagnosticReport is exposed only after at least one result exists;
+it links back to the originating ServiceRequest and forward to resolvable
+Observation resources. Diagnostic searches support patient, normalized status,
+LOINC code and FHIR date prefixes. The current model does not retain specimen
+identity, collection container or accession details, so Specimen remains
+explicitly outside the verified surface rather than being synthesized.
 
 The development JWT is used as a bearer token. Production rollout must replace
 it with SMART on FHIR authorization, asymmetric token signing, scopes, launch

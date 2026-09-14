@@ -41,6 +41,7 @@ def metadata():
     read_search=[{"code":"read"},{"code":"search-type"}]
     patient_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"}]} for name in ("Condition","AllergyIntolerance","MedicationStatement","Observation","Immunization","MedicationRequest")]
     patient_resources.extend([{"type":"Coverage","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]},{"type":"DocumentReference","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"type","type":"token"},{"name":"date","type":"date"}]},{"type":"Binary","interaction":[{"code":"read"}]}])
+    patient_resources.extend([{"type":"ServiceRequest","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"},{"name":"code","type":"token"},{"name":"authored","type":"date"}]},{"type":"DiagnosticReport","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"},{"name":"code","type":"token"},{"name":"date","type":"date"}]}])
     status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
     directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
     resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
@@ -460,3 +461,62 @@ def read_binary(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(c
     item=db.scalar(select(Document).where(Document.uuid==resource_uuid))
     if not item:fhir_not_found("Binary")
     audit(db,user,"Binary",item.uuid);safe_name=item.name.replace('"',"");return Response(item.content,media_type=item.mime_type,headers={"Content-Disposition":f'attachment; filename="{safe_name}"',"ETag":item.sha256})
+
+
+SERVICE_REQUEST_STATUS={"pending":"active","routed":"active","in-progress":"active","complete":"completed","completed":"completed","canceled":"revoked","cancelled":"revoked","on-hold":"on-hold","draft":"draft","entered-in-error":"entered-in-error"}
+DIAGNOSTIC_REPORT_STATUS={"pending":"registered","routed":"registered","in-progress":"preliminary","complete":"final","completed":"final","canceled":"cancelled","cancelled":"cancelled","entered-in-error":"entered-in-error"}
+
+
+def lab_order_context(db: Session, item: LabOrder):
+    patient_uuid=db.scalar(select(Patient.uuid).where(Patient.id==item.patient_id));encounter_uuid=db.scalar(select(Encounter.uuid).where(Encounter.id==item.encounter_id)) if item.encounter_id else None;return patient_uuid,encounter_uuid
+
+
+def service_request_resource(db: Session, item: LabOrder, patient_uuid: str | None = None) -> dict:
+    if patient_uuid is None:patient_uuid,encounter_uuid=lab_order_context(db,item)
+    else:encounter_uuid=db.scalar(select(Encounter.uuid).where(Encounter.id==item.encounter_id)) if item.encounter_id else None
+    status_value=SERVICE_REQUEST_STATUS.get(item.status,"unknown")
+    return {"resourceType":"ServiceRequest","id":item.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest"]},"status":status_value,"intent":"order","category":[{"coding":[{"system":"http://snomed.info/sct","code":"108252007","display":"Laboratory procedure"}]}],"priority":item.priority if item.priority in {"routine","urgent","asap","stat"} else "routine","code":{"coding":[{"system":"http://loinc.org","code":item.code,"display":item.name}],"text":item.name},"subject":{"reference":f"Patient/{patient_uuid}"},"authoredOn":item.ordered_at.isoformat(),**({"encounter":{"reference":f"Encounter/{encounter_uuid}"}} if encounter_uuid else {}),**({"patientInstruction":item.instructions} if item.instructions else {})}
+
+
+def diagnostic_report_resource(db: Session, item: LabOrder, patient_uuid: str | None = None, results: list[LabResult] | None = None) -> dict:
+    if patient_uuid is None:patient_uuid,encounter_uuid=lab_order_context(db,item)
+    else:encounter_uuid=db.scalar(select(Encounter.uuid).where(Encounter.id==item.encounter_id)) if item.encounter_id else None
+    if results is None:results=list(db.scalars(select(LabResult).where(LabResult.order_id==item.id).order_by(LabResult.observed_at)))
+    status_value="corrected" if any(result.status=="corrected" for result in results) else DIAGNOSTIC_REPORT_STATUS.get(item.status,"unknown")
+    effective=max((result.observed_at for result in results),default=item.ordered_at)
+    return {"resourceType":"DiagnosticReport","id":item.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab"]},"status":status_value,"category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/v2-0074","code":"LAB","display":"Laboratory"}]}],"code":{"coding":[{"system":"http://loinc.org","code":item.code,"display":item.name}],"text":item.name},"subject":{"reference":f"Patient/{patient_uuid}"},"effectiveDateTime":effective.isoformat(),"issued":effective.isoformat(),"basedOn":[{"reference":f"ServiceRequest/{item.uuid}"}],"result":[{"reference":f"Observation/{result.uuid}","display":result.name} for result in results],**({"encounter":{"reference":f"Encounter/{encounter_uuid}"}} if encounter_uuid else {})}
+
+
+@router.get("/ServiceRequest")
+def search_service_requests(patient:str=Query(),status:str|None=None,code:str|None=None,authored:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));query=select(LabOrder).where(LabOrder.patient_id==owner.id)
+    if code:query=query.where(LabOrder.code==code.rsplit("|",1)[-1])
+    rows=list(db.scalars(query.order_by(LabOrder.ordered_at.desc())));resources=[service_request_resource(db,item,owner.uuid) for item in rows]
+    pairs=list(zip(resources,rows))
+    if status:pairs=[pair for pair in pairs if pair[0]["status"]==status]
+    if authored:pairs=[pair for pair in pairs if matches_fhir_date(pair[1].ordered_at,authored)]
+    audit(db,user,"ServiceRequest",owner.uuid,search=True);return bundle("ServiceRequest",[pair[0] for pair in pairs])
+
+
+@router.get("/ServiceRequest/{resource_uuid}")
+def read_service_request(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    item=db.scalar(select(LabOrder).where(LabOrder.uuid==resource_uuid))
+    if not item:fhir_not_found("ServiceRequest")
+    resource=service_request_resource(db,item);audit(db,user,"ServiceRequest",item.uuid);return resource
+
+
+@router.get("/DiagnosticReport")
+def search_diagnostic_reports(patient:str=Query(),status:str|None=None,code:str|None=None,date_value:str|None=Query(default=None,alias="date"),db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));query=select(LabOrder).join(LabResult).where(LabOrder.patient_id==owner.id).distinct()
+    if code:query=query.where(LabOrder.code==code.rsplit("|",1)[-1])
+    rows=list(db.scalars(query.order_by(LabOrder.ordered_at.desc())));resources=[diagnostic_report_resource(db,item,owner.uuid) for item in rows];pairs=list(zip(resources,rows))
+    if status:pairs=[pair for pair in pairs if pair[0]["status"]==status]
+    if date_value:pairs=[pair for pair in pairs if matches_fhir_date(max((result.observed_at for result in db.scalars(select(LabResult).where(LabResult.order_id==pair[1].id))),default=pair[1].ordered_at),date_value)]
+    audit(db,user,"DiagnosticReport",owner.uuid,search=True);return bundle("DiagnosticReport",[pair[0] for pair in pairs])
+
+
+@router.get("/DiagnosticReport/{resource_uuid}")
+def read_diagnostic_report(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    item=db.scalar(select(LabOrder).where(LabOrder.uuid==resource_uuid))
+    if not item or not db.scalar(select(LabResult.id).where(LabResult.order_id==item.id).limit(1)):fhir_not_found("DiagnosticReport")
+    resource=diagnostic_report_resource(db,item);audit(db,user,"DiagnosticReport",item.uuid);return resource
