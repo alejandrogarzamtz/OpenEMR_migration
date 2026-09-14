@@ -94,6 +94,7 @@ end-to-end healthcare workflows:
   evidence, and an append-only PostgreSQL audit boundary;
 - relational longitudinal care plans with coded reasons, targets, lifecycle
 - patient care teams with practitioner, facility and external-contact participants
+- longitudinal treatment-intervention and care-experience preferences with typed values, coded answer sets, and immutable amendment history
 - patient-scoped clinical-form evidence links to documents and procedure results,
   covered by signature integrity and preserved from legacy clinical notes
   controls, encounter locking, audited React workflows, and idempotent legacy

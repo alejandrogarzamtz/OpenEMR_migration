@@ -1211,6 +1211,68 @@ class CareTeamOut(CareTeamBase):
     updated_at: datetime
 
 
+PREFERENCE_CATEGORY = "^(treatment-intervention|care-experience)$"
+PREFERENCE_STATUS = "^(preliminary|final|amended)$"
+
+
+class PatientPreferenceBase(BaseModel):
+    category: str = Field(pattern=PREFERENCE_CATEGORY)
+    observation_code: str = Field(min_length=1, max_length=50)
+    observation_code_text: str | None = Field(default=None, max_length=255)
+    value_type: str = Field(pattern="^(coded|text|boolean)$")
+    value_code: str | None = Field(default=None, max_length=100)
+    value_code_system: str | None = Field(default=None, max_length=255)
+    value_display: str | None = Field(default=None, max_length=255)
+    value_text: str | None = Field(default=None, max_length=20_000)
+    value_boolean: bool | None = None
+    effective_at: datetime
+    status: str = Field(default="final", pattern=PREFERENCE_STATUS)
+    note: str | None = Field(default=None, max_length=20_000)
+
+    @field_validator("effective_at")
+    @classmethod
+    def timezone_required(cls, value: datetime):
+        if value.tzinfo is None or value.utcoffset() is None: raise ValueError("effective_at must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def exact_value_representation(self):
+        coded = any(value not in (None, "") for value in (self.value_code, self.value_code_system, self.value_display))
+        text = bool((self.value_text or "").strip())
+        boolean = self.value_boolean is not None
+        if self.value_type == "coded" and not all((self.value_code, self.value_code_system, self.value_display)): raise ValueError("coded preferences require code, system and display")
+        if self.value_type == "text" and not text: raise ValueError("text preferences require value_text")
+        if self.value_type == "boolean" and not boolean: raise ValueError("boolean preferences require value_boolean")
+        if sum((coded, text, boolean)) != 1: raise ValueError("exactly one preference value representation is allowed")
+        return self
+
+
+class PatientPreferenceCreate(PatientPreferenceBase):
+    pass
+
+
+class PatientPreferenceAmend(PatientPreferenceBase):
+    amendment_reason: str = Field(min_length=3, max_length=255)
+
+
+class PatientPreferenceOut(PatientPreferenceBase):
+    uuid: str
+    supersedes_uuid: str | None = None
+    amendment_reason: str | None = None
+    active: bool
+    inactivated_reason: str | None = None
+    created_at: datetime
+
+
+class PreferenceValueSetOut(BaseModel):
+    observation_code: str
+    answer_code: str
+    answer_system: str
+    answer_display: str
+    answer_definition: str | None = None
+    sort_order: int
+
+
 class ClinicalFormCreate(BaseModel):
     encounter_uuid: str
     form_type: str = Field(pattern="^(soap|ros|physical_exam|dictation|note|clinic_note|clinical_instructions|aftercare_plan|treatment_plan|transfer_summary|custom)$")

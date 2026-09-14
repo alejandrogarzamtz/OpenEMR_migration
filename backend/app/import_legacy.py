@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, CarePlan, CareTeam, CareTeamMember, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, CarePlan, CareTeam, CareTeamMember, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -371,6 +371,26 @@ def run(source_url: str, commit: bool = False) -> dict:
                 member_type="practitioner" if row["user_id"] else "contact" if row["contact_id"] else "facility";contact_name=" ".join(filter(None,(clean(row["contact_first_name"]),clean(row["contact_last_name"]))))
                 display=" ".join(filter(None,(practitioner.first_name,practitioner.last_name))) if practitioner else facility.name if member_type=="facility" and facility else contact_name or f"Legacy {member_type} {row['user_id'] or row['contact_id'] or row['facility_id']}"
                 target.add(CareTeamMember(legacy_member_id=row["id"],care_team_id=team.id,practitioner_id=practitioner.id if practitioner else None,facility_id=facility.id if facility else None,legacy_user_id=row["user_id"],legacy_facility_id=row["facility_id"],legacy_contact_id=row["contact_id"],member_type=member_type,display_name=display,role=clean(row["role"]) or "participant",provider_since=row["provider_since"],status=(clean(row["status"]) or "active")[:32],note=clean(row["note"]),created_at=legacy_datetime(row["date_created"],datetime.now(timezone.utc)),updated_at=legacy_datetime(row["date_updated"],datetime.now(timezone.utc)),legacy_payload={key:json_value(value) for key,value in row.items()}));stats["care_team_members"]["inserted"]+=1
+            target.flush()
+        if "preference_value_sets" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM preference_value_sets ORDER BY id")).mappings():
+                stats["preference_value_sets"]["source"]+=1
+                if target.scalar(select(PreferenceValueSet.id).where(PreferenceValueSet.legacy_value_set_id==row["id"])):stats["preference_value_sets"]["existing"]+=1;continue
+                if not all(clean(row[key]) for key in ("loinc_code","answer_code","answer_system","answer_display")):stats["preference_value_sets"]["rejected"]+=1;continue
+                target.add(PreferenceValueSet(legacy_value_set_id=row["id"],observation_code=clean(row["loinc_code"]),answer_code=clean(row["answer_code"]),answer_system=clean(row["answer_system"]),answer_display=clean(row["answer_display"]),answer_definition=clean(row["answer_definition"]),sort_order=row["sort_order"] or 0,active=bool(row["active"]),legacy_payload={key:json_value(value) for key,value in row.items()}));stats["preference_value_sets"]["inserted"]+=1
+            target.flush()
+        preference_sources=(
+            ("patient_treatment_intervention_preferences","treatment-intervention","treatment_preferences"),
+            ("patient_care_experience_preferences","care-experience","care_experience_preferences"),
+        )
+        for table_name,category,stat_name in preference_sources:
+            if table_name not in legacy_tables:continue
+            for row in legacy.execute(text(f"SELECT * FROM {table_name} ORDER BY id")).mappings():
+                stats[stat_name]["source"]+=1
+                if target.scalar(select(PatientPreference.id).where(PatientPreference.category==category,PatientPreference.legacy_preference_id==row["id"])):stats[stat_name]["existing"]+=1;continue
+                patient=patient_for_legacy(target,row["patient_id"]);value_type=clean(row["value_type"]) or "coded";observation_code=clean(row["observation_code"])
+                if not patient or not observation_code or value_type not in {"coded","text","boolean"}:stats[stat_name]["rejected"]+=1;continue
+                target.add(PatientPreference(category=category,legacy_preference_id=row["id"],patient_id=patient.id,observation_code=observation_code,observation_code_text=clean(row["observation_code_text"]),value_type=value_type,value_code=clean(row["value_code"]),value_code_system=clean(row["value_code_system"]),value_display=clean(row["value_display"]),value_text=clean(row["value_text"]),value_boolean=bool(row["value_boolean"]) if row["value_boolean"] is not None else None,effective_at=legacy_datetime(row["effective_datetime"],datetime.now(timezone.utc)),status=clean(row["status"]) or "final",note=clean(row["note"]),active=True,legacy_payload={key:json_value(value) for key,value in row.items()}));stats[stat_name]["inserted"]+=1
             target.flush()
         appointments = legacy.execute(text("SELECT e.*,u.fname AS provider_fname,u.lname AS provider_lname,f.name AS facility_name FROM openemr_postcalendar_events e LEFT JOIN users u ON u.id=e.pc_aid LEFT JOIN facility f ON f.id=e.pc_facility ORDER BY e.pc_eid"))
         for row in appointments.mappings():

@@ -1084,6 +1084,49 @@ class CareTeamMember(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class PreferenceValueSet(Base):
+    __tablename__ = "preference_value_sets"
+    __table_args__ = (UniqueConstraint("observation_code", "answer_code", "answer_system", name="uq_preference_value_answer"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_value_set_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    observation_code: Mapped[str] = mapped_column(String(50), index=True)
+    answer_code: Mapped[str] = mapped_column(String(100))
+    answer_system: Mapped[str] = mapped_column(String(255))
+    answer_display: Mapped[str] = mapped_column(String(255))
+    answer_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(default=0)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class PatientPreference(Base):
+    __tablename__ = "patient_preferences"
+    __table_args__ = (UniqueConstraint("category", "legacy_preference_id", name="uq_patient_preference_legacy"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    category: Mapped[str] = mapped_column(String(32), index=True)
+    legacy_preference_id: Mapped[int | None] = mapped_column(nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("patient_preferences.id"), nullable=True, index=True)
+    observation_code: Mapped[str] = mapped_column(String(50), index=True)
+    observation_code_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    value_type: Mapped[str] = mapped_column(String(16), index=True)
+    value_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    value_code_system: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    value_display: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    value_boolean: Mapped[bool | None] = mapped_column(nullable=True)
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="final", index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amendment_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class ClinicalSignature(Base):
     """Append-only evidence for a form signature or amendment."""
 
