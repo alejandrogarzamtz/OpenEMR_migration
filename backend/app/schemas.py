@@ -1197,6 +1197,18 @@ class ClinicalFormOut(ClinicalFormCreate):
     released_to_patient_at: datetime | None = None
 
 
+class ClinicalFormLinkOut(BaseModel):
+    uuid: str
+    label: str
+    linked_at: datetime
+    legacy_clinical_note_id: int | None = None
+
+
+class ClinicalFormLinksOut(BaseModel):
+    documents: list[ClinicalFormLinkOut]
+    results: list[ClinicalFormLinkOut]
+
+
 class PortalLabResultOut(BaseModel):
     uuid: str
     order_uuid: str

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import ClinicalForm, ClinicalSignature, Encounter, User
+from ..models import ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalSignature, Document, Encounter, LabResult, User
 
 
 def canonical_json(value) -> str:
@@ -17,8 +17,11 @@ def canonical_json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=encode)
 
 
-def clinical_form_hash(form: ClinicalForm) -> str:
+def clinical_form_hash(form: ClinicalForm, db: Session | None = None) -> str:
     payload = {"uuid":form.uuid,"patient_id":form.patient_id,"encounter_id":form.encounter_id,"form_type":form.form_type,"title":form.title,"content":form.content,"authored_at":form.authored_at}
+    if db is not None:
+        payload["linked_documents"] = sorted(db.scalars(select(Document.uuid).join(ClinicalFormDocumentLink).where(ClinicalFormDocumentLink.clinical_form_id == form.id)))
+        payload["linked_results"] = sorted(db.scalars(select(LabResult.uuid).join(ClinicalFormResultLink).where(ClinicalFormResultLink.clinical_form_id == form.id)))
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 
@@ -45,13 +48,13 @@ def form_locked(db: Session, form: ClinicalForm) -> bool:
 
 def encounter_hash(db: Session, encounter: Encounter) -> str:
     forms=list(db.scalars(select(ClinicalForm).where(ClinicalForm.encounter_id==encounter.id).order_by(ClinicalForm.id)))
-    payload={"uuid":encounter.uuid,"patient_id":encounter.patient_id,"occurred_at":encounter.occurred_at,"type":encounter.type,"status":encounter.status,"chief_complaint":encounter.chief_complaint,"clinical_note":encounter.clinical_note,"forms":[{"uuid":form.uuid,"hash":clinical_form_hash(form)} for form in forms]}
+    payload={"uuid":encounter.uuid,"patient_id":encounter.patient_id,"occurred_at":encounter.occurred_at,"type":encounter.type,"status":encounter.status,"chief_complaint":encounter.chief_complaint,"clinical_note":encounter.clinical_note,"forms":[{"uuid":form.uuid,"hash":clinical_form_hash(form,db)} for form in forms]}
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 
 def create_signature(db: Session, form: ClinicalForm, user: User, *, lock: bool, attestation: str, amendment: str | None) -> ClinicalSignature:
     existing = form_signatures(db, form.id)
-    content_digest = clinical_form_hash(form)
+    content_digest = clinical_form_hash(form, db)
     previous = existing[-1].signature_hash if existing else None
     signed_at = datetime.now(timezone.utc)
     evidence = {"form_uuid":form.uuid,"encounter_id":form.encounter_id,"signer_id":user.id,"signer_name":user.email,"signer_role":user.role,"signed_at":signed_at,"auth_method":"password","is_lock":lock,"attestation":attestation,"amendment":amendment,"content_hash":content_digest,"previous_signature_hash":previous}
@@ -59,8 +62,8 @@ def create_signature(db: Session, form: ClinicalForm, user: User, *, lock: bool,
     db.add(item); db.flush(); return item
 
 
-def verify_signature_chain(form: ClinicalForm, signatures: list[ClinicalSignature]) -> list[bool]:
-    current_content_hash = clinical_form_hash(form); previous = None; results = []
+def verify_signature_chain(db: Session, form: ClinicalForm, signatures: list[ClinicalSignature]) -> list[bool]:
+    current_content_hash = clinical_form_hash(form, db); previous = None; results = []
     for item in signatures:
         evidence = {"form_uuid":form.uuid,"encounter_id":item.encounter_id,"signer_id":item.signer_id,"signer_name":item.signer_name,"signer_role":item.signer_role,"signed_at":item.signed_at,"auth_method":item.auth_method,"is_lock":item.is_lock,"attestation":item.attestation,"amendment":item.amendment,"content_hash":item.content_hash,"previous_signature_hash":item.previous_signature_hash}
         valid = item.previous_signature_hash == previous and signature_hash(evidence) == item.signature_hash

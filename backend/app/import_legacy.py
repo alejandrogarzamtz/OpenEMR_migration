@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, CarePlan, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, CarePlan, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "clinical_forms", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -609,6 +609,24 @@ def run(source_url: str, commit: bool = False) -> dict:
             target.add(ClinicalForm(legacy_form_key=legacy_key, patient_id=patient.id, encounter_id=encounter.id, form_type=known_types.get(formdir, "custom"), title=clean(row["form_name"]) or formdir.replace("_", " ").title(), content=content, status="signed" if row["authorized"] else "draft", authored_at=row["date"] or encounter.occurred_at))
             stats["clinical_forms"]["inserted"] += 1
         target.flush()
+        if "clinical_notes_documents" in legacy_tables and "form_clinical_notes" in legacy_tables:
+            rows=legacy.execute(text("""SELECT l.id,l.clinical_note_id,l.document_id,l.created_at,l.created_by,f.id AS registry_id FROM clinical_notes_documents l JOIN form_clinical_notes n ON n.id=l.clinical_note_id JOIN forms f ON f.form_id=n.form_id AND f.formdir='clinical_notes' AND f.pid=n.pid AND f.encounter=n.encounter AND f.deleted=0 ORDER BY l.id"""))
+            for row in rows.mappings():
+                stats["clinical_form_document_links"]["source"]+=1
+                if target.scalar(select(ClinicalFormDocumentLink.id).where(ClinicalFormDocumentLink.legacy_link_id==row["id"])):stats["clinical_form_document_links"]["existing"]+=1;continue
+                form=target.scalar(select(ClinicalForm).where(ClinicalForm.legacy_form_key==f"forms:{row['registry_id']}"));document=target.scalar(select(Document).where(Document.legacy_document_id==row["document_id"]))
+                if not form or not document or form.patient_id!=document.patient_id:stats["clinical_form_document_links"]["rejected"]+=1;continue
+                target.add(ClinicalFormDocumentLink(legacy_link_id=row["id"],legacy_clinical_note_id=row["clinical_note_id"],clinical_form_id=form.id,document_id=document.id,created_at=legacy_datetime(row["created_at"],datetime.now(timezone.utc)),created_by_name=clean(row["created_by"])));stats["clinical_form_document_links"]["inserted"]+=1
+            target.flush()
+        if "clinical_notes_procedure_results" in legacy_tables and "form_clinical_notes" in legacy_tables:
+            rows=legacy.execute(text("""SELECT l.id,l.clinical_note_id,l.procedure_result_id,l.created_at,l.created_by,f.id AS registry_id FROM clinical_notes_procedure_results l JOIN form_clinical_notes n ON n.id=l.clinical_note_id JOIN forms f ON f.form_id=n.form_id AND f.formdir='clinical_notes' AND f.pid=n.pid AND f.encounter=n.encounter AND f.deleted=0 ORDER BY l.id"""))
+            for row in rows.mappings():
+                stats["clinical_form_result_links"]["source"]+=1
+                if target.scalar(select(ClinicalFormResultLink.id).where(ClinicalFormResultLink.legacy_link_id==row["id"])):stats["clinical_form_result_links"]["existing"]+=1;continue
+                form=target.scalar(select(ClinicalForm).where(ClinicalForm.legacy_form_key==f"forms:{row['registry_id']}"));result=target.scalar(select(LabResult).where(LabResult.legacy_result_id==row["procedure_result_id"]));order=target.get(LabOrder,result.order_id) if result else None
+                if not form or not result or not order or form.patient_id!=order.patient_id:stats["clinical_form_result_links"]["rejected"]+=1;continue
+                target.add(ClinicalFormResultLink(legacy_link_id=row["id"],legacy_clinical_note_id=row["clinical_note_id"],clinical_form_id=form.id,lab_result_id=result.id,created_at=legacy_datetime(row["created_at"],datetime.now(timezone.utc)),created_by_name=clean(row["created_by"])));stats["clinical_form_result_links"]["inserted"]+=1
+            target.flush()
         if "esign_signatures" in legacy_tables:
             legacy_signatures = legacy.execute(text("""SELECT e.id,e.tid,e.`table`,e.uid,e.datetime,e.is_lock,e.amendment,e.hash,e.signature_hash,u.fname,u.lname,u.title FROM esign_signatures e LEFT JOIN users u ON u.id=e.uid ORDER BY e.tid,e.datetime,e.id"""))
             for row in legacy_signatures.mappings():
@@ -621,7 +639,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 if not form and not encounter: stats["clinical_signatures"]["rejected"] += 1; continue
                 target_type="form" if form else "encounter"; encounter=encounter or target.get(Encounter,form.encounter_id); form_id=form.id if form else None
                 previous = target.scalar(select(ClinicalSignature.signature_hash).where(ClinicalSignature.target_type==target_type,ClinicalSignature.form_id==form_id if form else ClinicalSignature.encounter_id==encounter.id).order_by(ClinicalSignature.signed_at.desc(),ClinicalSignature.id.desc()).limit(1))
-                signed_at = row["datetime"] or (form.authored_at if form else encounter.occurred_at); content_digest=clinical_form_hash(form) if form else encounter_hash(target,encounter)
+                signed_at = row["datetime"] or (form.authored_at if form else encounter.occurred_at); content_digest=clinical_form_hash(form,target) if form else encounter_hash(target,encounter)
                 evidence = ({"form_uuid":form.uuid,"encounter_id":encounter.id} if form else {"encounter_uuid":encounter.uuid}) | {"signer_id":None,"signer_name":signer_name,"signer_role":clean(row["title"]),"signed_at":signed_at,"auth_method":"legacy-import","is_lock":bool(row["is_lock"]),"attestation":attestation,"amendment":clean(row["amendment"]),"content_hash":content_digest,"previous_signature_hash":previous}
                 target.add(ClinicalSignature(legacy_signature_id=row["id"],target_type=target_type,form_id=form_id,encounter_id=encounter.id,signer_name=signer_name,signer_role=clean(row["title"]),signed_at=signed_at,auth_method="legacy-import",is_lock=bool(row["is_lock"]),attestation=attestation,amendment=clean(row["amendment"]),content_hash=content_digest,previous_signature_hash=previous,signature_hash=signature_hash(evidence),legacy_content_hash=clean(row["hash"]),legacy_signature_hash=clean(row["signature_hash"]),legacy_payload={key:json_value(value) for key,value in row.items()}))
                 stats["clinical_signatures"]["inserted"] += 1

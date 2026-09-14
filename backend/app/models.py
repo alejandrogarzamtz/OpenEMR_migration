@@ -982,6 +982,32 @@ class ClinicalForm(Base):
     released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class ClinicalFormDocumentLink(Base):
+    __tablename__ = "clinical_form_document_links"
+    __table_args__ = (UniqueConstraint("clinical_form_id", "document_id", "legacy_clinical_note_id", name="uq_clinical_form_document"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_link_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_clinical_note_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    clinical_form_id: Mapped[int] = mapped_column(ForeignKey("clinical_forms.id"), index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class ClinicalFormResultLink(Base):
+    __tablename__ = "clinical_form_result_links"
+    __table_args__ = (UniqueConstraint("clinical_form_id", "lab_result_id", "legacy_clinical_note_id", name="uq_clinical_form_result"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_link_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_clinical_note_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    clinical_form_id: Mapped[int] = mapped_column(ForeignKey("clinical_forms.id"), index=True)
+    lab_result_id: Mapped[int] = mapped_column(ForeignKey("lab_results.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
 class CarePlan(Base):
     """Longitudinal coded care-plan entry, independent from its legacy form container."""
 

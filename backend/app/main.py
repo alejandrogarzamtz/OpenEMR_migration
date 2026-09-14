@@ -25,6 +25,7 @@ from .api.communications import router as communications_router
 from .api.portal import router as portal_router
 from .api.chart_reports import router as chart_reports_router
 from .api.care_plans import router as care_plans_router
+from .api.clinical_form_links import router as clinical_form_links_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
 from .services.clinical_signatures import create_encounter_signature, create_signature, encounter_locked, encounter_signatures, form_locked, form_signatures, verify_encounter_signature_chain, verify_signature_chain
@@ -45,6 +46,7 @@ app.include_router(communications_router)
 app.include_router(portal_router)
 app.include_router(chart_reports_router)
 app.include_router(care_plans_router)
+app.include_router(clinical_form_links_router)
 app.include_router(fhir_router)
 
 
@@ -409,7 +411,7 @@ def sign_clinical_form(patient_uuid: str, form_uuid: str, body: ClinicalSignatur
 def list_clinical_signatures(patient_uuid: str, form_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     patient = patient_by_uuid(db, patient_uuid); item = db.scalar(select(ClinicalForm).where(ClinicalForm.uuid == form_uuid, ClinicalForm.patient_id == patient.id))
     if not item: raise HTTPException(status_code=404, detail="Clinical form not found")
-    signatures = form_signatures(db, item.id); validity = verify_signature_chain(item, signatures)
+    signatures = form_signatures(db, item.id); validity = verify_signature_chain(db, item, signatures)
     db.add(AuditEvent(actor_id=user.id, action="verify", resource_type="clinical_signature", resource_id=item.uuid, detail=f"records={len(signatures)}; valid={all(validity)}")); db.commit()
     return [ClinicalSignatureOut(**{key:getattr(signature,key) for key in ("uuid","target_type","signer_name","signer_role","signed_at","auth_method","is_lock","attestation","amendment","content_hash","previous_signature_hash","signature_hash")}, integrity_valid=valid) for signature,valid in zip(signatures,validity)]
 

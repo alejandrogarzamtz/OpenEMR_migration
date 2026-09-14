@@ -10,6 +10,7 @@ import { PatientDuplicates } from "./features/patients/PatientDuplicates";
 import { PatientReportButton } from "./features/patients/PatientReportButton";
 import { ClinicalFormEditor } from "./features/patients/ClinicalFormEditor";
 import { CarePlanWorkspace } from "./features/patients/CarePlanWorkspace";
+import { ClinicalFormLinks } from "./features/patients/ClinicalFormLinks";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 import { PatientFlowBoard } from "./features/patient-flow/PatientFlowBoard";
@@ -23,6 +24,7 @@ import { SecurityWorkspace } from "./features/security/SecurityWorkspace";
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
 type LabOrder = { uuid:string; ordered_at:string; code:string; name:string; status:string };
+type LabResult = { uuid:string; name:string; value:string; unit?:string };
 type ClinicalDocument = { uuid:string; name:string; mime_type:string; uploaded_at:string; released_to_patient_at?:string };
 type Coverage = { uuid:string; payer_name:string; policy_number:string; priority:string };
 type Charge = { uuid:string; encounter_uuid:string; code:string; description:string; unit_price:string; units:number };
@@ -32,7 +34,7 @@ type Vitals = { uuid:string; observed_at:string; systolic?:string; diastolic?:st
 type Prescription = { uuid:string; drug_name:string; dosage_instructions:string; status:string };
 type ClinicalForm = { uuid:string; encounter_uuid:string; form_type:string; title:string; content:Record<string,unknown>; status:string; authored_at:string; signed_at?:string; locked:boolean; signature_count:number; released_to_patient_at?:string };
 type EncounterSummary={uuid:string;occurred_at:string;chief_complaint?:string;locked:boolean;signature_count:number};
-type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:EncounterSummary[]; labOrders:LabOrder[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[]; immunizations:Immunization[]; vitals:Vitals[]; prescriptions:Prescription[]; clinicalForms:ClinicalForm[] };
+type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:EncounterSummary[]; labOrders:LabOrder[]; labResults:LabResult[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[]; immunizations:Immunization[]; vitals:Vitals[]; prescriptions:Prescription[]; clinicalForms:ClinicalForm[] };
 
 function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
@@ -84,7 +86,8 @@ function App(){
   async function openPatient(patient:Patient){
     setError("");
     const [summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`),api(`/api/v1/patients/${patient.uuid}/immunizations`),api(`/api/v1/patients/${patient.uuid}/vitals`),api(`/api/v1/patients/${patient.uuid}/prescriptions`),api(`/api/v1/patients/${patient.uuid}/clinical-forms`)]);
-    setSelected({...summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms});
+    const labResults=(await Promise.all((labOrders as LabOrder[]).map(order=>api<{results:LabResult[]}>(`/api/v1/lab-orders/${order.uuid}`)))).flatMap(order=>order.results);
+    setSelected({...summary,labOrders,labResults,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms});
   }
   async function addItem(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); if(!selected)return; const data=new FormData(event.currentTarget);
@@ -168,7 +171,7 @@ function App(){
         <section className="summary-group"><h3>Documentos<span>{selected.documents.length}</span></h3>{selected.documents.map(document=><article key={document.uuid}><button className="text-button" onClick={()=>void downloadDocument(document)}>{document.name}</button><small>{document.mime_type} · {document.released_to_patient_at?"Publicado en portal":"Privado"}</small><button className="text-button" onClick={()=>void toggleDocumentRelease(document)}>{document.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button></article>)}</section>
         <form className="quick-add compact" onSubmit={uploadDocument}><input name="file" type="file" required/><button>Subir documento</button></form>
         <section className="summary-group"><h3>Encuentros<span>{selected.encounters.length}</span></h3>{selected.encounters.map(encounter=><article key={encounter.uuid}><strong>{encounter.chief_complaint||"Encuentro clínico"}</strong><small>{new Date(encounter.occurred_at).toLocaleString()} · {encounter.locked?"bloqueado":"abierto"} · {encounter.signature_count} firma(s)</small>{!encounter.locked&&<button className="text-button" onClick={()=>void signEncounter(encounter)}>Firmar y bloquear encuentro</button>}</article>)}</section>
-        <section className="summary-group"><h3>Formularios clínicos<span>{selected.clinicalForms.length}</span></h3>{selected.clinicalForms.map(item=><article key={item.uuid}><strong>{item.title}</strong><small>{item.form_type} · {item.status}{item.locked?" · bloqueado":""} · {item.signature_count} firma(s) · {item.released_to_patient_at?"Publicado en portal":"Privado"}</small>{item.status!=="signed"?<button className="text-button" onClick={()=>void signClinicalForm(item)}>Firmar y bloquear</button>:<button className="text-button" onClick={()=>void toggleFormRelease(item)}>{item.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button>}</article>)}</section>
+        <section className="summary-group"><h3>Formularios clínicos<span>{selected.clinicalForms.length}</span></h3>{selected.clinicalForms.map(item=><article key={item.uuid}><strong>{item.title}</strong><small>{item.form_type} · {item.status}{item.locked?" · bloqueado":""} · {item.signature_count} firma(s) · {item.released_to_patient_at?"Publicado en portal":"Privado"}</small><ClinicalFormLinks api={api} patientUuid={selected.patient.uuid} formUuid={item.uuid} documents={selected.documents} results={selected.labResults} locked={item.locked}/>{item.status!=="signed"?<button className="text-button" onClick={()=>void signClinicalForm(item)}>Firmar y bloquear</button>:<button className="text-button" onClick={()=>void toggleFormRelease(item)}>{item.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button>}</article>)}</section>
         {selected.encounters.length>0&&<CarePlanWorkspace api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} locked={selected.encounters[0].locked}/>}
         {selected.encounters.length>0&&!selected.encounters[0].locked&&<ClinicalFormEditor api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} onSaved={()=>openPatient(selected.patient)}/>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>
