@@ -129,7 +129,8 @@ end-to-end healthcare workflows:
   questionnaires, and an authenticated FHIR surface including care plans, goals,
   care teams, appointments, encounters, clinical and payer directories,
   coverage, document references and binary retrieval, observations, medications,
-  immunizations, laboratory service requests and diagnostic reports;
+  immunizations, laboratory service requests, diagnostic reports and scored
+  patient questionnaires;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 

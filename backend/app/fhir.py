@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Payer, Practitioner, Prescription, User, VitalSet
+from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Payer, Practitioner, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
 from .security import appointment_user, clinical_user
 from .services.access import facility_scope, require_facility_access
 from .services.patients import patient_by_uuid
@@ -42,6 +42,7 @@ def metadata():
     patient_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"}]} for name in ("Condition","AllergyIntolerance","MedicationStatement","Observation","Immunization","MedicationRequest")]
     patient_resources.extend([{"type":"Coverage","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]},{"type":"DocumentReference","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"type","type":"token"},{"name":"date","type":"date"}]},{"type":"Binary","interaction":[{"code":"read"}]}])
     patient_resources.extend([{"type":"ServiceRequest","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"},{"name":"code","type":"token"},{"name":"authored","type":"date"}]},{"type":"DiagnosticReport","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"},{"name":"code","type":"token"},{"name":"date","type":"date"}]}])
+    patient_resources.extend([{"type":"Questionnaire","interaction":read_search,"searchParam":[{"name":"code","type":"token"},{"name":"title","type":"string"},{"name":"status","type":"token"}]},{"type":"QuestionnaireResponse","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"questionnaire","type":"reference"},{"name":"authored","type":"date"}]}])
     status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
     directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
     resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
@@ -520,3 +521,54 @@ def read_diagnostic_report(resource_uuid:str,db:Session=Depends(get_db),user:Use
     item=db.scalar(select(LabOrder).where(LabOrder.uuid==resource_uuid))
     if not item or not db.scalar(select(LabResult.id).where(LabResult.order_id==item.id).limit(1)):fhir_not_found("DiagnosticReport")
     resource=diagnostic_report_resource(db,item);audit(db,user,"DiagnosticReport",item.uuid);return resource
+
+
+QUESTIONNAIRE_LOINC={"PHQ-9":"44249-1","GAD-7":"69737-5"}
+
+
+def questionnaire_resource(item: QuestionnaireDefinition) -> dict:
+    questions=[]
+    for question in item.questions:
+        questions.append({"linkId":question["id"],"text":question["text"],"type":"integer","required":True,"extension":[{"url":"http://hl7.org/fhir/StructureDefinition/minValue","valueInteger":question.get("min",0)},{"url":"http://hl7.org/fhir/StructureDefinition/maxValue","valueInteger":question.get("max",3)}]})
+    return {"resourceType":"Questionnaire","id":item.uuid,"url":f"https://openrm.org/fhir/Questionnaire/{item.uuid}","version":item.version,"name":item.code.replace("-",""),"title":item.title,"status":"active" if item.active else "retired","subjectType":["Patient"],"code":[{"system":"http://loinc.org","code":QUESTIONNAIRE_LOINC.get(item.code,item.code),"display":item.title}],"item":questions}
+
+
+def questionnaire_response_resource(db: Session, item: QuestionnaireResponse, definition: QuestionnaireDefinition, patient_uuid: str) -> dict:
+    encounter_uuid=db.scalar(select(Encounter.uuid).where(Encounter.id==item.encounter_id)) if item.encounter_id else None;author=db.get(User,item.author_id)
+    question_text={question["id"]:question["text"] for question in definition.questions}
+    answers=[{"linkId":link_id,"text":question_text.get(link_id,link_id),"answer":[{"valueInteger":value}]} for link_id,value in item.answers.items()]
+    return {"resourceType":"QuestionnaireResponse","id":item.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-questionnaireresponse"]},"questionnaire":f"https://openrm.org/fhir/Questionnaire/{definition.uuid}|{definition.version}","status":"completed","subject":{"reference":f"Patient/{patient_uuid}"},"authored":item.authored_at.isoformat(),"item":answers,"extension":[{"url":"https://openrm.org/fhir/StructureDefinition/questionnaire-score","valueInteger":item.score},{"url":"https://openrm.org/fhir/StructureDefinition/questionnaire-interpretation","valueString":item.interpretation}],**({"encounter":{"reference":f"Encounter/{encounter_uuid}"}} if encounter_uuid else {}),**({"author":{"display":author.email}} if author else {})}
+
+
+@router.get("/Questionnaire")
+def search_questionnaires(code:str|None=None,title:str|None=None,status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    query=select(QuestionnaireDefinition)
+    if code:
+        code_value=code.rsplit("|",1)[-1];matching=[name for name,loinc in QUESTIONNAIRE_LOINC.items() if code_value in {name,loinc}];query=query.where(QuestionnaireDefinition.code.in_(matching or [code_value]))
+    if title:query=query.where(QuestionnaireDefinition.title.ilike(f"%{title}%"))
+    if status in {"active","retired"}:query=query.where(QuestionnaireDefinition.active.is_(status=="active"))
+    rows=list(db.scalars(query.order_by(QuestionnaireDefinition.code,QuestionnaireDefinition.version)));audit(db,user,"Questionnaire",search=True);return bundle("Questionnaire",[questionnaire_resource(item) for item in rows])
+
+
+@router.get("/Questionnaire/{resource_uuid}")
+def read_questionnaire(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    item=db.scalar(select(QuestionnaireDefinition).where(QuestionnaireDefinition.uuid==resource_uuid))
+    if not item:fhir_not_found("Questionnaire")
+    audit(db,user,"Questionnaire",item.uuid);return questionnaire_resource(item)
+
+
+@router.get("/QuestionnaireResponse")
+def search_questionnaire_responses(patient:str=Query(),questionnaire:str|None=None,authored:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));query=select(QuestionnaireResponse,QuestionnaireDefinition).join(QuestionnaireDefinition).where(QuestionnaireResponse.patient_id==owner.id)
+    if questionnaire:
+        questionnaire_uuid=questionnaire.split("|",1)[0].rstrip("/").rsplit("/",1)[-1];query=query.where(QuestionnaireDefinition.uuid==questionnaire_uuid)
+    rows=db.execute(query.order_by(QuestionnaireResponse.authored_at.desc())).all();pairs=[(questionnaire_response_resource(db,item,definition,owner.uuid),item) for item,definition in rows]
+    if authored:pairs=[pair for pair in pairs if matches_fhir_date(pair[1].authored_at,authored)]
+    audit(db,user,"QuestionnaireResponse",owner.uuid,search=True);return bundle("QuestionnaireResponse",[pair[0] for pair in pairs])
+
+
+@router.get("/QuestionnaireResponse/{resource_uuid}")
+def read_questionnaire_response(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.execute(select(QuestionnaireResponse,QuestionnaireDefinition,Patient.uuid).join(QuestionnaireDefinition,QuestionnaireResponse.questionnaire_id==QuestionnaireDefinition.id).join(Patient,QuestionnaireResponse.patient_id==Patient.id).where(QuestionnaireResponse.uuid==resource_uuid)).first()
+    if not row:fhir_not_found("QuestionnaireResponse")
+    item,definition,patient_uuid=row;resource=questionnaire_response_resource(db,item,definition,patient_uuid);audit(db,user,"QuestionnaireResponse",item.uuid);return resource

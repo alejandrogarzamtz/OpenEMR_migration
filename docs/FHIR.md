@@ -5,7 +5,8 @@ The compatibility API is exposed below `/fhir` and advertised by
 Patient, Condition, AllergyIntolerance, MedicationStatement, MedicationRequest,
 Immunization, Observation, Appointment, Encounter, Organization, Location,
 Practitioner, Coverage, DocumentReference, Binary, CarePlan, Goal, and CareTeam
-resources, plus laboratory ServiceRequest and DiagnosticReport. Observation
+resources, plus laboratory ServiceRequest/DiagnosticReport and scored
+Questionnaire/QuestionnaireResponse. Observation
 searches combine laboratory results and LOINC-coded vital signs. Patient-bound searches
 require a patient compartment; Appointment, Encounter, and care-coordination
 searches also support normalized FHIR status filtering. Individual reads,
@@ -45,6 +46,15 @@ Observation resources. Diagnostic searches support patient, normalized status,
 LOINC code and FHIR date prefixes. The current model does not retain specimen
 identity, collection container or accession details, so Specimen remains
 explicitly outside the verified surface rather than being synthesized.
+
+The active PHQ-9 and GAD-7 definitions are exposed as versioned Questionnaire
+resources with their preserved legacy item wording, LOINC panel codes, required
+integer answers, and explicit 0–3 bounds. QuestionnaireResponse retains the
+patient, optional encounter, author, authored time, item answers, computed score
+and clinical interpretation. Score and interpretation use named OpenRM
+extensions because R4 QuestionnaireResponse has no native aggregate-score
+element. Searches support definition code/title/status and response patient,
+questionnaire canonical, and authored date.
 
 The development JWT is used as a bearer token. Production rollout must replace
 it with SMART on FHIR authorization, asymmetric token signing, scopes, launch

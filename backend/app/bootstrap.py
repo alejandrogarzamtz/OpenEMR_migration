@@ -10,8 +10,32 @@ from .models import QuestionnaireDefinition, User
 from .security import password_hash
 
 QUESTIONNAIRES = {
-    "PHQ-9": {"title": "Patient Health Questionnaire-9", "count": 9},
-    "GAD-7": {"title": "Generalized Anxiety Disorder-7", "count": 7},
+    "PHQ-9": {
+        "title": "Patient Health Questionnaire-9",
+        "questions": [
+            "Little interest or pleasure in doing things",
+            "Feeling down, depressed, or hopeless",
+            "Trouble falling or staying asleep, or sleeping too much",
+            "Feeling tired or having little energy",
+            "Poor appetite or overeating",
+            "Feeling bad about yourself - or that you are a failure or have let yourself or your family down",
+            "Trouble concentrating on things, such as reading an article or watching videos",
+            "Moving or speaking slowly noted by others or fidgety or restless more than usual",
+            "Thoughts that you would be better off dead, or of hurting yourself",
+        ],
+    },
+    "GAD-7": {
+        "title": "Generalized Anxiety Disorder-7",
+        "questions": [
+            "Feeling nervous, anxious, or on edge",
+            "Not being able to stop or control worrying",
+            "Worrying too much about different things",
+            "Trouble relaxing",
+            "Being so restless that it's hard to sit still",
+            "Becoming easily annoyed or irritable",
+            "Feeling afraid as if something awful might happen",
+        ],
+    },
 }
 
 
@@ -49,11 +73,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                         version="1",
                         title=definition["title"],
                         questions=[
-                            {"id": f"q{x}", "text": f"{code} item {x}", "min": 0, "max": 3}
-                            for x in range(1, definition["count"] + 1)
+                            {"id": f"q{x}", "text": text, "min": 0, "max": 3}
+                            for x, text in enumerate(definition["questions"], start=1)
                         ],
                     )
                 )
         db.commit()
     yield
-
