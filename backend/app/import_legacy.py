@@ -698,20 +698,36 @@ def run(source_url: str, commit: bool = False) -> dict:
             if not patient or not row["date"]: stats["vitals"]["rejected"]+=1; continue
             target.add(VitalSet(legacy_vitals_id=row["id"],patient_id=patient.id,observed_at=row["date"],systolic=row["bps"] or None,diastolic=row["bpd"] or None,weight_kg=row["weight"] or None,height_cm=row["height"] or None,temperature_c=row["temperature"] or None,heart_rate=row["pulse"] or None,respiratory_rate=row["respiration"] or None,oxygen_saturation=row["oxygen_saturation"] or None,bmi=row["BMI"] or None,note=clean(row["note"])))
             stats["vitals"]["inserted"]+=1
-        pharmacies=legacy.execute(text("SELECT id,name,email,ncpdp,npi FROM pharmacies ORDER BY id"))
+        pharmacies=legacy.execute(text("SELECT * FROM pharmacies ORDER BY id"))
         for row in pharmacies.mappings():
             stats["pharmacies"]["source"]+=1
-            if target.scalar(select(Pharmacy.id).where(Pharmacy.legacy_pharmacy_id==row["id"])): stats["pharmacies"]["existing"]+=1; continue
-            if not clean(row["name"]): stats["pharmacies"]["rejected"]+=1; continue
-            target.add(Pharmacy(legacy_pharmacy_id=row["id"],name=clean(row["name"]),email=clean(row["email"]),ncpdp=str(row["ncpdp"]) if row["ncpdp"] else None,npi=str(row["npi"]) if row["npi"] else None)); stats["pharmacies"]["inserted"]+=1
+            existing=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["id"]))
+            values=dict(name=clean(row["name"]) or f"Pharmacy {row['id']}",email=clean(row["email"]),ncpdp=str(row["ncpdp"]) if row["ncpdp"] else None,npi=str(row["npi"]) if row["npi"] else None,transmit_method=row["transmit_method"],legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["pharmacies"]["existing"]+=1
+            else: target.add(Pharmacy(legacy_pharmacy_id=row["id"],**values));stats["pharmacies"]["inserted"]+=1
         target.flush()
-        prescriptions=legacy.execute(text("SELECT id,patient_id,pharmacy_id,encounter,date_added,start_date,end_date,drug,rxnorm_drugcode,drug_dosage_instructions,dosage,quantity,refills,substitute,indication,active FROM prescriptions ORDER BY id"))
+        prescriptions=legacy.execute(text("SELECT * FROM prescriptions ORDER BY id"))
         for row in prescriptions.mappings():
             stats["prescriptions"]["source"]+=1
-            if target.scalar(select(Prescription.id).where(Prescription.legacy_prescription_id==row["id"])): stats["prescriptions"]["existing"]+=1; continue
+            existing=target.scalar(select(Prescription).where(Prescription.legacy_prescription_id==row["id"]))
             patient=patient_for_legacy(target,row["patient_id"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; pharmacy=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["pharmacy_id"])) if row["pharmacy_id"] else None
-            if not patient or not clean(row["drug"]): stats["prescriptions"]["rejected"]+=1; continue
-            target.add(Prescription(legacy_prescription_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,prescribed_at=row["date_added"] or datetime.now(timezone.utc),start_date=row["start_date"],end_date=row["end_date"],drug_name=clean(row["drug"]),rxnorm_code=clean(row["rxnorm_drugcode"]),dosage_instructions=clean(row["drug_dosage_instructions"]) or clean(row["dosage"]) or "As directed",quantity=clean(row["quantity"]),refills=row["refills"] or 0,substitutions_allowed=bool(row["substitute"]),indication=clean(row["indication"]),status="active" if row["active"] else "stopped")); stats["prescriptions"]["inserted"]+=1
+            values=dict(patient_id=patient.id if patient else None,legacy_patient_id=row["patient_id"],encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,
+                prescribed_at=row["date_added"],modified_at=row["date_modified"],start_date=row["start_date"],end_date=row["end_date"],drug_name=clean(row["drug"]) or "Unnamed prescription",
+                rxnorm_code=clean(row["rxnorm_drugcode"]),dosage_instructions=clean(row["drug_dosage_instructions"]) or clean(row["dosage"]) or "As directed",quantity=clean(row["quantity"]),
+                refills=row["refills"] or 0,substitutions_allowed=bool(row["substitute"]),indication=clean(row["indication"]),status="active" if row["active"] else "stopped",
+                filled_by_legacy_id=row["filled_by_id"],provider_legacy_id=row["provider_id"],drug_legacy_id=row["drug_id"] or None,form_legacy_id=row["form"],dosage=clean(row["dosage"]),
+                size=clean(row["size"]),unit_legacy_id=row["unit"],route=clean(row["route"]),interval_legacy_id=row["interval"],per_refill=row["per_refill"],filled_date=row["filled_date"],
+                medication_legacy_id=row["medication"],note=clean(row["note"]),legacy_recorded_at=row["datetime"],legacy_user=clean(row["user"]),site=clean(row["site"]),
+                prescription_guid=clean(row["prescriptionguid"]),erx_source=row["erx_source"] or 0,erx_uploaded=bool(row["erx_uploaded"]),erx_drug_info=clean(row["drug_info_erx"]),
+                external_id=clean(row["external_id"]),prn=clean(row["prn"]),ntx=row["ntx"],rtx=row["rtx"],transaction_date=row["txDate"],usage_category=clean(row["usage_category"]),
+                usage_category_title=clean(row["usage_category_title"]),request_intent=clean(row["request_intent"]),request_intent_title=clean(row["request_intent_title"]),
+                diagnosis=clean(row["diagnosis"]),created_by_legacy_id=row["created_by"],updated_by_legacy_id=row["updated_by"],legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["prescriptions"]["existing"]+=1
+            else: target.add(Prescription(legacy_prescription_id=row["id"],**values));stats["prescriptions"]["inserted"]+=1
         products = legacy.execute(text("SELECT * FROM drugs ORDER BY drug_id"))
         for row in products.mappings():
             stats["inventory_products"]["source"] += 1

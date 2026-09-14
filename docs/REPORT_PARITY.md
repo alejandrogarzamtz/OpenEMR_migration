@@ -74,9 +74,9 @@ Copay-coded and zero-value lines are excluded, encounter counts remain visits,
 and each patient contributes once to the patient distribution denominator.
 
 `clinical_reports` remains pending after source-level review. Lossless,
-versioned social history plus complete procedure-order lines and report/result
-provenance are now available; detailed prescription fields and patient-provider
-facility assignments still require normalized import contracts before the
+versioned social history, complete procedure-order lines and report/result
+provenance, and detailed prescription/eRx fields are now available;
+patient-provider facility assignments still require a normalized import contract before the
 multi-dimensional React report can claim parity.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy

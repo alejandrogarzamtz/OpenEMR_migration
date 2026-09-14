@@ -1314,11 +1314,44 @@ class PrescriptionCreate(BaseModel):
     refills: int = Field(default=0, ge=0, le=99)
     substitutions_allowed: bool = True
     indication: str | None = None
+    dosage: str | None = Field(default=None, max_length=100)
+    size: str | None = Field(default=None, max_length=25)
+    route: str | None = Field(default=None, max_length=100)
+    per_refill: int | None = Field(default=None, ge=0)
+    filled_date: date | None = None
+    note: str | None = None
+    prn: str | None = Field(default=None, max_length=30)
+    usage_category: str | None = Field(default=None, max_length=100)
+    usage_category_title: str | None = Field(default=None, max_length=255)
+    request_intent: str | None = Field(default=None, max_length=100)
+    request_intent_title: str | None = Field(default=None, max_length=255)
+    diagnosis: str | None = None
 
 
 class PrescriptionOut(PrescriptionCreate):
     uuid: str
+    prescribed_at: datetime | None
     status: str
+    modified_at: datetime | None = None
+    pharmacy_name: str | None = None
+    filled_by_legacy_id: int | None = None
+    provider_legacy_id: int | None = None
+    drug_legacy_id: int | None = None
+    form_legacy_id: int | None = None
+    unit_legacy_id: int | None = None
+    interval_legacy_id: int | None = None
+    medication_legacy_id: int | None = None
+    legacy_recorded_at: datetime | None = None
+    legacy_user: str | None = None
+    site: str | None = None
+    prescription_guid: str | None = None
+    erx_source: int = 0
+    erx_uploaded: bool = False
+    erx_drug_info: str | None = None
+    external_id: str | None = None
+    ntx: int | None = None
+    rtx: int | None = None
+    transaction_date: date | None = None
 
 
 class CarePlanBase(BaseModel):

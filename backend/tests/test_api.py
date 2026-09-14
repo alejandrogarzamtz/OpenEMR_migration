@@ -66,10 +66,15 @@ def test_patient_flow():
         vitals = client.post(f"/api/v1/patients/{patient_id}/vitals", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"observed_at":"2026-09-02T10:02:00Z","systolic":"120","diastolic":"80","weight_kg":"60","height_cm":"165","oxygen_saturation":"98"})
         assert vitals.status_code == 201
         assert vitals.json()["bmi"] == "22.04"
-        prescription = client.post(f"/api/v1/patients/{patient_id}/prescriptions", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"prescribed_at":"2026-09-02T10:15:00Z","drug_name":"Sumatriptan 50 MG","rxnorm_code":"313161","dosage_instructions":"Take one tablet as needed","quantity":"9","refills":2})
+        prescription = client.post(f"/api/v1/patients/{patient_id}/prescriptions", headers=headers, json={"encounter_uuid":encounter.json()["uuid"],"prescribed_at":"2026-09-02T10:15:00Z","drug_name":"Sumatriptan 50 MG","rxnorm_code":"313161","dosage_instructions":"Take one tablet as needed","dosage":"50 mg","route":"oral","prn":"migraine","quantity":"9","refills":2,"per_refill":9,"request_intent":"order","request_intent_title":"Order","diagnosis":"Migraine"})
         assert prescription.status_code == 201
+        assert prescription.json()["route"] == "oral"
+        assert prescription.json()["diagnosis"] == "Migraine"
         assert len(client.get(f"/api/v1/patients/{patient_id}/immunizations",headers=headers).json()) == 1
-        assert len(client.get(f"/api/v1/patients/{patient_id}/prescriptions",headers=headers).json()) == 1
+        prescriptions = client.get(f"/api/v1/patients/{patient_id}/prescriptions",headers=headers).json()
+        assert len(prescriptions) == 1
+        assert prescriptions[0]["per_refill"] == 9
+        assert prescriptions[0]["request_intent_title"] == "Order"
         assert client.get(f"/fhir/Immunization?patient={patient_id}",headers=headers).json()["total"] == 1
         assert client.get(f"/fhir/MedicationRequest?patient={patient_id}",headers=headers).json()["total"] == 1
         assert client.get(f"/fhir/Observation?patient={patient_id}",headers=headers).json()["total"] >= 7

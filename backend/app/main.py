@@ -351,13 +351,18 @@ def create_prescription(patient_uuid: str, body: PrescriptionCreate, db: Session
         pharmacy=db.scalar(select(Pharmacy).where(Pharmacy.uuid==body.pharmacy_uuid))
         if not pharmacy: raise HTTPException(status_code=404,detail="Pharmacy not found")
     item=Prescription(patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,**body.model_dump(exclude={"encounter_uuid","pharmacy_uuid"})); db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id,action="create",resource_type="prescription",resource_id=item.uuid)); db.commit(); db.refresh(item)
-    return PrescriptionOut(uuid=item.uuid,status=item.status,**body.model_dump())
+    return prescription_out(item,encounter.uuid if encounter else None,pharmacy)
+
+
+def prescription_out(item: Prescription, encounter_uuid: str | None, pharmacy: Pharmacy | None) -> PrescriptionOut:
+    fields=("prescribed_at","start_date","end_date","drug_name","rxnorm_code","dosage_instructions","quantity","refills","substitutions_allowed","indication","dosage","size","route","per_refill","filled_date","note","prn","usage_category","usage_category_title","request_intent","request_intent_title","diagnosis","modified_at","filled_by_legacy_id","provider_legacy_id","drug_legacy_id","form_legacy_id","unit_legacy_id","interval_legacy_id","medication_legacy_id","legacy_recorded_at","legacy_user","site","prescription_guid","erx_source","erx_uploaded","erx_drug_info","external_id","ntx","rtx","transaction_date")
+    return PrescriptionOut(uuid=item.uuid,status=item.status,encounter_uuid=encounter_uuid,pharmacy_uuid=pharmacy.uuid if pharmacy else None,pharmacy_name=pharmacy.name if pharmacy else None,**{key:getattr(item,key) for key in fields})
 
 
 @app.get("/api/v1/patients/{patient_uuid}/prescriptions", response_model=list[PrescriptionOut])
 def list_prescriptions(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    patient=patient_by_uuid(db,patient_uuid); rows=db.execute(select(Prescription,Encounter.uuid,Pharmacy.uuid).outerjoin(Encounter,Prescription.encounter_id==Encounter.id).outerjoin(Pharmacy,Prescription.pharmacy_id==Pharmacy.id).where(Prescription.patient_id==patient.id).order_by(Prescription.prescribed_at.desc())).all(); db.add(AuditEvent(actor_id=user.id,action="search",resource_type="prescription",resource_id=patient.uuid)); db.commit()
-    return [PrescriptionOut(uuid=x.uuid,encounter_uuid=e,pharmacy_uuid=p,status=x.status,**{k:getattr(x,k) for k in ("prescribed_at","start_date","end_date","drug_name","rxnorm_code","dosage_instructions","quantity","refills","substitutions_allowed","indication")}) for x,e,p in rows]
+    patient=patient_by_uuid(db,patient_uuid); rows=db.execute(select(Prescription,Encounter.uuid,Pharmacy).outerjoin(Encounter,Prescription.encounter_id==Encounter.id).outerjoin(Pharmacy,Prescription.pharmacy_id==Pharmacy.id).where(Prescription.patient_id==patient.id).order_by(Prescription.prescribed_at.desc().nullslast(),Prescription.id.desc())).all(); db.add(AuditEvent(actor_id=user.id,action="search",resource_type="prescription",resource_id=patient.uuid)); db.commit()
+    return [prescription_out(item,encounter_uuid,pharmacy) for item,encounter_uuid,pharmacy in rows]
 
 
 @app.get("/api/v1/clinical-form-definitions")

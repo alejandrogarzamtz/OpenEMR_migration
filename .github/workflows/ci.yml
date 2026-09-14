@@ -10,6 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 scripts/verify_clinical_form_definitions.py
       - run: python3 scripts/verify_procedure_provenance.py
+      - run: python3 scripts/verify_prescription_provenance.py
       - run: docker compose build api
       - run: docker compose run --rm api python -m pytest -q
       - run: docker compose run --rm api sh -c 'alembic upgrade head && alembic check'

@@ -6,7 +6,7 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Payer, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
@@ -350,8 +350,8 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
             patient_names=sorted({row[2] for row in result}); columns=["patient"]; rows=[{"patient":name} for name in patient_names]; return columns,rows,{"unique_patients":len(rows)}
         columns=["encounter_uuid","occurred_at","patient","type","status","chief_complaint"]; rows=rows_from(result,columns); return columns,rows,{"encounters":len(rows)}
     if key == "prescriptions_report":
-        columns=["prescription_uuid","prescribed_at","patient","drug","rxnorm","quantity","refills","status"]
-        query=select(Prescription.uuid,Prescription.prescribed_at,(Patient.last_name+", "+Patient.first_name),Prescription.drug_name,Prescription.rxnorm_code,Prescription.quantity,Prescription.refills,Prescription.status).join(Patient)
+        columns=["prescription_uuid","prescribed_at","modified_at","patient","drug","rxnorm","dosage","instructions","route","quantity","refills","per_refill","filled_date","pharmacy","indication","diagnosis","prn","request_intent","erx_source","erx_uploaded","status"]
+        query=select(Prescription.uuid,Prescription.prescribed_at,Prescription.modified_at,(Patient.last_name+", "+Patient.first_name),Prescription.drug_name,Prescription.rxnorm_code,Prescription.dosage,Prescription.dosage_instructions,Prescription.route,Prescription.quantity,Prescription.refills,Prescription.per_refill,Prescription.filled_date,Pharmacy.name,Prescription.indication,Prescription.diagnosis,Prescription.prn,Prescription.request_intent,Prescription.erx_source,Prescription.erx_uploaded,Prescription.status).join(Patient).outerjoin(Pharmacy,Prescription.pharmacy_id==Pharmacy.id)
         if start: query=query.where(Prescription.prescribed_at>=start)
         if end: query=query.where(Prescription.prescribed_at<end)
         if status: query=query.where(Prescription.status==status)

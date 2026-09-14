@@ -18,7 +18,7 @@ are all verified. “Partial” never counts as final parity.
 | Problems and surgeries | Partial | full coding, verification, occurrence, associations and surgery workflow |
 | Allergies | Partial | verification, intolerance detail, substance coding and reconciliation |
 | Medications | Partial | adherence, devices, medication history and reconciliation |
-| Prescriptions/eRx | Partial | core prescriptions/pharmacies exist; renewals, controlled substances and eRx integration remain |
+| Prescriptions/eRx | Partial | complete legacy pharmacy/prescription provenance, nullable-date retention, audited detailed API, React display and expanded reporting exist; renewals, controlled substances, dispense lifecycle and live eRx integration remain |
 | Immunizations | Partial | CVX administration exists; MVX, registry consent, refusals, inventory and registry exchange remain |
 | Vitals and observations | Partial | capture, BMI and FHIR observations exist; growth charts and abnormal flags remain |
 | Social history | Partial | append-only tobacco, alcohol, recreational-drug, activity, sleep, safety, counseling and narrative versions have lossless import, audited API, React authoring/history and printable-report coverage; coded FHIR observations and production reconciliation remain |
