@@ -11,6 +11,22 @@ from ..services.patients import patient_by_uuid
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 
+def sync_primary_address(patient: Patient, item: PatientAddress | None) -> None:
+    patient.address_line_1 = item.line1 if item else None
+    patient.address_line_2 = item.line2 if item else None
+    patient.city = item.city if item else None
+    patient.state = item.state if item else None
+    patient.postal_code = item.postal_code if item else None
+    patient.country_code = item.country_code if item else None
+
+
+def sync_primary_telecom(patient: Patient, item: PatientTelecom | None, system: str) -> None:
+    if system == "email":
+        patient.email = item.value if item else None
+    elif system in {"phone", "sms"}:
+        patient.phone = item.value if item else None
+
+
 @router.post("/{patient_uuid}/related-people/{person_uuid}/inactivate", response_model=PatientRelatedPersonOut)
 def inactivate_related_person(patient_uuid: str, person_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
     patient = patient_by_uuid(db, patient_uuid)
@@ -28,7 +44,12 @@ def inactivate_telecom(patient_uuid: str, telecom_uuid: str, body: InactivationR
     patient = patient_by_uuid(db, patient_uuid)
     item = db.scalar(select(PatientTelecom).where(PatientTelecom.uuid == telecom_uuid, PatientTelecom.patient_id == patient.id))
     if not item: raise HTTPException(status_code=404, detail="Patient telecom not found")
+    was_primary = item.is_primary
     item.active = False; item.is_primary = False; item.inactivated_reason = body.reason
+    if was_primary:
+        replacement = db.scalar(select(PatientTelecom).where(PatientTelecom.patient_id == patient.id, PatientTelecom.system == item.system, PatientTelecom.active.is_(True), PatientTelecom.id != item.id).order_by(PatientTelecom.rank, PatientTelecom.id))
+        if replacement: replacement.is_primary = True
+        sync_primary_telecom(patient, replacement, item.system)
     db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_telecom", resource_id=item.uuid, detail=body.reason)); db.commit(); db.refresh(item)
     return item
 
@@ -38,7 +59,12 @@ def inactivate_address(patient_uuid: str, address_uuid: str, body: InactivationR
     patient = patient_by_uuid(db, patient_uuid)
     item = db.scalar(select(PatientAddress).where(PatientAddress.uuid == address_uuid, PatientAddress.patient_id == patient.id))
     if not item: raise HTTPException(status_code=404, detail="Patient address not found")
+    was_primary = item.is_primary
     item.active = False; item.is_primary = False; item.inactivated_reason = body.reason
+    if was_primary:
+        replacement = db.scalar(select(PatientAddress).where(PatientAddress.patient_id == patient.id, PatientAddress.active.is_(True), PatientAddress.id != item.id).order_by(PatientAddress.priority, PatientAddress.id))
+        if replacement: replacement.is_primary = True
+        sync_primary_address(patient, replacement)
     db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_address", resource_id=item.uuid, detail=body.reason)); db.commit(); db.refresh(item)
     return item
 
@@ -71,6 +97,7 @@ def create_telecom(patient_uuid: str, body: PatientTelecomCreate, db: Session = 
     if body.is_primary:
         for current in db.scalars(select(PatientTelecom).where(PatientTelecom.patient_id == patient.id, PatientTelecom.system == body.system, PatientTelecom.active.is_(True))): current.is_primary = False
     item = PatientTelecom(patient_id=patient.id, **body.model_dump()); db.add(item); db.flush()
+    if item.is_primary: sync_primary_telecom(patient, item, item.system)
     db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_telecom", resource_id=item.uuid)); db.commit(); db.refresh(item)
     return item
 
@@ -89,6 +116,7 @@ def create_address(patient_uuid: str, body: PatientAddressCreate, db: Session = 
             item.is_primary = False
     item = PatientAddress(patient_id=patient.id, **body.model_dump())
     db.add(item); db.flush()
+    if item.is_primary: sync_primary_address(patient, item)
     db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_address", resource_id=item.uuid, detail=f"patient={patient.uuid}"))
     db.commit(); db.refresh(item)
     return item
