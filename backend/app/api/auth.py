@@ -11,6 +11,7 @@ from ..mfa import decrypt_secret, encrypt_secret, generate_secret, matching_step
 from ..models import AuditEvent, AuthSession, CommunicationDelivery, MfaChallenge, MfaRegistration, PasswordResetToken, User
 from ..schemas import Login, LoginResult, MfaChallengeComplete, MfaCode, MfaDisable, MfaEnrollmentOut, MfaEnrollmentStart, MfaRecoveryCodesOut, MfaStatusOut, PasswordResetConfirm, PasswordResetRequest, Token
 from ..security import create_session, create_token, current_staff_session, current_user, password_hash, rotate_session, token_digest
+from ..services.ip_security import blocked as ip_blocked, record_failure, record_success
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 STAFF_COOKIE = "staff_refresh_token"
@@ -50,9 +51,14 @@ def consume_mfa_code(registration: MfaRegistration, code: str) -> bool:
 
 @router.post("/token", response_model=LoginResult)
 def login(body: Login, request: Request, response: Response, db: Session = Depends(get_db)) -> LoginResult:
+    ip=request.client.host if request.client else "unknown"
+    if ip_blocked(db,ip):
+        db.commit();raise HTTPException(status_code=429,detail="Too many failed login attempts from this IP address")
     user = db.scalar(select(User).where(User.email == body.email))
     if not user or not user.active or not password_hash.verify(body.password, user.password_hash):
+        record_failure(db,ip);db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    record_success(db,ip)
     registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == user.id, MfaRegistration.active.is_(True)))
     if registration:
         challenge_token = secrets.token_urlsafe(48)

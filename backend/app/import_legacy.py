@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -822,6 +822,13 @@ def run(source_url: str, commit: bool = False) -> dict:
                     stats["background_services"]["rejected"] += 1; continue
                 target.add(BackgroundService(name=clean(row["name"]),title=clean(row["title"]),active=bool(row["active"]),running_state=row["running"],next_run=row["next_run"],execute_interval_minutes=row["execute_interval"] or 0,handler=clean(row["function"]),legacy_include=clean(row.get("require_once")),sort_order=row["sort_order"] or 100,lock_expires_at=row.get("lock_expires_at"),legacy_payload={field:json_value(value) for field,value in row.items()}))
                 stats["background_services"]["inserted"] += 1
+        if "ip_tracking" in legacy_tables:
+            for row in legacy.execute(text("SELECT ip_string,total_ip_login_fail_counter,ip_login_fail_counter,ip_last_login_fail,ip_force_block,ip_no_prevent_timing_attack FROM ip_tracking ORDER BY id")).mappings():
+                stats["ip_login_trackers"]["source"]+=1
+                if target.scalar(select(IpLoginTracker.id).where(IpLoginTracker.ip_string==row["ip_string"])):stats["ip_login_trackers"]["existing"]+=1;continue
+                if not clean(row["ip_string"]):stats["ip_login_trackers"]["rejected"]+=1;continue
+                target.add(IpLoginTracker(ip_string=clean(row["ip_string"]),total_failed_logins=row["total_ip_login_fail_counter"] or 0,applicable_failed_logins=row["ip_login_fail_counter"] or 0,last_failed_login=row["ip_last_login_fail"],force_block=bool(row["ip_force_block"]),skip_timing_protection=bool(row["ip_no_prevent_timing_attack"])))
+                stats["ip_login_trackers"]["inserted"]+=1
         stats["patient_demographic_reconciliation"] = reconcile_patient_demographics(patient_rows, target)
         if commit: target.commit()
         else: target.rollback()

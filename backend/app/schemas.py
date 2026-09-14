@@ -581,6 +581,9 @@ class ReportRunCreate(BaseModel):
     warehouse_code: str | None = Field(default=None, max_length=31)
     status: str | None = Field(default=None, max_length=31)
     patient_uuid: str | None = Field(default=None, min_length=36, max_length=36)
+    only_with_failures: bool = False
+    only_manually_blocked: bool = False
+    only_auto_blocked: bool = False
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -599,6 +602,12 @@ class ReportRunOut(BaseModel):
     row_count: int
     checksum: str
     created_at: datetime
+
+
+class IpTrackerUpdate(BaseModel):
+    force_block: bool | None = None
+    skip_timing_protection: bool | None = None
+    reset_applicable_failures: bool = False
 
 
 class PortalLogin(BaseModel):

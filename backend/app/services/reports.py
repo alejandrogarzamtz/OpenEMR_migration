@@ -5,13 +5,14 @@ from fastapi import HTTPException
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
+from ..config import settings
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -178,6 +179,20 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
             automatic=item.active and item.execute_interval_minutes>0
             rows.append({"name":item.name,"service":item.title,"active":item.active,"automatic":automatic,"interval_minutes":item.execute_interval_minutes if automatic else None,"currently_busy":bool(lock and lock>now),"last_run_started_at":value(next_run-timedelta(minutes=item.execute_interval_minutes)) if item.running_state>-1 else None,"next_scheduled_run":value(next_run) if automatic else None,"handler":item.handler})
         return columns,rows,{"services":len(rows),"active":sum(row["active"] for row in rows),"automatic":sum(row["automatic"] for row in rows),"busy":sum(row["currently_busy"] for row in rows)}
+    if key == "ip_tracker":
+        columns=["ip_address","total_failed_logins","applicable_failed_logins","last_failed_login","auto_blocked","auto_block_ends_at","manually_blocked","skip_timing_protection"]
+        now=datetime.now(timezone.utc);window=timedelta(minutes=settings.ip_failure_window_minutes);limit=settings.ip_max_failed_logins;rows=[]
+        for item in db.scalars(select(IpLoginTracker).order_by(IpLoginTracker.ip_string)):
+            last=item.last_failed_login
+            if last and not last.tzinfo:last=last.replace(tzinfo=timezone.utc)
+            applicable=item.applicable_failed_logins if last and now-last<window else 0
+            auto=applicable>=limit;ends=last+window if auto else None
+            row={"ip_address":item.ip_string,"total_failed_logins":item.total_failed_logins,"applicable_failed_logins":applicable,"last_failed_login":value(last),"auto_blocked":auto,"auto_block_ends_at":value(ends),"manually_blocked":item.force_block,"skip_timing_protection":item.skip_timing_protection}
+            if params.get("only_with_failures") and not applicable:continue
+            if params.get("only_manually_blocked") and not item.force_block:continue
+            if params.get("only_auto_blocked") and not auto:continue
+            rows.append(row)
+        return columns,rows,{"addresses":len(rows),"failed_logins":sum(row["total_failed_logins"] for row in rows),"auto_blocked":sum(row["auto_blocked"] for row in rows),"manually_blocked":sum(row["manually_blocked"] for row in rows)}
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "chart_location_activity":
         patient_id=params.get("_patient_id")

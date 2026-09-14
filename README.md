@@ -108,6 +108,7 @@ end-to-end healthcare workflows:
 - a live patient-flow board with immutable arrival, room, and status history
 - append-only physical chart location and custody history, with current-checkout and patient activity reports
 - an auditable background-service registry with lease-aware operational reporting
+- configurable IP-scoped login throttling, automatic/manual blocking and administrative reporting
   synchronized with scheduled appointments;
 - medication and supply inventory with warehouse lots, expiration-aware FEFO
   dispensing, stock movements, destruction records, and lossless legacy import;

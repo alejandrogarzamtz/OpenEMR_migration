@@ -772,6 +772,17 @@ class BackgroundService(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class IpLoginTracker(Base):
+    __tablename__ = "ip_login_trackers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ip_string: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    total_failed_logins: Mapped[int] = mapped_column(default=0)
+    applicable_failed_logins: Mapped[int] = mapped_column(default=0)
+    last_failed_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    force_block: Mapped[bool] = mapped_column(default=False, index=True)
+    skip_timing_protection: Mapped[bool] = mapped_column(default=False)
+
+
 class Encounter(Base):
     __tablename__ = "encounters"
     id: Mapped[int] = mapped_column(primary_key=True)

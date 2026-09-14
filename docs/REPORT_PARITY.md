@@ -32,7 +32,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `inventory_activity` | MIGRATED |
 | `inventory_list` | MIGRATED |
 | `inventory_transactions` | MIGRATED |
-| `ip_tracker` | PENDING |
+| `ip_tracker` | MIGRATED — cumulative/windowed failures, automatic and manual blocking, timing flag, protected reset/update, filters and CSV |
 | `ippf_cyp_report` | PENDING |
 | `ippf_daily` | PENDING |
 | `ippf_statistics` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 19 migrated, 29 pending**.
+Current accounting: **48 cataloged, 20 migrated, 28 pending**.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

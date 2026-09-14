@@ -4,11 +4,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Facility, Practitioner, User, UserFacilityAccess, Warehouse
-from ..schemas import FacilityCreate, FacilityOut, PractitionerCreate, PractitionerOut, UserFacilityAccessCreate, UserFacilityAccessOut, WarehouseCreate, WarehouseOut
+from ..models import AuditEvent, Facility, IpLoginTracker, Practitioner, User, UserFacilityAccess, Warehouse
+from ..schemas import FacilityCreate, FacilityOut, IpTrackerUpdate, PractitionerCreate, PractitionerOut, UserFacilityAccessCreate, UserFacilityAccessOut, WarehouseCreate, WarehouseOut
 from ..security import administration_user, administration_write_user
 
 router = APIRouter(prefix="/api/v1/admin", tags=["administration"])
+
+
+@router.patch("/ip-trackers/{tracker_id}")
+def update_ip_tracker(tracker_id:int,body:IpTrackerUpdate,db:Session=Depends(get_db),actor:User=Depends(administration_write_user)):
+    item=db.get(IpLoginTracker,tracker_id)
+    if not item:raise HTTPException(status_code=404,detail="IP tracker not found")
+    if body.force_block is not None:item.force_block=body.force_block
+    if body.skip_timing_protection is not None:item.skip_timing_protection=body.skip_timing_protection
+    if body.reset_applicable_failures:item.applicable_failed_logins=0;item.last_failed_login=None
+    db.add(AuditEvent(actor_id=actor.id,action="update",resource_type="ip_tracker",resource_id=str(item.id),detail=f"ip={item.ip_string}"));db.commit()
+    return {"id":item.id,"ip_address":item.ip_string,"force_block":item.force_block,"skip_timing_protection":item.skip_timing_protection,"applicable_failed_logins":item.applicable_failed_logins}
 
 
 def facility_by_uuid(db: Session, value: str) -> Facility:
