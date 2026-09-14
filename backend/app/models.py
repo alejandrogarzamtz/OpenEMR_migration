@@ -396,6 +396,29 @@ class PractitionerFacilityAccess(Base):
     warehouse_code: Mapped[str] = mapped_column(String(31), default="")
 
 
+class PatientProviderAssignment(Base):
+    """Longitudinal patient-to-practitioner/facility responsibility."""
+    __tablename__ = "patient_provider_assignments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_assignment_key: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(index=True)
+    practitioner_id: Mapped[int | None] = mapped_column(ForeignKey("practitioners.id"), nullable=True, index=True)
+    legacy_practitioner_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
+    legacy_facility_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    role: Mapped[str] = mapped_column(String(31), index=True)
+    status: Mapped[str] = mapped_column(String(31), default="active", index=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    practitioner_name: Mapped[str | None] = mapped_column(String(511), nullable=True)
+    facility_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(31), default="modern")
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class Appointment(Base):
     __tablename__ = "appointments"
     id: Mapped[int] = mapped_column(primary_key=True)

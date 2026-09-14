@@ -17,6 +17,7 @@ import { ExternalClinicalData } from "./features/patients/ExternalClinicalData";
 import { PatientEducationWorkspace } from "./features/patients/PatientEducationWorkspace";
 import { PatientPreferencesWorkspace } from "./features/patients/PatientPreferencesWorkspace";
 import { SocialHistoryWorkspace } from "./features/patients/SocialHistoryWorkspace";
+import { PatientProviderAssignments } from "./features/patients/PatientProviderAssignments";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 import { PatientFlowBoard } from "./features/patient-flow/PatientFlowBoard";
@@ -174,6 +175,7 @@ function App(){
         <PatientDuplicates api={api} patientUuid={selected.patient.uuid} onOpen={openPatient}/>
         <Group title="Problemas" items={selected.problems}/><Group title="Alergias" items={selected.allergies}/><Group title="Medicamentos" items={selected.medications}/>
         <SocialHistoryWorkspace api={api} patientUuid={selected.patient.uuid}/>
+        <PatientProviderAssignments api={api} patientUuid={selected.patient.uuid}/>
         <section className="summary-group"><h3>Inmunizaciones<span>{selected.immunizations.length}</span></h3>{selected.immunizations.map(item=><article key={item.uuid}><strong>{item.vaccine_name}</strong><small>CVX {item.cvx_code} · {new Date(item.administered_at).toLocaleDateString()}</small></article>)}</section>
         <section className="summary-group"><h3>Signos vitales<span>{selected.vitals.length}</span></h3>{selected.vitals.slice(0,3).map(item=><article key={item.uuid}><strong>{item.systolic&&item.diastolic?`${item.systolic}/${item.diastolic} mmHg`:"Registro de vitales"}</strong><small>FC {item.heart_rate??"—"} · SpO₂ {item.oxygen_saturation??"—"}% · BMI {item.bmi??"—"}</small></article>)}</section>
         <section className="summary-group"><h3>Recetas<span>{selected.prescriptions.length}</span></h3>{selected.prescriptions.map(item=><article key={item.uuid}><strong>{item.drug_name}</strong><small>{item.dosage_instructions} · {item.status}{item.route?` · ${item.route}`:""}{item.prn?` · PRN ${item.prn}`:""}</small><small>{item.quantity?`Cantidad ${item.quantity} · `:""}{item.refills} renovación(es){item.pharmacy_name?` · ${item.pharmacy_name}`:""}</small>{(item.diagnosis||item.indication)&&<small>Indicación: {item.diagnosis||item.indication}</small>}{item.erx_source>0&&<small>eRx externo · {item.erx_uploaded?"transmitido":"pendiente"}</small>}</article>)}</section>

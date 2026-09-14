@@ -96,6 +96,8 @@ end-to-end healthcare workflows:
   controls, encounter locking, append-only progress/outcome history, audited
   React workflows, and idempotent legacy row reconciliation;
 - patient care teams with practitioner, facility and external-contact participants;
+- longitudinal primary, referring, consulting and covering provider assignments
+  that retain facility context and preserve reassignment history;
 - longitudinal treatment-intervention and care-experience preferences with typed
   values, coded answer sets, and immutable amendment history;
 - append-only social-history versions with audited React authoring, printable

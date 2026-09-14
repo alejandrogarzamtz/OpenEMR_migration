@@ -76,8 +76,9 @@ and each patient contributes once to the patient distribution denominator.
 `clinical_reports` remains pending after source-level review. Lossless,
 versioned social history, complete procedure-order lines and report/result
 provenance, and detailed prescription/eRx fields are now available;
-patient-provider facility assignments still require a normalized import contract before the
-multi-dimensional React report can claim parity.
+patient-provider facility assignments now also have a normalized, historical
+import contract. Its data prerequisites are complete; the remaining work is the
+multi-dimensional query/filter contract, golden fixtures and React presentation.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

@@ -615,6 +615,28 @@ class PractitionerOut(PractitionerCreate):
     active: bool
 
 
+class PatientProviderAssignmentCreate(BaseModel):
+    practitioner_uuid: str
+    facility_uuid: str | None = None
+    role: str = Field(pattern="^(primary|referring|consulting|covering)$")
+    assigned_at: datetime | None = None
+
+
+class PatientProviderAssignmentOut(BaseModel):
+    uuid: str
+    practitioner_uuid: str | None
+    facility_uuid: str | None
+    role: str
+    status: str
+    assigned_at: datetime | None
+    ended_at: datetime | None
+    practitioner_name: str | None
+    facility_name: str | None
+    source: str
+    legacy_practitioner_id: int | None = None
+    legacy_facility_id: int | None = None
+
+
 class UserFacilityAccessCreate(BaseModel):
     facility_uuid: str
     warehouse_uuid: str | None = None

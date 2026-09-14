@@ -41,7 +41,7 @@ are all verified. “Partial” never counts as final parity.
 | SMART on FHIR/OAuth | Missing | discovery, clients, scopes, launch context, refresh and revocation |
 | Standard OpenEMR API | Missing | compatibility routes and portal API contracts |
 | C-CDA/CCR/EHI export | Missing | generate, import, validate and complete patient export |
-| Facilities and organizations | Partial | facilities, practitioners, warehouses and access assignments exist; organization hierarchy, departments and remaining settings remain |
+| Facilities and organizations | Partial | facilities, practitioners, warehouses, access grants and longitudinal patient provider/facility responsibility exist with lossless legacy import and audited React management; organization hierarchy, departments and remaining settings remain |
 | Inventory and drugs | Partial | warehouse lots, FEFO dispensing, immutable movements, destruction and scoped reconciliation exist; vendors, reorder workflow, prices and billing posting remain |
 | Therapy groups | Missing | participants, counselors, group encounters and attendance |
 | Amendments/disclosures | Missing | requests, approvals, history, disclosures and accounting |
