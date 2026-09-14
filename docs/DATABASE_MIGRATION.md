@@ -33,7 +33,7 @@ mapping and not authorization to discard legacy columns.
 | `documents`, `categories*`, `documents_legal_*` | Document models | Separate metadata from encrypted object content; retain hashes, versions and legal evidence |
 | `insurance_*`, `eligibility_verification`, `billing`, `claims`, `ar_*`, payment tables | Financial models | Decimal-exact amounts, priorities, diagnoses, claim identifiers and ledger balancing are cutover gates |
 | `drugs`, `drug_inventory`, `drug_sales` | Inventory models | Stock changes must be transactional and reconcile per warehouse/lot |
-| `api_*`, OAuth client/token tables | OAuth client/token models | Tokens are rotated, not copied as plaintext; preserve grants/scopes/client policy |
+| `api_token`, `api_refresh_token`, OAuth client/token tables | `auth_sessions`, future OAuth client/grant models | Legacy bearer and refresh credentials are never imported. New staff and portal sessions store only refresh-token SHA-256 digests, rotate access identifiers, detect one-generation replay and support immediate revocation; client grants/scopes remain to be migrated. |
 | `audit_master`, `audit_details`, `log` | Immutable audit event/detail | Retain actor, patient, event, before/after detail and timestamps with tamper evidence |
 | `background_services`, `email_queue` | Job/schedule/outbox models | Preserve enabled state/schedule; import queued PHI only into secured outbox |
 

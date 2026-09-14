@@ -42,5 +42,16 @@ describe("API client", () => {
     await expect(request("/patients")).rejects.toEqual(new ApiError(401, "Expired"));
     expect(onUnauthorized).toHaveBeenCalledOnce();
   });
-});
 
+  it("rotates the access token and retries one unauthorized request", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({detail:"Expired"}),{status:401,headers:{"Content-Type":"application/json"}}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ok:true}),{status:200,headers:{"Content-Type":"application/json"}}));
+    vi.stubGlobal("fetch",fetchMock);
+    const request=createApiClient({baseUrl:"https://example.test",getToken:()=>"expired",refreshAccessToken:async()=>"rotated"});
+    await expect(request("/patients")).resolves.toEqual({ok:true});
+    const retryHeaders=fetchMock.mock.calls[1][1].headers as Headers;
+    expect(retryHeaders.get("Authorization")).toBe("Bearer rotated");
+    expect(fetchMock.mock.calls[0][1].credentials).toBe("include");
+  });
+});

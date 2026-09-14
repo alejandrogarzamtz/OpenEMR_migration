@@ -18,6 +18,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://openemr:openemr@db:5432/openemr
       JWT_SECRET: local-development-secret-change-me
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}
+      PASSWORD_RESET_MINUTES: ${PASSWORD_RESET_MINUTES:-30}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:5173}
       BOOTSTRAP_ADMIN_EMAIL: admin@example.com
       BOOTSTRAP_ADMIN_PASSWORD: change-me-now
       CORS_ORIGINS: http://localhost:5173

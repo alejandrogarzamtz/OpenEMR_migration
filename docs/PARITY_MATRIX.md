@@ -7,12 +7,12 @@ are all verified. “Partial” never counts as final parity.
 
 | Domain | Current state | Remaining parity work |
 |---|---|---|
-| Authentication and sessions | Partial | MFA, SSO, password policy, recovery, device/session management |
-| Users, practitioners and roles | Partial | full ACL/ACO migration, facilities, practitioner roles and preferences |
+| Authentication and sessions | Partial | revocable staff/portal sessions, refresh rotation/replay detection, logout and staff recovery exist; MFA, SSO, password policy/history and device/session management remain |
+| Users, practitioners and roles | Partial | full ACL/ACO migration, user lifecycle, practitioner roles and preferences |
 | Patient demographics | Partial | addresses, contacts, employers, guardians, name history, consent/custom fields |
 | Patient search and chart | Partial | duplicate detection, merges, photos, chart locking and printable report |
-| Scheduling and holidays | Partial | recurring events, resources, facilities, statuses, reminders and wait list |
-| Patient flow board | Missing | tracker stages, rooms, timestamps and operational dashboard |
+| Scheduling and holidays | Partial | facility-aware events, resources, conflicts and statuses exist; recurrence expansion, categories, holidays, reminder delivery and wait list remain |
+| Patient flow board | Partial | immutable tracker stages, rooms, timestamps and dashboard exist; configurable stage rules, analytics and remaining legacy actions remain |
 | Encounters | Partial | lifecycle, locking, signing, diagnoses, providers and encounter forms |
 | Clinical forms | Partial | structured/custom capture, signing and generic legacy preservation exist; specialized editors, dictation and per-form semantic validation remain |
 | Problems and surgeries | Partial | full coding, verification, occurrence, associations and surgery workflow |
@@ -33,15 +33,15 @@ are all verified. “Partial” never counts as final parity.
 | Payments and EOB/ERA | Partial | 835 import, adjustments, patient ledger, deposits and reconciliation |
 | Patient statements | Missing | statement generation, aging, collections and payment plans |
 | Portal | Partial | separate patient auth, forced temporary-password replacement, lockout and isolated secure messaging are implemented; appointments, results, forms, documents, payments, MFA and recovery remain |
-| Internal messaging | Missing | notes, tasks, queues, notifications and secure/direct messaging |
-| Reports | Missing | clinical, operational, financial, audit, registry and custom reports |
+| Internal messaging | Partial | patient-bound secure threads, staff replies, clinical tasks and notification outbox exist; staff-to-staff groups, preferences, SMS and Direct remain |
+| Reports | Partial | all 48 legacy surfaces are cataloged and 11 report families have reproducible runs; 37 implementations remain |
 | Quality measures | Missing | CQM/AMC calculation, exports, dashboards and result history |
 | FHIR R4 API | Partial | remaining resources, search parameters, validation and bulk export |
 | SMART on FHIR/OAuth | Missing | discovery, clients, scopes, launch context, refresh and revocation |
 | Standard OpenEMR API | Missing | compatibility routes and portal API contracts |
 | C-CDA/CCR/EHI export | Missing | generate, import, validate and complete patient export |
-| Facilities and organizations | Missing | locations, service sites, billing facilities and organization hierarchy |
-| Inventory and drugs | Missing | warehouses, lots, dispensing, sales and stock reconciliation |
+| Facilities and organizations | Partial | facilities, practitioners, warehouses and access assignments exist; organization hierarchy, departments and remaining settings remain |
+| Inventory and drugs | Partial | warehouse lots, FEFO dispensing, immutable movements, destruction and scoped reconciliation exist; vendors, reorder workflow, prices and billing posting remain |
 | Therapy groups | Missing | participants, counselors, group encounters and attendance |
 | Amendments/disclosures | Missing | requests, approvals, history, disclosures and accounting |
 | Templates and layouts | Missing | layout-based forms, custom fields and document templates |

@@ -1,13 +1,15 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..config import settings
 from ..models import (
     AuditEvent,
+    AuthSession,
     ClinicalTask,
     CommunicationDelivery,
     Encounter,
@@ -37,16 +39,29 @@ from ..security import (
     communication_user,
     communication_write_user,
     create_portal_token,
+    create_session,
     current_portal_account,
+    current_portal_session,
     password_hash,
+    rotate_session,
+    token_digest,
 )
 from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1", tags=["communications"])
+PORTAL_COOKIE = "portal_refresh_token"
 
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def set_portal_cookie(response: Response, value: str) -> None:
+    response.set_cookie(PORTAL_COOKIE, value, max_age=settings.refresh_token_days * 86400, httponly=True, secure=settings.secure_cookies, samesite="strict", path="/api/v1/portal")
 
 
 def account_out(account: PortalAccount, patient: Patient) -> PortalAccountOut:
@@ -164,7 +179,7 @@ def get_portal_account(patient_uuid: str, db: Session = Depends(get_db), user: U
 
 
 @router.post("/portal/auth/token", response_model=PortalToken)
-def portal_login(body: PortalLogin, db: Session = Depends(get_db)) -> PortalToken:
+def portal_login(body: PortalLogin, request: Request, response: Response, db: Session = Depends(get_db)) -> PortalToken:
     account = db.scalar(select(PortalAccount).where(PortalAccount.username == body.username))
     current = now_utc()
     locked_until = account.locked_until if account else None
@@ -182,8 +197,40 @@ def portal_login(body: PortalLogin, db: Session = Depends(get_db)) -> PortalToke
     account.failed_attempts = 0
     account.locked_until = None
     account.last_login_at = current
+    session, refresh_token = create_session(db, "portal", portal_account_id=account.id, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
     db.commit()
-    return PortalToken(access_token=create_portal_token(account), force_password_reset=account.force_password_reset)
+    set_portal_cookie(response, refresh_token)
+    return PortalToken(access_token=create_portal_token(account, session), force_password_reset=account.force_password_reset)
+
+
+@router.post("/portal/auth/refresh", response_model=PortalToken)
+def portal_refresh(response: Response, refresh_token: str | None = Cookie(default=None, alias=PORTAL_COOKIE), db: Session = Depends(get_db)):
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token is missing")
+    digest = token_digest(refresh_token)
+    session = db.scalar(select(AuthSession).where(AuthSession.identity_kind == "portal", or_(AuthSession.refresh_token_hash == digest, AuthSession.previous_refresh_token_hash == digest)))
+    if not session or session.revoked_at is not None:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if session.previous_refresh_token_hash == digest:
+        session.revoked_at = now_utc(); session.revoke_reason = "refresh-token-reuse"; db.commit()
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if aware(session.refresh_expires_at) <= now_utc():
+        session.revoked_at = now_utc(); session.revoke_reason = "expired"; db.commit()
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+    account = db.get(PortalAccount, session.portal_account_id) if session.portal_account_id else None
+    if not account or not account.active:
+        session.revoked_at = now_utc(); session.revoke_reason = "inactive-identity"; db.commit()
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    next_refresh_token = rotate_session(session)
+    db.commit()
+    set_portal_cookie(response, next_refresh_token)
+    return PortalToken(access_token=create_portal_token(account, session), force_password_reset=account.force_password_reset)
+
+
+@router.post("/portal/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def portal_logout(response: Response, session: AuthSession = Depends(current_portal_session), db: Session = Depends(get_db)):
+    session.revoked_at = now_utc(); session.revoke_reason = "logout"; db.commit()
+    response.delete_cookie(PORTAL_COOKIE, path="/api/v1/portal", secure=settings.secure_cookies, httponly=True, samesite="strict")
 
 
 @router.post("/portal/password", status_code=status.HTTP_204_NO_CONTENT)

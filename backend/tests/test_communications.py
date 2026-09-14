@@ -134,3 +134,20 @@ def test_portal_login_locks_after_repeated_failures():
             json={"username": "comms-locked", "password": "temporary-password-123"},
         )
         assert locked.status_code == 401
+
+
+def test_portal_session_refresh_and_logout_are_revocable():
+    with TestClient(app) as client:
+        staff = staff_headers(client)
+        patient = create_patient(client, staff, "CommsSession")
+        portal = create_portal(client, staff, patient, "comms-session")
+        old_access = portal["Authorization"].removeprefix("Bearer ")
+        refreshed = client.post("/api/v1/portal/auth/refresh")
+        assert refreshed.status_code == 200
+        new_access = refreshed.json()["access_token"]
+        assert new_access != old_access
+        assert client.get("/api/v1/portal/messages", headers=portal).status_code == 401
+        new_headers = {"Authorization": f"Bearer {new_access}"}
+        assert client.get("/api/v1/portal/messages", headers=new_headers).status_code == 200
+        assert client.post("/api/v1/portal/auth/logout", headers=new_headers).status_code == 204
+        assert client.get("/api/v1/portal/messages", headers=new_headers).status_code == 401

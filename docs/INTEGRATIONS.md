@@ -2,7 +2,7 @@
 
 | Integration | Legacy behavior | Replacement/configuration | Test/blocker state |
 |---|---|---|---|
-| SMTP/email and queues | PHPMailer, templates and `email_queue` | durable `communication_deliveries` outbox with consent-aware, PHI-free secure-message notices; SMTP worker will use host/port/TLS/user/password/from secret configuration | internal enqueue, admin inspection/retry and legacy queue import implemented; transport worker pending and live delivery verification requires test SMTP |
+| SMTP/email and queues | PHPMailer, templates and `email_queue` | durable `communication_deliveries` outbox with consent-aware, PHI-free secure-message notices and one-time staff recovery links; SMTP worker will use host/port/TLS/user/password/from secret configuration | internal enqueue, admin inspection/retry, recovery enqueue and legacy queue import implemented; transport worker pending and live delivery verification requires test SMTP |
 | SMS/voice notifications | configurable notification providers and CLI command | provider adapter with signed callbacks and secret env vars | provider credentials block live verification only |
 | Clearinghouses/X12 | 837/835 generation/import and partner transport | deterministic X12 engine plus SFTP/API adapters | partner sandbox credentials block transport, not file golden tests |
 | Eligibility | payer eligibility requests and stored responses | payer adapter and auditable request/result records | payer credentials block live verification |

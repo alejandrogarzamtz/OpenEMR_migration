@@ -13,6 +13,15 @@ class Login(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=32, max_length=255)
+    new_password: str = Field(min_length=12, max_length=255)
+
+
 class PatientBase(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     middle_name: str | None = Field(default=None, max_length=100)

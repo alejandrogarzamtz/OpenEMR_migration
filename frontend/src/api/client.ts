@@ -11,6 +11,7 @@ export class ApiError extends Error {
 type ClientOptions = {
   baseUrl: string;
   getToken: () => string | null;
+  refreshAccessToken?: () => Promise<string | null>;
   onUnauthorized?: () => void;
 };
 
@@ -24,7 +25,14 @@ export function createApiClient(options: ClientOptions) {
     const token = options.getToken();
     const headers = new Headers(init.headers);
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    const response = await fetch(`${options.baseUrl}${path}`, { ...init, headers });
+    let response = await fetch(`${options.baseUrl}${path}`, { ...init, headers, credentials:"include" });
+    if (response.status === 401 && options.refreshAccessToken) {
+      const refreshedToken = await options.refreshAccessToken().catch(() => null);
+      if (refreshedToken) {
+        headers.set("Authorization", `Bearer ${refreshedToken}`);
+        response = await fetch(`${options.baseUrl}${path}`, { ...init, headers, credentials:"include" });
+      }
+    }
     if (response.status === 401) options.onUnauthorized?.();
     if (!response.ok) {
       const body = await response.json().catch(() => ({ detail: "Request failed" }));

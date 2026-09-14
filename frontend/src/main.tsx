@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import "./clinical.css";
@@ -30,11 +30,17 @@ function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
   async function submit(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); const data=new FormData(event.currentTarget);
-    const response=await fetch(`${API}/api/v1/auth/token`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:data.get("email"),password:data.get("password")})});
+    const response=await fetch(`${API}/api/v1/auth/token`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:data.get("email"),password:data.get("password")})});
     if(!response.ok)return setError("Credenciales inválidas");
-    const body=await response.json(); localStorage.setItem("token",body.access_token); done(body.access_token);
+    const body=await response.json(); done(body.access_token);
   }
-  return <main className="login"><form onSubmit={submit}><p className="eyebrow">OPENEMR NEXT</p><h1>Expediente clínico</h1><label>Correo<input name="email" type="email" defaultValue="admin@example.com" required/></label><label>Contraseña<input name="password" type="password" defaultValue="change-me-now" required/></label>{error&&<p className="error">{error}</p>}<button>Ingresar</button></form></main>;
+  return <main className="login"><form onSubmit={submit}><p className="eyebrow">OPENRM</p><h1>Expediente clínico</h1><label>Correo<input name="email" type="email" defaultValue="admin@example.com" required/></label><label>Contraseña<input name="password" type="password" defaultValue="change-me-now" required/></label>{error&&<p className="error">{error}</p>}<button>Ingresar</button><a className="auth-link" href="/reset-password">Olvidé mi contraseña</a></form></main>;
+}
+
+function PasswordRecovery(){
+  const token=new URLSearchParams(window.location.search).get("token"); const [message,setMessage]=useState(""); const [error,setError]=useState("");
+  async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setError("");const form=new FormData(event.currentTarget);const path=token?"confirm":"request";const body=token?{token,new_password:form.get("password")}:{email:form.get("email")};const response=await fetch(`${API}/api/v1/auth/password-reset/${path}`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(!response.ok){const data=await response.json().catch(()=>null);return setError(data?.detail??"No se pudo completar la solicitud");}setMessage(token?"Contraseña actualizada. Ya puedes iniciar sesión.":"Si la cuenta existe, recibirás instrucciones de recuperación.");}
+  return <main className="login"><form onSubmit={submit}><p className="eyebrow">OPENRM</p><h1>{token?"Crear nueva contraseña":"Recuperar acceso"}</h1>{token?<label>Nueva contraseña<input name="password" type="password" minLength={12} required/></label>:<label>Correo<input name="email" type="email" required/></label>}{message&&<p className="success">{message}</p>}{error&&<p className="error">{error}</p>}<button>{token?"Guardar contraseña":"Enviar instrucciones"}</button><a className="auth-link" href="/">Volver al inicio de sesión</a></form></main>;
 }
 
 function Group({title,items}:{title:string;items:Item[]}){
@@ -42,7 +48,9 @@ function Group({title,items}:{title:string;items:Item[]}){
 }
 
 function App(){
-  const [token,setToken]=useState(localStorage.getItem("token")??"");
+  const [token,setToken]=useState("");
+  const [authReady,setAuthReady]=useState(false);
+  const refreshInFlight=useRef<Promise<string|null>|null>(null);
   const [patients,setPatients]=useState<Patient[]>([]);
   const [query,setQuery]=useState("");
   const [selected,setSelected]=useState<Summary|null>(null);
@@ -50,7 +58,12 @@ function App(){
   const [creatingPatient,setCreatingPatient]=useState(false);
   const [section,setSection]=useState<"patients"|"appointments"|"flow"|"inventory"|"communications"|"administration"|"reports">("patients");
 
-  const api=createApiClient({baseUrl:API,getToken:()=>token,onUnauthorized:()=>{localStorage.removeItem("token");setToken("");}});
+  function refreshAccessToken(){
+    if(!refreshInFlight.current)refreshInFlight.current=fetch(`${API}/api/v1/auth/refresh`,{method:"POST",credentials:"include"}).then(async response=>{if(!response.ok)return null;const body=await response.json();setToken(body.access_token);return body.access_token as string;}).finally(()=>{refreshInFlight.current=null;});
+    return refreshInFlight.current;
+  }
+  const api=createApiClient({baseUrl:API,getToken:()=>token,refreshAccessToken,onUnauthorized:()=>setToken("")});
+  async function logout(){try{await api("/api/v1/auth/logout",{method:"POST"});}finally{setToken("");}}
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
   async function createPatient(patient:PatientInput){
     setError("");
@@ -108,10 +121,12 @@ function App(){
   async function signClinicalForm(item:ClinicalForm){
     if(!selected)return; await api(`/api/v1/patients/${selected.patient.uuid}/clinical-forms/${item.uuid}/sign`,{method:"POST"}); await openPatient(selected.patient);
   }
+  useEffect(()=>{if(token){setAuthReady(true);return;}void refreshAccessToken().finally(()=>setAuthReady(true));},[]);
   useEffect(()=>{if(token)void loadPatients("");},[token]);
+  if(!authReady)return <main className="login"><p>Verificando sesión…</p></main>;
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
-    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button className={section==="communications"?"active":""} onClick={()=>setSection("communications")}>Mensajes</button><button className={section==="reports"?"active":""} onClick={()=>setSection("reports")}>Reportes</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>Administración</button></nav><button className="logout" onClick={()=>{localStorage.removeItem("token");setToken("");}}>Salir</button></aside>
+    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button className={section==="communications"?"active":""} onClick={()=>setSection("communications")}>Mensajes</button><button className={section==="reports"?"active":""} onClick={()=>setSection("reports")}>Reportes</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>Administración</button></nav><button className="logout" onClick={()=>void logout()}>Salir</button></aside>
     <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":section==="appointments"?"Agenda":section==="flow"?"Flujo de pacientes":section==="inventory"?"Inventario":section==="communications"?"Mensajes seguros":section==="reports"?"Reportes":"Administración"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
       {error&&<p className="error">{error}</p>}
       {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:section==="flow"?<PatientFlowBoard api={api}/>:section==="inventory"?<InventoryWorkspace api={api}/>:section==="communications"?<CommunicationWorkspace api={api} patients={patients}/>:section==="administration"?<AdministrationWorkspace api={api}/>:section==="reports"?<ReportWorkspace api={api}/>:<>{creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
@@ -142,5 +157,5 @@ function App(){
     </main>
   </div>;
 }
-const root = window.location.pathname.startsWith("/portal") ? <PortalApp baseUrl={API}/> : <App/>;
+const root = window.location.pathname.startsWith("/portal") ? <PortalApp baseUrl={API}/> : window.location.pathname.startsWith("/reset-password") ? <PasswordRecovery/> : <App/>;
 createRoot(document.getElementById("root")!).render(<React.StrictMode>{root}</React.StrictMode>);

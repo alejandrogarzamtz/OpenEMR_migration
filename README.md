@@ -75,7 +75,9 @@ migration controls and architectural records live in `docs/`.
 The current implementation provides a tested foundation and several initial
 end-to-end healthcare workflows:
 
-- password authentication with Argon2 hashes and constrained JWT access tokens;
+- Argon2 password authentication with short-lived JWT access tokens, persistent
+  server-side sessions, rotating `HttpOnly` refresh cookies, replay detection,
+  immediate logout revocation, and non-enumerating one-time password recovery;
 - backend-enforced, OpenEMR-compatible ACL section/value grants;
 - expanded patient search, demographics, address, communication consent, and
   lossless legacy-data preservation;
@@ -166,6 +168,13 @@ Production deployments must omit bootstrap credentials, provide a unique JWT
 secret through a secret manager, and provision administrators through a
 controlled process.
 
+Set `SECURE_COOKIES=true` whenever HTTPS is used. Refresh credentials are kept
+in identity-specific `HttpOnly`, `SameSite=Strict` cookies; access tokens remain
+in browser memory, are rotated by the web client, and every authenticated
+request is checked against a revocable server-side session. Password recovery queues a one-time link in the
+communication outbox and requires a configured email delivery worker for live
+use.
+
 Patient portal accounts are created by authorized staff for patients whose
 portal access has been enabled. Temporary passwords must be replaced before a
 patient can read or send protected messages. Live email delivery additionally
@@ -239,6 +248,8 @@ Start with these documents:
   and its individual migration status;
 - [Database Migration](docs/DATABASE_MIGRATION.md) — preservation, mapping,
   reconciliation, and cutover rules;
+- [Authentication](docs/AUTHENTICATION.md) — staff/portal identity separation,
+  token lifecycle, revocation, recovery, and production controls;
 - [Integrations](docs/INTEGRATIONS.md) — external systems, configuration,
   verification strategy, and credential-dependent blockers;
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged
