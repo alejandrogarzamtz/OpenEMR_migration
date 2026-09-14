@@ -80,8 +80,9 @@ end-to-end healthcare workflows:
   immediate logout revocation, non-enumerating one-time password recovery, and
   encrypted TOTP MFA with one-use recovery codes;
 - backend-enforced, OpenEMR-compatible ACL section/value grants;
-- expanded patient search, demographics, address, communication consent, and
-  lossless legacy-data preservation;
+- expanded patient search, normalized addresses and telecoms, related people,
+  searchable previous names, communication consent, and lossless legacy-data
+  preservation;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history
@@ -110,7 +111,7 @@ end-to-end healthcare workflows:
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
-forms, patient relationships, recurrence rules, broader portal workflows,
+forms, advanced demographic fields, recurrence rules, broader portal workflows,
 remaining reports, advanced inventory, billing exchanges, FHIR resources, integrations, administrative
 tools, and background services are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
