@@ -27,7 +27,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `encounters_report` | MIGRATED |
 | `external_data` | PENDING |
 | `front_receipts_report` | PENDING |
-| `immunization_report` | PENDING |
+| `immunization_report` | MIGRATED |
 | `insurance_allocation_report` | PENDING |
 | `inventory_activity` | PENDING |
 | `inventory_list` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 13 migrated, 35 pending**.
+Current accounting: **48 cataloged, 14 migrated, 34 pending**.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,
@@ -66,3 +66,10 @@ outbox and therefore reports outbound email, Direct and future delivery
 channels, status transitions, attempts and failures. It does not claim inbound
 Direct parity: inbound Direct transport remains part of the communication
 integration gap.
+
+`immunization_report` uses normalized immunization and patient records, keeps
+CVX, administration, manufacturer, lot, route, site, dose, completion/refusal
+state and stable identifiers, and excludes `entered-in-error` records as the
+legacy registry report did. The reproducible CSV report is migrated; registry
+submission and HL7 VXU generation remain integration work and are not implied
+by this status.
