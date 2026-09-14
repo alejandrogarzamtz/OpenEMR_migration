@@ -1,4 +1,30 @@
 {
+  "aftercare_plan": {
+    "fields": 11,
+    "sha256": "d4221954037981c77e543a8a4918272bfbbf215ea85485f179f320a7246ac25f",
+    "source": "interface/forms/aftercare_plan/table.sql"
+  },
+  "clinic_note": {
+    "fields": 5,
+    "sha256": "7c957eaa629992d21d2bf5927853060214e1649546a1899ed48fd2bb7275a0f0",
+    "source": "interface/forms/clinic_note/table.sql"
+  },
+  "clinical_instructions": {
+    "fields": 1,
+    "sha256": "5a92f6f089f63f0d476ba2494aa0848b93dbd0bcb7f058544e10992e67f09c98",
+    "source": "interface/forms/clinical_instructions/table.sql"
+  },
+  "dictation": {
+    "fields": 2,
+    "sha256": "7c864e4db2662430b33ac83aef3d60276fe45f732e7bc43871662a87e5f9d499",
+    "source": "sql/database.sql#form_dictation"
+  },
+  "note": {
+    "fields": 4,
+    "sha256": "6d640ae8453e47ec274374b62335bc683d430a5b0ccd018a8ac9baa08742e6fc",
+    "source": "interface/forms/note/table.sql",
+    "mapping": {"date_of_signature": "clinical_forms.signed_at"}
+  },
   "physical_exam": {
     "fields": 37,
     "sha256": "ad806970a4231d24f3e79286dd52315d961ede9aea1c8716d010556ecd8002de",
@@ -13,5 +39,15 @@
     "fields": 4,
     "sha256": "64dfbef85161298a39281e9053cf2adca82b8e681bbcc74b13cf8afa46384ecd",
     "source": "interface/forms/soap/table.sql"
+  },
+  "transfer_summary": {
+    "fields": 8,
+    "sha256": "4849b7a7a4182de7322b10c016717c5803607de7cceb292ee58fea621b2ec30c",
+    "source": "interface/forms/transfer_summary/table.sql"
+  },
+  "treatment_plan": {
+    "fields": 11,
+    "sha256": "80e309027cea25a51f1b1a8e3811e61b0a5bd44d64b7b016bec284d381af7935",
+    "source": "interface/forms/treatment_plan/table.sql"
   }
 }

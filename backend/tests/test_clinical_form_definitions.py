@@ -30,3 +30,12 @@ def test_specialized_form_definitions_and_semantic_validation():
         assert physical.status_code==201 and physical.json()["content"]["findings"][0]=={"line_id":"GENWELL","status":"normal","diagnosis":"","comments":"Well appearing"}
         update=client.put(f"{path}/{physical.json()['uuid']}",headers=headers,json={"title":"Invalid update","content":{"findings":[]}})
         assert update.status_code==422
+        assert client.post(path,headers=headers,json=base|{"form_type":"dictation","content":{"additional_notes":"No dictated content"}}).status_code==422
+        dictation=client.post(path,headers=headers,json=base|{"form_type":"dictation","content":{"dictation":"Patient reports improvement","additional_notes":"Reviewed"}})
+        assert dictation.status_code==201 and dictation.json()["content"]["dictation"]=="Patient reports improvement"
+        assert client.post(path,headers=headers,json=base|{"form_type":"clinic_note","content":{"history":"Stable","followup_required":True}}).status_code==422
+        clinic=client.post(path,headers=headers,json=base|{"form_type":"clinic_note","content":{"history":"Stable","followup_required":True,"followup_timing":"Two weeks"}})
+        assert clinic.status_code==201 and clinic.json()["content"]["followup_required"] is True
+        assert client.post(path,headers=headers,json=base|{"form_type":"aftercare_plan","content":{"admit_date":"09/14/2026","goal_c_relapse_potential":"Reduce relapse risk"}}).status_code==422
+        transfer=client.post(path,headers=headers,json=base|{"form_type":"transfer_summary","content":{"transfer_to":"Community clinic","transfer_date":"2026-09-15","diagnosis":"Stable"}})
+        assert transfer.status_code==201 and transfer.json()["content"]["transfer_date"]=="2026-09-15"

@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from typing import Any
 
 
@@ -38,13 +39,23 @@ PHYSICAL_EXAM_LINES = {
     "TRTLABS": ("TREATMENT", "Labs"), "TRTXRAY": ("TREATMENT", "X-ray"), "TRTRET": ("TREATMENT", "Return visit"),
 }
 
+STRUCTURED_FORMS = {
+    "dictation": {"title": "Dictation", "fields": [("dictation", "Dictation", "text", True), ("additional_notes", "Additional notes", "text", False)]},
+    "note": {"title": "Progress note", "fields": [("note_type", "Note type", "string", True), ("message", "Message", "text", True), ("doctor", "Doctor", "string", False)]},
+    "clinic_note": {"title": "Clinic note", "fields": [("history", "History", "text", False), ("examination", "Examination", "text", False), ("plan", "Plan", "text", False), ("followup_required", "Follow-up required", "boolean", True), ("followup_timing", "Follow-up timing", "string", False)]},
+    "clinical_instructions": {"title": "Clinical instructions", "fields": [("instruction", "Instructions", "text", True)]},
+    "aftercare_plan": {"title": "Aftercare plan", "fields": [("client_name", "Client name", "string", False), ("provider", "Provider", "string", False), ("admit_date", "Admission date", "date", False), ("discharged", "Discharge date", "date", False), ("goal_a_acute_intoxication", "Acute intoxication goal", "text", False), ("goal_a_acute_intoxication_I", "Acute intoxication intervention I", "text", False), ("goal_a_acute_intoxication_II", "Acute intoxication intervention II", "text", False), ("goal_b_emotional_behavioral_conditions", "Emotional/behavioral goal", "text", False), ("goal_b_emotional_behavioral_conditions_I", "Emotional/behavioral intervention", "text", False), ("goal_c_relapse_potential", "Relapse potential goal", "text", False), ("goal_c_relapse_potential_I", "Relapse potential intervention", "text", False)]},
+    "treatment_plan": {"title": "Treatment plan", "fields": [("client_name", "Client name", "string", False), ("client_number", "Client number", "integer", False), ("provider", "Provider", "string", False), ("admit_date", "Admission date", "string", False), ("presenting_issues", "Presenting issues", "text", False), ("patient_history", "Patient history", "text", False), ("medications", "Medications", "text", False), ("anyother_relevant_information", "Other relevant information", "text", False), ("diagnosis", "Diagnosis", "text", False), ("treatment_received", "Treatment received", "text", False), ("recommendation_for_follow_up", "Follow-up recommendation", "text", False)]},
+    "transfer_summary": {"title": "Transfer summary", "fields": [("client_name", "Client name", "string", False), ("provider", "Provider", "string", False), ("transfer_to", "Transfer to", "string", True), ("transfer_date", "Transfer date", "date", True), ("status_of_admission", "Admission status", "text", False), ("diagnosis", "Diagnosis", "text", False), ("intervention_provided", "Intervention provided", "text", False), ("overall_status_of_discharge", "Overall discharge status", "text", False)]},
+}
+
 FORM_DEFINITIONS = {
     "soap": {"title": "SOAP note", "kind": "narrative", "fields": [{"key": key, "label": key.title(), "type": "text", "required": False} for key in SOAP_FIELDS]},
     "ros": {"title": "Review of systems", "kind": "review-of-systems", "values": ["positive", "negative", "not-assessed"], "fields": [{"key": key, "label": key.replace("_", " ").title(), "type": "tri-state", "source_key": key} for key in ROS_FIELDS]},
     "physical_exam": {"title": "Physical examination", "kind": "exam-findings", "values": ["normal", "abnormal", "not-examined"], "lines": [{"line_id": key, "system": system, "label": label} for key, (system, label) in PHYSICAL_EXAM_LINES.items()]},
-    "clinic_note": {"title": "Clinical note", "kind": "narrative", "fields": [{"key": "note", "label": "Note", "type": "text", "required": True}]},
     "custom": {"title": "Custom form", "kind": "custom-json"},
 }
+FORM_DEFINITIONS.update({key: {"title": value["title"], "kind": "structured", "fields": [{"key": field[0], "label": field[1], "type": field[2], "required": field[3]} for field in value["fields"]]} for key, value in STRUCTURED_FORMS.items()})
 
 
 class ClinicalFormValidationError(ValueError):
@@ -60,6 +71,44 @@ def _text(value: Any, field: str, *, required: bool = False) -> str:
     if len(value) > 20_000:
         raise ClinicalFormValidationError(f"{field} exceeds 20000 characters")
     return value
+
+
+def _structured(form_type: str, content: dict[str, Any]) -> dict[str, Any]:
+    fields = {field[0]: field for field in STRUCTURED_FORMS[form_type]["fields"]}
+    unknown = set(content) - set(fields)
+    if unknown:
+        raise ClinicalFormValidationError(f"Unknown {form_type} fields: {', '.join(sorted(unknown))}")
+    normalized = {}
+    for key, (_, _, kind, required) in fields.items():
+        if key not in content:
+            if required:
+                raise ClinicalFormValidationError(f"{key} is required")
+            continue
+        value = content[key]
+        if kind == "boolean":
+            if not isinstance(value, bool): raise ClinicalFormValidationError(f"{key} must be boolean")
+            normalized[key] = value
+        elif kind == "integer":
+            if isinstance(value, bool) or not isinstance(value, int): raise ClinicalFormValidationError(f"{key} must be an integer")
+            normalized[key] = value
+        elif kind == "date":
+            value = _text(value, key, required=required)
+            if value:
+                try: date.fromisoformat(value)
+                except ValueError as error: raise ClinicalFormValidationError(f"{key} must be an ISO date") from error
+            normalized[key] = value
+        else:
+            normalized[key] = _text(value, key, required=required)
+    if form_type == "clinic_note":
+        if not any(normalized.get(key) for key in ("history", "examination", "plan")):
+            raise ClinicalFormValidationError("Clinic note requires history, examination, or plan")
+        if normalized.get("followup_required") and not normalized.get("followup_timing"):
+            raise ClinicalFormValidationError("followup_timing is required when follow-up is required")
+    elif form_type == "aftercare_plan" and normalized.get("admit_date") and normalized.get("discharged") and normalized["discharged"] < normalized["admit_date"]:
+        raise ClinicalFormValidationError("discharged must not precede admit_date")
+    elif not any(value not in ("", False, None) for value in normalized.values()):
+        raise ClinicalFormValidationError(f"{form_type} requires clinical content")
+    return normalized
 
 
 def validate_clinical_form_content(form_type: str, content: dict[str, Any]) -> dict[str, Any]:
@@ -107,10 +156,8 @@ def validate_clinical_form_content(form_type: str, content: dict[str, Any]) -> d
         if not findings:
             raise ClinicalFormValidationError("Physical examination requires at least one finding")
         return {"findings": findings}
-    if form_type == "clinic_note":
-        if set(content) != {"note"}:
-            raise ClinicalFormValidationError("Clinical note requires only the note field")
-        return {"note": _text(content["note"], "note", required=True)}
+    if form_type in STRUCTURED_FORMS:
+        return _structured(form_type, content)
     if len(json.dumps(content, default=str)) > 1_000_000:
         raise ClinicalFormValidationError("Custom form content exceeds 1 MB")
     return content

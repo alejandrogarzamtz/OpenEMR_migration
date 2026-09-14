@@ -14,7 +14,7 @@ are all verified. “Partial” never counts as final parity.
 | Scheduling and holidays | Partial | facility-aware events, resources, conflicts and statuses exist; recurrence expansion, categories, holidays, reminder delivery and wait list remain |
 | Patient flow board | Partial | immutable tracker stages, rooms, timestamps and dashboard exist; configurable stage rules, analytics and remaining legacy actions remain |
 | Encounters | Partial | lifecycle, locking, signing, diagnoses, providers and encounter forms |
-| Clinical forms | Partial | structured/custom capture, password-reauthenticated signatures, locked editing, chained integrity evidence, amendments and generic legacy preservation exist; source-reconciled typed SOAP, all 138 ROS indicators and all 37 physical-exam lines have contract-driven React editors and semantic validation; remaining specialized form families and dictation remain |
+| Clinical forms | Partial | generic preservation, signatures, amendments and locks exist; ten source-reconciled form families now have contract-driven React editors and semantic validation: SOAP, ROS, physical exam, dictation, progress/clinic notes, instructions, aftercare, treatment and transfer summary; relational care plans, linked clinical notes and remaining specialized families remain |
 | Problems and surgeries | Partial | full coding, verification, occurrence, associations and surgery workflow |
 | Allergies | Partial | verification, intolerance detail, substance coding and reconciliation |
 | Medications | Partial | adherence, devices, medication history and reconciliation |

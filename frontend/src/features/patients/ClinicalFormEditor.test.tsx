@@ -9,6 +9,7 @@ const definitions={
   ros:{title:"Review of systems",kind:"review-of-systems",fields:[{key:"fever",label:"Fever",type:"tri-state"}]},
   physical_exam:{title:"Physical examination",kind:"exam-findings",lines:[{line_id:"GENWELL",system:"GEN",label:"Appearance"}]},
   clinic_note:{title:"Clinical note",kind:"narrative",fields:[{key:"note",label:"Note",type:"text",required:true}]},
+  dictation:{title:"Dictation",kind:"structured",fields:[{key:"dictation",label:"Dictation",type:"text",required:true},{key:"reviewed",label:"Reviewed",type:"boolean",required:true}]},
   custom:{title:"Custom form",kind:"custom-json"},
 };
 
@@ -22,6 +23,8 @@ describe("ClinicalFormEditor",()=>{
     await waitFor(()=>expect(api).toHaveBeenLastCalledWith("/api/v1/patients/patient-1/clinical-forms",expect.objectContaining({body:JSON.stringify({encounter_uuid:"encounter-1",form_type:"ros",title:"ROS",content:{fever:"positive"}})})));
     fireEvent.change(screen.getByLabelText("Tipo de formulario"),{target:{value:"physical_exam"}});fireEvent.change(screen.getByLabelText("Título"),{target:{value:"Exam"}});fireEvent.change(screen.getByLabelText("Appearance estado"),{target:{value:"normal"}});fireEvent.click(screen.getByText("Guardar borrador"));
     await waitFor(()=>expect(api).toHaveBeenLastCalledWith("/api/v1/patients/patient-1/clinical-forms",expect.objectContaining({body:JSON.stringify({encounter_uuid:"encounter-1",form_type:"physical_exam",title:"Exam",content:{findings:[{line_id:"GENWELL",status:"normal",diagnosis:"",comments:""}]}})})));
-    expect(saved).toHaveBeenCalledTimes(3);
+    fireEvent.change(screen.getByLabelText("Tipo de formulario"),{target:{value:"dictation"}});fireEvent.change(screen.getByLabelText("Título"),{target:{value:"Dictation"}});fireEvent.change(screen.getByLabelText("Dictation"),{target:{value:"Clinical narrative"}});fireEvent.click(screen.getByLabelText("Reviewed"));fireEvent.click(screen.getByText("Guardar borrador"));
+    await waitFor(()=>expect(api).toHaveBeenLastCalledWith("/api/v1/patients/patient-1/clinical-forms",expect.objectContaining({body:JSON.stringify({encounter_uuid:"encounter-1",form_type:"dictation",title:"Dictation",content:{dictation:"Clinical narrative",reviewed:true}})})));
+    expect(saved).toHaveBeenCalledTimes(4);
   });
 });

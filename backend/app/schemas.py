@@ -1098,7 +1098,7 @@ class PrescriptionOut(PrescriptionCreate):
 
 class ClinicalFormCreate(BaseModel):
     encounter_uuid: str
-    form_type: str = Field(pattern="^(soap|ros|physical_exam|clinic_note|custom)$")
+    form_type: str = Field(pattern="^(soap|ros|physical_exam|dictation|note|clinic_note|clinical_instructions|aftercare_plan|treatment_plan|transfer_summary|custom)$")
     title: str = Field(min_length=1, max_length=255)
     content: dict
 
