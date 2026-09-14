@@ -58,6 +58,13 @@ reruns idempotent. Compare `source`, `inserted`, and `existing` counts before
 enabling `--commit`; every domain also reports `rejected` records requiring
 storage remediation or clinical review.
 
+Patient imports additionally emit `patient_demographic_reconciliation`. It
+contains match counts and every divergent `pid` for each directly typed field,
+the same evidence for every original `patient_data` value retained in
+`legacy_payload`, missing patient identifiers, and a deterministic SHA-256
+checksum. Cutover requires a reviewed report with no unexplained mismatches;
+the dry run is evidence, not an instruction to overwrite the source system.
+
 The `forms` registry is reconciled against the actual `form_*` tables installed
 in the source system. SOAP, ROS, physical-exam and clinic-note forms receive
 normalized types; every other installed form is retained as a custom JSON

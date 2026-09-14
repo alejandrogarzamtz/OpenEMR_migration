@@ -96,6 +96,7 @@ class PatientTelecom(Base):
 
 class PatientRelatedPerson(Base):
     __tablename__ = "patient_related_persons"
+    __table_args__ = (UniqueConstraint("patient_id", "legacy_source", name="uq_patient_related_person_legacy_source"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
@@ -106,6 +107,12 @@ class PatientRelatedPerson(Base):
     role_code: Mapped[str] = mapped_column(String(63), index=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sex: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    address_line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[int] = mapped_column(default=1)
     active: Mapped[bool] = mapped_column(default=True)
     is_primary_contact: Mapped[bool] = mapped_column(default=False)
@@ -115,6 +122,8 @@ class PatientRelatedPerson(Base):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class PatientNameHistory(Base):

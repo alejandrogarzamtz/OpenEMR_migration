@@ -202,6 +202,12 @@ class PatientRelatedPersonCreate(BaseModel):
     role_code: str = Field(min_length=1, max_length=63)
     phone: str | None = Field(default=None, max_length=50)
     email: EmailStr | None = None
+    sex: str | None = Field(default=None, max_length=100)
+    address_line1: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=30)
+    country: str | None = Field(default=None, max_length=100)
     priority: int = Field(default=1, ge=1)
     is_primary_contact: bool = False
     is_emergency_contact: bool = False
@@ -216,6 +222,7 @@ class PatientRelatedPersonOut(PatientRelatedPersonCreate):
     model_config = ConfigDict(from_attributes=True)
     uuid: str
     active: bool
+    legacy_source: str | None
 
 
 class InactivationRequest(BaseModel):

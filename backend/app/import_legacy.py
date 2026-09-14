@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
@@ -46,6 +46,16 @@ def legacy_consent_decision(purpose: str, value) -> str:
     return "permit" if normalized == "YES" else "deny" if normalized == "NO" else "unknown"
 
 
+def parse_legacy_person_name(value) -> tuple[str, str]:
+    raw = clean(value)
+    if not raw: return "Unknown", "Unknown"
+    if "," in raw:
+        last, first = (part.strip() for part in raw.split(",", 1))
+        return first or "Unknown", last or "Unknown"
+    parts = raw.split()
+    return (parts[0], "Unknown") if len(parts) == 1 else (" ".join(parts[:-1]), parts[-1])
+
+
 def valid_dob(value):
     return value if isinstance(value, date) and value.year > 1800 else date(1900, 1, 1)
 
@@ -67,15 +77,59 @@ def event_datetime(day, clock):
     return datetime.combine(day, clock or time.min)
 
 
+def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
+    direct = {
+        "fname": ("first_name", lambda value: clean(value) or "Unknown"),
+        "mname": ("middle_name", clean), "lname": ("last_name", lambda value: clean(value) or "Unknown"),
+        "preferred_name": ("preferred_name", clean), "suffix": ("suffix", clean),
+        "DOB": ("date_of_birth", valid_dob), "sex": ("sex", lambda value: clean(value) or "unknown"),
+        "gender_identity": ("gender_identity", clean), "sexual_orientation": ("sexual_orientation", clean),
+        "pronoun": ("pronouns", clean), "language": ("language", clean), "race": ("race", clean),
+        "ethnicity": ("ethnicity", clean), "email": ("email", clean),
+        "street": ("address_line_1", clean), "street_line_2": ("address_line_2", clean),
+        "city": ("city", clean), "state": ("state", clean), "postal_code": ("postal_code", clean),
+        "country_code": ("country_code", clean),
+        "allow_patient_portal": ("portal_allowed", lambda value: clean(value) not in {None, "NO", "0"}),
+        "hipaa_allowemail": ("allow_email", lambda value: clean(value) == "YES"),
+        "hipaa_allowsms": ("allow_sms", lambda value: clean(value) == "YES"),
+        "deceased_date": ("deceased_at", lambda value: value), "deceased_reason": ("deceased_reason", clean),
+    }
+    typed = {field: {"records": 0, "matches": 0, "mismatch_pids": []} for field in direct}
+    typed["phone_cell|phone_home"] = {"records": 0, "matches": 0, "mismatch_pids": []}
+    payload: dict[str, dict] = {}
+    patients = {patient.legacy_pid: patient for patient in target.scalars(select(Patient).where(Patient.legacy_pid.is_not(None)))}
+    missing_patients = []
+    for row in patient_rows:
+        patient = patients.get(row["pid"])
+        if not patient:
+            missing_patients.append(row["pid"]); continue
+        for field, (attribute, normalize) in direct.items():
+            result = typed[field]; result["records"] += 1
+            expected, actual = normalize(row[field]), getattr(patient, attribute)
+            if json_value(expected) == json_value(actual): result["matches"] += 1
+            else: result["mismatch_pids"].append(row["pid"])
+        phone_result = typed["phone_cell|phone_home"]; phone_result["records"] += 1
+        if (clean(row["phone_cell"]) or clean(row["phone_home"])) == patient.phone: phone_result["matches"] += 1
+        else: phone_result["mismatch_pids"].append(row["pid"])
+        source_payload = patient.legacy_payload or {}
+        for field, raw in row.items():
+            result = payload.setdefault(field, {"records": 0, "matches": 0, "mismatch_pids": []}); result["records"] += 1
+            if source_payload.get(field) == json_value(raw): result["matches"] += 1
+            else: result["mismatch_pids"].append(row["pid"])
+    result = {"source_patients": len(patient_rows), "target_patients": len(patients), "missing_patient_pids": missing_patients, "typed_fields": typed, "legacy_payload_fields": payload}
+    result["sha256"] = hashlib.sha256(json.dumps(result, sort_keys=True, default=json_value).encode()).hexdigest()
+    return result
+
+
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
-        patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
-        for row in patients.mappings():
+        patient_rows = list(legacy.execute(text("SELECT * FROM patient_data ORDER BY pid")).mappings())
+        for row in patient_rows:
             stats["patients"]["source"] += 1
             patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
             if patient: stats["patients"]["existing"] += 1; continue
@@ -111,8 +165,37 @@ def run(source_url: str, commit: bool = False) -> dict:
             ))
             stats["patients"]["inserted"] += 1
         target.flush()
-        consent_rows = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
-        for row in consent_rows.mappings():
+        for row in patient_rows:
+            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            guardian_fields = ("guardiansname", "guardianrelationship", "guardiansex", "guardianaddress", "guardiancity", "guardianstate", "guardianpostalcode", "guardiancountry", "guardianphone", "guardianworkphone", "guardianemail")
+            guardian_payload = {field: json_value(row.get(field)) for field in guardian_fields}
+            if any(clean(row.get(field)) for field in guardian_fields):
+                stats["patient_related_people"]["source"] += 1
+                existing = patient and target.scalar(select(PatientRelatedPerson.id).where(PatientRelatedPerson.patient_id == patient.id, PatientRelatedPerson.legacy_source == "patient_data.guardian"))
+                if existing: stats["patient_related_people"]["existing"] += 1
+                elif not patient: stats["patient_related_people"]["rejected"] += 1
+                else:
+                    first, last = parse_legacy_person_name(row.get("guardiansname"))
+                    target.add(PatientRelatedPerson(
+                        patient_id=patient.id, first_name=first, last_name=last,
+                        relationship_code=clean(row.get("guardianrelationship")) or "guardian", role_code="guardian",
+                        phone=clean(row.get("guardianphone")) or clean(row.get("guardianworkphone")), email=clean(row.get("guardianemail")),
+                        sex=clean(row.get("guardiansex")), address_line1=clean(row.get("guardianaddress")), city=clean(row.get("guardiancity")),
+                        state=clean(row.get("guardianstate")), postal_code=clean(row.get("guardianpostalcode")), country=clean(row.get("guardiancountry")),
+                        active=True, can_make_medical_decisions=False, can_receive_medical_info=False,
+                        notes="Imported guardian demographics; legal authority was not inferred.", legacy_source="patient_data.guardian", legacy_payload=guardian_payload,
+                    )); stats["patient_related_people"]["inserted"] += 1
+            mother_name = clean(row.get("mothersname"))
+            if mother_name:
+                stats["patient_related_people"]["source"] += 1
+                existing = patient and target.scalar(select(PatientRelatedPerson.id).where(PatientRelatedPerson.patient_id == patient.id, PatientRelatedPerson.legacy_source == "patient_data.mother"))
+                if existing: stats["patient_related_people"]["existing"] += 1
+                elif not patient: stats["patient_related_people"]["rejected"] += 1
+                else:
+                    first, last = parse_legacy_person_name(mother_name)
+                    target.add(PatientRelatedPerson(patient_id=patient.id, first_name=first, last_name=last, relationship_code="mother", role_code="family", active=True, notes="Imported from patient_data.mothersname; authority was not inferred.", legacy_source="patient_data.mother", legacy_payload={"mothersname": mother_name})); stats["patient_related_people"]["inserted"] += 1
+        target.flush()
+        for row in patient_rows:
             patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
             for legacy_field, purpose in LEGACY_CONSENT_PURPOSES.items():
                 stats["patient_consents"]["source"] += 1
@@ -157,7 +240,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         patient_columns = {column["name"] for column in inspect(source).get_columns("patient_data")}
         definitions = list(target.scalars(select(PatientCustomFieldDefinition).where(PatientCustomFieldDefinition.legacy_form_id == "DEM")))
         patients_by_legacy = {patient.legacy_pid: patient for patient in target.scalars(select(Patient).where(Patient.legacy_pid.is_not(None)))}
-        for row in legacy.execute(text("SELECT * FROM patient_data ORDER BY pid")).mappings():
+        for row in patient_rows:
             patient = patients_by_legacy.get(row["pid"])
             for definition in definitions:
                 if definition.field_key not in patient_columns: continue
@@ -552,6 +635,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 delivery_status = "sent" if sent_at else "failed" if error else "pending"
                 target.add(CommunicationDelivery(legacy_email_id=row["id"], channel="email", recipient=recipient, subject=clean(row.get("subject")) or "Legacy message", body=clean(row.get("body")) or "", template_name=clean(row.get("template_name")), status=delivery_status, queued_at=row.get("datetime_queued") or datetime.now(timezone.utc), sent_at=sent_at, failed_at=row.get("datetime_error") if error else None, error_message=error, legacy_payload={key: json_value(value) for key, value in row.items()}))
                 stats["communication_deliveries"]["inserted"] += 1
+        stats["patient_demographic_reconciliation"] = reconcile_patient_demographics(patient_rows, target)
         if commit: target.commit()
         else: target.rollback()
     stats["mode"] = "committed" if commit else "dry-run"
