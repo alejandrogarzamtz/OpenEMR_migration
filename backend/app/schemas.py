@@ -246,6 +246,36 @@ class PatientNameHistoryOut(PatientNameHistoryCreate):
     created_at: datetime
 
 
+class PatientEmploymentCreate(BaseModel):
+    employer_name: str = Field(min_length=1, max_length=255)
+    occupation_code: str | None = Field(default=None, max_length=255)
+    industry_code: str | None = Field(default=None, max_length=255)
+    line1: str | None = Field(default=None, max_length=255)
+    line2: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=30)
+    country: str | None = Field(default=None, max_length=100)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def valid_employment(self):
+        if self.starts_at and self.ends_at and self.ends_at < self.starts_at:
+            raise ValueError("ends_at must not precede starts_at")
+        return self
+
+
+class PatientEmploymentOut(PatientEmploymentCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    legacy_employer_id: int | None
+    active: bool
+    inactivated_reason: str | None
+    created_at: datetime
+
+
 class AppointmentBase(BaseModel):
     patient_uuid: str
     facility_uuid: str | None = None

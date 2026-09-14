@@ -81,8 +81,8 @@ end-to-end healthcare workflows:
   encrypted TOTP MFA with one-use recovery codes;
 - backend-enforced, OpenEMR-compatible ACL section/value grants;
 - expanded patient search, normalized addresses and telecoms, related people,
-  searchable previous names, communication consent, and lossless legacy-data
-  preservation;
+  searchable previous names, structured employment history, communication
+  consent, and lossless legacy-data preservation;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

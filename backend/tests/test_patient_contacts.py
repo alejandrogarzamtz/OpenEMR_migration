@@ -33,3 +33,17 @@ def test_previous_names_are_structured_audited_and_searchable():
         assert [item["uuid"] for item in history]==[created.json()["uuid"]]
         results=client.get("/api/v1/patients",headers=staff,params={"q":"Surname"}).json()["items"]
         assert [item["uuid"] for item in results]==[patient["uuid"]]
+
+
+def test_employment_history_is_patient_scoped_validated_and_preserved_on_inactivation():
+    with TestClient(app) as client:
+        staff=staff_headers(client); patient=create_patient(client,staff,"WorkerOne"); other=create_patient(client,staff,"WorkerTwo")
+        created=client.post(f"/api/v1/patients/{patient['uuid']}/employments",headers=staff,json={"employer_name":"Community Clinic","occupation_code":"RN","industry_code":"6211","country":"Mexico","starts_at":"2021-01-01T00:00:00Z"})
+        assert created.status_code==201 and created.json()["active"] is True
+        invalid=client.post(f"/api/v1/patients/{patient['uuid']}/employments",headers=staff,json={"employer_name":"Invalid","starts_at":"2025-01-01T00:00:00Z","ends_at":"2024-01-01T00:00:00Z"})
+        assert invalid.status_code==422
+        assert client.post(f"/api/v1/patients/{other['uuid']}/employments/{created.json()['uuid']}/inactivate",headers=staff,json={"reason":"Employment ended"}).status_code==404
+        ended=client.post(f"/api/v1/patients/{patient['uuid']}/employments/{created.json()['uuid']}/inactivate",headers=staff,json={"reason":"Employment ended"})
+        assert ended.status_code==200 and ended.json()["active"] is False and ended.json()["ends_at"]
+        history=client.get(f"/api/v1/patients/{patient['uuid']}/employments",headers=staff).json()
+        assert len(history)==1 and history[0]["inactivated_reason"]=="Employment ended"

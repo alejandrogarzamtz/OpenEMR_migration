@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
@@ -47,7 +47,7 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_employments", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -88,6 +88,26 @@ def run(source_url: str, commit: bool = False) -> dict:
             ))
             stats["patients"]["inserted"] += 1
         target.flush()
+        if "employer_data" in legacy_tables:
+            employments = legacy.execute(text("SELECT * FROM employer_data ORDER BY id"))
+            for row in employments.mappings():
+                stats["patient_employments"]["source"] += 1
+                if target.scalar(select(PatientEmployment.id).where(PatientEmployment.legacy_employer_id == row["id"])):
+                    stats["patient_employments"]["existing"] += 1; continue
+                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+                employer_name = clean(row["name"])
+                if not patient or not employer_name:
+                    stats["patient_employments"]["rejected"] += 1; continue
+                target.add(PatientEmployment(
+                    legacy_employer_id=row["id"], patient_id=patient.id, employer_name=employer_name,
+                    occupation_code=clean(row["occupation"]), industry_code=clean(row["industry"]),
+                    line1=clean(row["street"]), line2=clean(row["street_line_2"]), city=clean(row["city"]),
+                    state=clean(row["state"]), postal_code=clean(row["postal_code"]), country=clean(row["country"]),
+                    starts_at=row["start_date"], ends_at=row["end_date"], active=row["end_date"] is None,
+                    legacy_payload={key: json_value(value) for key, value in row.items()},
+                ))
+                stats["patient_employments"]["inserted"] += 1
+            target.flush()
         facilities = legacy.execute(text("SELECT * FROM facility ORDER BY id"))
         for row in facilities.mappings():
             stats["facilities"]["source"] += 1

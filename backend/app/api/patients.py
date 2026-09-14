@@ -1,14 +1,42 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientCreate, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientCreate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
+
+
+@router.get("/{patient_uuid}/employments", response_model=list[PatientEmploymentOut])
+def list_employments(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    items = list(db.scalars(select(PatientEmployment).where(PatientEmployment.patient_id == patient.id).order_by(PatientEmployment.active.desc(), PatientEmployment.starts_at.desc(), PatientEmployment.id.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_employment", resource_id=patient.uuid, detail=f"records={len(items)}")); db.commit()
+    return items
+
+
+@router.post("/{patient_uuid}/employments", response_model=PatientEmploymentOut, status_code=status.HTTP_201_CREATED)
+def create_employment(patient_uuid: str, body: PatientEmploymentCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = PatientEmployment(patient_id=patient.id, **body.model_dump())
+    db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_employment", resource_id=item.uuid, detail=f"patient={patient.uuid}")); db.commit(); db.refresh(item)
+    return item
+
+
+@router.post("/{patient_uuid}/employments/{employment_uuid}/inactivate", response_model=PatientEmploymentOut)
+def inactivate_employment(patient_uuid: str, employment_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = db.scalar(select(PatientEmployment).where(PatientEmployment.uuid == employment_uuid, PatientEmployment.patient_id == patient.id))
+    if not item: raise HTTPException(status_code=404, detail="Employment not found")
+    item.active = False; item.inactivated_reason = body.reason
+    if not item.ends_at: item.ends_at = datetime.now(timezone.utc)
+    db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_employment", resource_id=item.uuid, detail=f"patient={patient.uuid}; reason={body.reason}")); db.commit(); db.refresh(item)
+    return item
 
 
 @router.get("/{patient_uuid}/name-history", response_model=list[PatientNameHistoryOut])

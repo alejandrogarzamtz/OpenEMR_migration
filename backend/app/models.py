@@ -135,6 +135,30 @@ class PatientNameHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class PatientEmployment(Base):
+    __tablename__ = "patient_employments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_employer_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    employer_name: Mapped[str] = mapped_column(String(255))
+    occupation_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    industry_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    line2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[int] = mapped_column(primary_key=True)
