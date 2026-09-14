@@ -36,10 +36,33 @@ token, and queues a delivery in `communication_deliveries`.
 Argon2 password hash, and revokes every active staff session for the account.
 The React recovery screen is available at `/reset-password`.
 
+## Staff multifactor authentication
+
+Staff can enroll one RFC 6238-compatible TOTP authenticator from the Security
+workspace. Enrollment requires the current password and confirmation with a
+valid six-digit code. Ten high-entropy recovery codes are displayed once;
+their normalized SHA-256 digests are stored and each is removed atomically when
+used.
+
+Once enabled, a correct password creates only a five-minute MFA challenge. No
+access or refresh credential is issued until the challenge is completed. Each
+challenge permits five attempts. Accepted TOTP time steps are recorded to
+prevent replay, and challenge success/failure, enrollment and disable events
+are audited. Disabling MFA requires both the current password and a valid TOTP
+or recovery code and revokes the user's other sessions.
+
+TOTP seeds are protected with Fernet authenticated encryption. Legacy MFA
+ciphertext is not copied because it is bound to the source installation's
+encryption keys; affected users must enroll again.
+
 ## Production configuration
 
 - Generate `JWT_SECRET` with a cryptographically secure secret manager and
   rotate it through a controlled deployment procedure.
+- Set a stable, independently generated `MFA_ENCRYPTION_KEY`, protect it in the
+  deployment secret manager and include it in encrypted backups. Development
+  falls back to a key derived from `JWT_SECRET`; production must not rely on
+  that fallback. Losing or changing this key makes registrations unreadable.
 - Set `SECURE_COOKIES=true` behind HTTPS. Do not expose authentication over
   plaintext transport.
 - Set `PUBLIC_WEB_URL` to the canonical HTTPS web origin so reset links cannot
@@ -49,9 +72,11 @@ The React recovery screen is available at `/reset-password`.
 - Configure and monitor the email outbox worker before enabling staff password
   recovery in a live environment.
 - Review session retention, administrative session/device controls, password
-  history, MFA and SSO requirements before production rollout; these remain
-  open in the parity ledger.
+  history, WebAuthn/U2F and SSO requirements before production rollout; these
+  remain open in the parity ledger.
 
 Automated tests cover rotation, prior-token replay, immediate access-token
 invalidation, logout, reset non-enumeration, single use, password replacement,
 global session revocation, and the equivalent portal refresh/logout lifecycle.
+MFA tests additionally cover encrypted storage, enrollment confirmation, TOTP
+challenge, one-use recovery codes, replay rejection and authenticated disable.

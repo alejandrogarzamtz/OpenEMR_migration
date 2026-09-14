@@ -7,7 +7,7 @@ are all verified. “Partial” never counts as final parity.
 
 | Domain | Current state | Remaining parity work |
 |---|---|---|
-| Authentication and sessions | Partial | revocable staff/portal sessions, refresh rotation/replay detection, logout and staff recovery exist; MFA, SSO, password policy/history and device/session management remain |
+| Authentication and sessions | Partial | revocable staff/portal sessions, refresh rotation/replay detection, logout, staff recovery and encrypted TOTP MFA exist; WebAuthn/U2F, SSO, password policy/history, admin MFA reset and device/session management remain |
 | Users, practitioners and roles | Partial | full ACL/ACO migration, user lifecycle, practitioner roles and preferences |
 | Patient demographics | Partial | addresses, contacts, employers, guardians, name history, consent/custom fields |
 | Patient search and chart | Partial | duplicate detection, merges, photos, chart locking and printable report |

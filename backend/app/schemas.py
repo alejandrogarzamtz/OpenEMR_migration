@@ -8,6 +8,47 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class LoginResult(BaseModel):
+    access_token: str | None = None
+    token_type: str = "bearer"
+    mfa_required: bool = False
+    challenge_token: str | None = None
+
+
+class MfaChallengeComplete(BaseModel):
+    challenge_token: str = Field(min_length=32, max_length=255)
+    code: str = Field(min_length=6, max_length=32)
+
+
+class MfaEnrollmentStart(BaseModel):
+    password: str = Field(min_length=1, max_length=255)
+
+
+class MfaEnrollmentOut(BaseModel):
+    secret: str
+    provisioning_uri: str
+
+
+class MfaCode(BaseModel):
+    code: str = Field(min_length=6, max_length=32)
+
+
+class MfaRecoveryCodesOut(BaseModel):
+    recovery_codes: list[str]
+
+
+class MfaDisable(BaseModel):
+    password: str = Field(min_length=1, max_length=255)
+    code: str = Field(min_length=6, max_length=32)
+
+
+class MfaStatusOut(BaseModel):
+    enabled: bool
+    method: str | None = None
+    confirmed_at: datetime | None = None
+    recovery_codes_remaining: int = 0
+
+
 class Login(BaseModel):
     email: EmailStr
     password: str

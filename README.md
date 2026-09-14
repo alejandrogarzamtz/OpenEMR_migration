@@ -77,7 +77,8 @@ end-to-end healthcare workflows:
 
 - Argon2 password authentication with short-lived JWT access tokens, persistent
   server-side sessions, rotating `HttpOnly` refresh cookies, replay detection,
-  immediate logout revocation, and non-enumerating one-time password recovery;
+  immediate logout revocation, non-enumerating one-time password recovery, and
+  encrypted TOTP MFA with one-use recovery codes;
 - backend-enforced, OpenEMR-compatible ACL section/value grants;
 - expanded patient search, demographics, address, communication consent, and
   lossless legacy-data preservation;

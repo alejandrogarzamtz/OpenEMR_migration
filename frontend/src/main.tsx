@@ -12,6 +12,7 @@ import { AdministrationWorkspace } from "./features/administration/Administratio
 import { ReportWorkspace } from "./features/reports/ReportWorkspace";
 import { CommunicationWorkspace } from "./features/communications/CommunicationWorkspace";
 import { PortalApp } from "./features/communications/PortalApp";
+import { SecurityWorkspace } from "./features/security/SecurityWorkspace";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
@@ -28,12 +29,15 @@ type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications
 
 function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
+  const [challenge,setChallenge]=useState("");
   async function submit(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); const data=new FormData(event.currentTarget);
     const response=await fetch(`${API}/api/v1/auth/token`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:data.get("email"),password:data.get("password")})});
     if(!response.ok)return setError("Credenciales inválidas");
-    const body=await response.json(); done(body.access_token);
+    const body=await response.json(); if(body.mfa_required){setChallenge(body.challenge_token);setError("");}else done(body.access_token);
   }
+  async function verify(event:FormEvent<HTMLFormElement>){event.preventDefault();const form=new FormData(event.currentTarget);const response=await fetch(`${API}/api/v1/auth/mfa/challenge`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({challenge_token:challenge,code:form.get("code")})});if(!response.ok)return setError("Código inválido o desafío vencido");done((await response.json()).access_token);}
+  if(challenge)return <main className="login"><form onSubmit={verify}><p className="eyebrow">VERIFICACIÓN MFA</p><h1>Código de seguridad</h1><p>Ingresa el código de tu aplicación autenticadora o un código de recuperación.</p><label>Código<input name="code" autoComplete="one-time-code" autoFocus required/></label>{error&&<p className="error">{error}</p>}<button>Verificar</button><button className="secondary" type="button" onClick={()=>{setChallenge("");setError("");}}>Cancelar</button></form></main>;
   return <main className="login"><form onSubmit={submit}><p className="eyebrow">OPENRM</p><h1>Expediente clínico</h1><label>Correo<input name="email" type="email" defaultValue="admin@example.com" required/></label><label>Contraseña<input name="password" type="password" defaultValue="change-me-now" required/></label>{error&&<p className="error">{error}</p>}<button>Ingresar</button><a className="auth-link" href="/reset-password">Olvidé mi contraseña</a></form></main>;
 }
 
@@ -56,7 +60,7 @@ function App(){
   const [selected,setSelected]=useState<Summary|null>(null);
   const [error,setError]=useState("");
   const [creatingPatient,setCreatingPatient]=useState(false);
-  const [section,setSection]=useState<"patients"|"appointments"|"flow"|"inventory"|"communications"|"administration"|"reports">("patients");
+  const [section,setSection]=useState<"patients"|"appointments"|"flow"|"inventory"|"communications"|"security"|"administration"|"reports">("patients");
 
   function refreshAccessToken(){
     if(!refreshInFlight.current)refreshInFlight.current=fetch(`${API}/api/v1/auth/refresh`,{method:"POST",credentials:"include"}).then(async response=>{if(!response.ok)return null;const body=await response.json();setToken(body.access_token);return body.access_token as string;}).finally(()=>{refreshInFlight.current=null;});
@@ -126,10 +130,10 @@ function App(){
   if(!authReady)return <main className="login"><p>Verificando sesión…</p></main>;
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
-    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button className={section==="communications"?"active":""} onClick={()=>setSection("communications")}>Mensajes</button><button className={section==="reports"?"active":""} onClick={()=>setSection("reports")}>Reportes</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>Administración</button></nav><button className="logout" onClick={()=>void logout()}>Salir</button></aside>
-    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":section==="appointments"?"Agenda":section==="flow"?"Flujo de pacientes":section==="inventory"?"Inventario":section==="communications"?"Mensajes seguros":section==="reports"?"Reportes":"Administración"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
+    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button className={section==="communications"?"active":""} onClick={()=>setSection("communications")}>Mensajes</button><button className={section==="reports"?"active":""} onClick={()=>setSection("reports")}>Reportes</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>Administración</button><button className={section==="security"?"active":""} onClick={()=>setSection("security")}>Seguridad</button></nav><button className="logout" onClick={()=>void logout()}>Salir</button></aside>
+    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":section==="appointments"?"Agenda":section==="flow"?"Flujo de pacientes":section==="inventory"?"Inventario":section==="communications"?"Mensajes seguros":section==="security"?"Seguridad":section==="reports"?"Reportes":"Administración"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
       {error&&<p className="error">{error}</p>}
-      {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:section==="flow"?<PatientFlowBoard api={api}/>:section==="inventory"?<InventoryWorkspace api={api}/>:section==="communications"?<CommunicationWorkspace api={api} patients={patients}/>:section==="administration"?<AdministrationWorkspace api={api}/>:section==="reports"?<ReportWorkspace api={api}/>:<>{creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
+      {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:section==="flow"?<PatientFlowBoard api={api}/>:section==="inventory"?<InventoryWorkspace api={api}/>:section==="communications"?<CommunicationWorkspace api={api} patients={patients}/>:section==="security"?<SecurityWorkspace api={api}/>:section==="administration"?<AdministrationWorkspace api={api}/>:section==="reports"?<ReportWorkspace api={api}/>:<>{creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
       <div className={selected?"workspace detail-open":"workspace"}><section className="card">
         <div className="toolbar"><input aria-label="Buscar pacientes" placeholder="Buscar por nombre o correo" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==="Enter"&&void loadPatients()}/><span>{patients.length} resultados</span></div>
         <table><thead><tr><th>Paciente</th><th>Fecha de nacimiento</th><th>Sexo</th><th>Correo</th></tr></thead><tbody>{patients.map(patient=><tr className="patient-row" key={patient.uuid} onClick={()=>void openPatient(patient)}><td><strong>{patient.last_name}, {patient.first_name}</strong><small>{patient.uuid.slice(0,8)}</small></td><td>{patient.date_of_birth}</td><td>{patient.sex}</td><td>{patient.email??"—"}</td></tr>)}</tbody></table>

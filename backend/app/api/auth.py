@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import AuditEvent, AuthSession, CommunicationDelivery, PasswordResetToken, User
-from ..schemas import Login, PasswordResetConfirm, PasswordResetRequest, Token
+from ..mfa import decrypt_secret, encrypt_secret, generate_secret, matching_step, provisioning_uri, recovery_codes, recovery_digest
+from ..models import AuditEvent, AuthSession, CommunicationDelivery, MfaChallenge, MfaRegistration, PasswordResetToken, User
+from ..schemas import Login, LoginResult, MfaChallengeComplete, MfaCode, MfaDisable, MfaEnrollmentOut, MfaEnrollmentStart, MfaRecoveryCodesOut, MfaStatusOut, PasswordResetConfirm, PasswordResetRequest, Token
 from ..security import create_session, create_token, current_staff_session, current_user, password_hash, rotate_session, token_digest
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -27,16 +28,114 @@ def set_refresh_cookie(response: Response, value: str) -> None:
     response.set_cookie(STAFF_COOKIE, value, max_age=settings.refresh_token_days * 86400, httponly=True, secure=settings.secure_cookies, samesite="strict", path="/api/v1/auth")
 
 
-@router.post("/token", response_model=Token)
-def login(body: Login, request: Request, response: Response, db: Session = Depends(get_db)) -> Token:
-    user = db.scalar(select(User).where(User.email == body.email))
-    if not user or not user.active or not password_hash.verify(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+def issue_staff_session(user: User, request: Request, response: Response, db: Session) -> Token:
     session, refresh_token = create_session(db, "staff", user_id=user.id, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
     db.add(AuditEvent(actor_id=user.id, action="login", resource_type="auth_session", resource_id=session.uuid))
     db.commit()
     set_refresh_cookie(response, refresh_token)
     return Token(access_token=create_token(user, session))
+
+
+def consume_mfa_code(registration: MfaRegistration, code: str) -> bool:
+    step = matching_step(decrypt_secret(registration.encrypted_secret), code)
+    if step is not None and (registration.last_used_step is None or step > registration.last_used_step):
+        registration.last_used_step = step
+        return True
+    digest = recovery_digest(code)
+    if digest in registration.recovery_code_hashes:
+        registration.recovery_code_hashes = [item for item in registration.recovery_code_hashes if item != digest]
+        return True
+    return False
+
+
+@router.post("/token", response_model=LoginResult)
+def login(body: Login, request: Request, response: Response, db: Session = Depends(get_db)) -> LoginResult:
+    user = db.scalar(select(User).where(User.email == body.email))
+    if not user or not user.active or not password_hash.verify(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == user.id, MfaRegistration.active.is_(True)))
+    if registration:
+        challenge_token = secrets.token_urlsafe(48)
+        db.add(MfaChallenge(user_id=user.id, token_hash=token_digest(challenge_token), expires_at=utc_now() + timedelta(minutes=settings.mfa_challenge_minutes)))
+        db.commit()
+        return LoginResult(mfa_required=True, challenge_token=challenge_token)
+    token = issue_staff_session(user, request, response, db)
+    return LoginResult(access_token=token.access_token)
+
+
+@router.post("/mfa/challenge", response_model=Token)
+def complete_mfa_challenge(body: MfaChallengeComplete, request: Request, response: Response, db: Session = Depends(get_db)) -> Token:
+    challenge = db.scalar(select(MfaChallenge).where(MfaChallenge.token_hash == token_digest(body.challenge_token)))
+    now = utc_now()
+    if not challenge or challenge.consumed_at is not None or aware(challenge.expires_at) <= now or challenge.attempts >= 5:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
+    registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == challenge.user_id, MfaRegistration.active.is_(True)))
+    user = db.get(User, challenge.user_id)
+    challenge.attempts += 1
+    if not registration or not user or not user.active or not consume_mfa_code(registration, body.code):
+        if challenge.attempts >= 5:
+            challenge.consumed_at = now
+        if user:
+            db.add(AuditEvent(actor_id=user.id, action="mfa-failure", resource_type="mfa_challenge", resource_id=challenge.uuid))
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
+    challenge.consumed_at = now
+    db.add(AuditEvent(actor_id=user.id, action="mfa-success", resource_type="mfa_challenge", resource_id=challenge.uuid))
+    return issue_staff_session(user, request, response, db)
+
+
+@router.get("/mfa", response_model=MfaStatusOut)
+def mfa_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == user.id, MfaRegistration.active.is_(True)))
+    return MfaStatusOut(enabled=bool(registration), method=registration.method if registration else None, confirmed_at=registration.confirmed_at if registration else None, recovery_codes_remaining=len(registration.recovery_code_hashes) if registration else 0)
+
+
+@router.post("/mfa/enroll", response_model=MfaEnrollmentOut)
+def start_mfa_enrollment(body: MfaEnrollmentStart, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not password_hash.verify(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == user.id))
+    if registration and registration.active:
+        raise HTTPException(status_code=409, detail="MFA is already enabled")
+    secret = generate_secret()
+    if registration:
+        registration.encrypted_secret = encrypt_secret(secret); registration.recovery_code_hashes = []; registration.last_used_step = None
+    else:
+        registration = MfaRegistration(user_id=user.id, encrypted_secret=encrypt_secret(secret))
+        db.add(registration)
+    db.add(AuditEvent(actor_id=user.id, action="mfa-enrollment-start", resource_type="user", resource_id=user.uuid))
+    db.commit()
+    return MfaEnrollmentOut(secret=secret, provisioning_uri=provisioning_uri(secret, user.email))
+
+
+@router.post("/mfa/confirm", response_model=MfaRecoveryCodesOut)
+def confirm_mfa_enrollment(body: MfaCode, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == user.id, MfaRegistration.active.is_(False)))
+    if not registration:
+        raise HTTPException(status_code=409, detail="No pending MFA enrollment")
+    step = matching_step(decrypt_secret(registration.encrypted_secret), body.code)
+    if step is None:
+        raise HTTPException(status_code=400, detail="Invalid authenticator code")
+    codes = recovery_codes()
+    registration.active = True; registration.confirmed_at = utc_now(); registration.last_used_step = step; registration.recovery_code_hashes = [recovery_digest(code) for code in codes]
+    db.add(AuditEvent(actor_id=user.id, action="mfa-enabled", resource_type="user", resource_id=user.uuid))
+    db.commit()
+    return MfaRecoveryCodesOut(recovery_codes=codes)
+
+
+@router.delete("/mfa", status_code=status.HTTP_204_NO_CONTENT)
+def disable_mfa(body: MfaDisable, session: AuthSession = Depends(current_staff_session), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not password_hash.verify(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    registration = db.scalar(select(MfaRegistration).where(MfaRegistration.user_id == user.id, MfaRegistration.active.is_(True)))
+    if not registration or not consume_mfa_code(registration, body.code):
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+    db.delete(registration)
+    now = utc_now()
+    for other in db.scalars(select(AuthSession).where(AuthSession.user_id == user.id, AuthSession.id != session.id, AuthSession.revoked_at.is_(None))):
+        other.revoked_at = now; other.revoke_reason = "mfa-disabled"
+    db.add(AuditEvent(actor_id=user.id, action="mfa-disabled", resource_type="user", resource_id=user.uuid))
+    db.commit()
 
 
 @router.post("/refresh", response_model=Token)

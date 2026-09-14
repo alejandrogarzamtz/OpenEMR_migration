@@ -34,6 +34,7 @@ mapping and not authorization to discard legacy columns.
 | `insurance_*`, `eligibility_verification`, `billing`, `claims`, `ar_*`, payment tables | Financial models | Decimal-exact amounts, priorities, diagnoses, claim identifiers and ledger balancing are cutover gates |
 | `drugs`, `drug_inventory`, `drug_sales` | Inventory models | Stock changes must be transactional and reconcile per warehouse/lot |
 | `api_token`, `api_refresh_token`, OAuth client/token tables | `auth_sessions`, future OAuth client/grant models | Legacy bearer and refresh credentials are never imported. New staff and portal sessions store only refresh-token SHA-256 digests, rotate access identifiers, detect one-generation replay and support immediate revocation; client grants/scopes remain to be migrated. |
+| `login_mfa_registrations` | `mfa_registrations`, `mfa_challenges` | Legacy MFA ciphertext is not decryptable without source installation keys and is never treated as a usable credential. Staff re-enroll TOTP; new seeds use authenticated encryption, recovery codes are stored only as digests, and challenges are bounded and auditable. U2F/WebAuthn migration remains pending. |
 | `audit_master`, `audit_details`, `log` | Immutable audit event/detail | Retain actor, patient, event, before/after detail and timestamps with tamper evidence |
 | `background_services`, `email_queue` | Job/schedule/outbox models | Preserve enabled state/schedule; import queued PHI only into secured outbox |
 
