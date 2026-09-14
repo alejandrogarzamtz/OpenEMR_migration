@@ -358,11 +358,57 @@ class PortalAccountCreate(BaseModel):
 
 class PortalAccountOut(BaseModel):
     uuid: str
-    patient_uuid: str
+    patient_uuid: str | None
     username: str
+    email: str | None
+    display_name: str | None
+    identity_type: str
     active: bool
     force_password_reset: bool
     last_login_at: datetime | None
+
+
+class PortalRepresentativeCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=255)
+    email: EmailStr
+    display_name: str = Field(min_length=2, max_length=255)
+    temporary_password: str = Field(min_length=12, max_length=255)
+
+
+class PortalAccessGrantCreate(BaseModel):
+    representative_username: str = Field(min_length=3, max_length=255)
+    relationship_code: str = Field(min_length=2, max_length=50)
+    scopes: list[str] = Field(min_length=1)
+    consent_basis: str = Field(pattern="^(patient-consent|legal-guardian|parental-authority|court-order|power-of-attorney)$")
+    evidence_reference: str | None = Field(default=None, max_length=255)
+    starts_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class PortalAccessGrantRevoke(BaseModel):
+    reason: str = Field(min_length=3, max_length=255)
+
+
+class PortalAccessGrantOut(BaseModel):
+    uuid: str
+    patient_uuid: str
+    representative_username: str
+    representative_name: str
+    relationship_code: str
+    scopes: list[str]
+    consent_basis: str
+    evidence_reference: str | None
+    starts_at: datetime
+    expires_at: datetime | None
+    revoked_at: datetime | None
+
+
+class PortalContextOut(BaseModel):
+    patient_uuid: str
+    patient_name: str
+    relationship_code: str
+    scopes: list[str]
+    is_self: bool
 
 
 class MessageCreate(BaseModel):

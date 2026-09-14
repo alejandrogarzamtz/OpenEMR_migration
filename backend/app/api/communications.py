@@ -63,6 +63,7 @@ from ..security import (
     token_digest,
 )
 from ..services.patients import patient_by_uuid
+from ..services.portal_access import PortalPatientContext, require_portal_scope
 
 router = APIRouter(prefix="/api/v1", tags=["communications"])
 PORTAL_COOKIE = "portal_refresh_token"
@@ -80,8 +81,8 @@ def set_portal_cookie(response: Response, value: str) -> None:
     response.set_cookie(PORTAL_COOKIE, value, max_age=settings.refresh_token_days * 86400, httponly=True, secure=settings.secure_cookies, samesite="strict", path="/api/v1/portal")
 
 
-def portal_audit(db: Session, account: PortalAccount, action: str, resource_type: str, resource_id: str | None = None) -> None:
-    db.add(IdentityAuditEvent(identity_kind="portal", portal_account_id=account.id, patient_id=account.patient_id, action=action, resource_type=resource_type, resource_id=resource_id))
+def portal_audit(db: Session, account: PortalAccount, action: str, resource_type: str, resource_id: str | None = None, patient_id: int | None = None) -> None:
+    db.add(IdentityAuditEvent(identity_kind="portal", portal_account_id=account.id, patient_id=patient_id if patient_id is not None else account.patient_id, action=action, resource_type=resource_type, resource_id=resource_id))
 
 
 def issue_portal_session(account: PortalAccount, request: Request, response: Response, db: Session) -> PortalToken:
@@ -110,6 +111,9 @@ def account_out(account: PortalAccount, patient: Patient) -> PortalAccountOut:
         uuid=account.uuid,
         patient_uuid=patient.uuid,
         username=account.username,
+        email=account.email,
+        display_name=account.display_name,
+        identity_type=account.identity_type,
         active=account.active,
         force_password_reset=account.force_password_reset,
         last_login_at=account.last_login_at,
@@ -166,11 +170,11 @@ def queue_patient_notice(db: Session, patient: Patient, message: SecureMessage) 
     )
 
 
-def portal_thread(db: Session, account: PortalAccount, thread_uuid: str) -> tuple[MessageThread, Patient]:
+def portal_thread(db: Session, context: PortalPatientContext, thread_uuid: str) -> tuple[MessageThread, Patient]:
     row = db.execute(
         select(MessageThread, Patient)
         .join(Patient, Patient.id == MessageThread.patient_id)
-        .where(MessageThread.uuid == thread_uuid, MessageThread.patient_id == account.patient_id)
+        .where(MessageThread.uuid == thread_uuid, MessageThread.patient_id == context.patient.id)
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="Message thread not found")
@@ -196,8 +200,11 @@ def create_portal_account(body: PortalAccountCreate, patient_uuid: str, db: Sess
         account.force_password_reset = True
         account.failed_attempts = 0
         account.locked_until = None
+        account.email = patient.email
+        account.display_name = f"{patient.first_name} {patient.last_name}"
+        account.identity_type = "patient"
     else:
-        account = PortalAccount(patient_id=patient.id, username=body.username, password_hash=password_hash.hash(body.temporary_password))
+        account = PortalAccount(patient_id=patient.id, username=body.username, email=patient.email, display_name=f"{patient.first_name} {patient.last_name}", identity_type="patient", password_hash=password_hash.hash(body.temporary_password))
         db.add(account)
     try:
         db.flush()
@@ -271,7 +278,7 @@ def complete_portal_mfa_challenge(body: MfaChallengeComplete, request: Request, 
 
 @router.post("/portal/auth/password-reset/request", status_code=status.HTTP_202_ACCEPTED)
 def request_portal_password_reset(body: PasswordResetRequest, db: Session = Depends(get_db)):
-    rows = db.execute(select(PortalAccount, Patient).join(Patient, Patient.id == PortalAccount.patient_id).where(func.lower(Patient.email) == str(body.email).lower(), Patient.portal_allowed.is_(True), PortalAccount.active.is_(True))).all()
+    rows = db.execute(select(PortalAccount, Patient).outerjoin(Patient, Patient.id == PortalAccount.patient_id).where(func.lower(PortalAccount.email) == str(body.email).lower(), PortalAccount.active.is_(True), (PortalAccount.patient_id.is_(None) | Patient.portal_allowed.is_(True)))).all()
     if len(rows) == 1:
         account, patient = rows[0]
         current = now_utc()
@@ -282,7 +289,7 @@ def request_portal_password_reset(body: PasswordResetRequest, db: Session = Depe
             item.used_at = current
         raw_token = secrets.token_urlsafe(48)
         db.add(PortalPasswordResetToken(portal_account_id=account.id, token_hash=token_digest(raw_token), expires_at=current + timedelta(minutes=settings.password_reset_minutes)))
-        db.add(CommunicationDelivery(patient_id=patient.id, channel="email", recipient=patient.email, subject="OpenRM patient portal password reset", body=f"Use this one-time link to reset your portal password: {settings.public_web_url.rstrip('/')}/portal/reset-password?token={raw_token}", template_name="portal-password-reset"))
+        db.add(CommunicationDelivery(patient_id=patient.id if patient else None, channel="email", recipient=account.email, subject="OpenRM patient portal password reset", body=f"Use this one-time link to reset your portal password: {settings.public_web_url.rstrip('/')}/portal/reset-password?token={raw_token}", template_name="portal-password-reset"))
         portal_audit(db, account, "password-reset-request", "portal_account", account.uuid)
         db.commit()
     return {"detail": "If the portal account exists, password reset instructions have been queued."}
@@ -403,8 +410,8 @@ def disable_portal_mfa(body: MfaDisable, session: AuthSession = Depends(current_
 
 @router.get("/portal/me")
 def portal_me(account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
-    patient = db.get(Patient, account.patient_id)
-    return {"uuid": patient.uuid, "first_name": patient.first_name, "last_name": patient.last_name, "email": patient.email}
+    patient = db.get(Patient, account.patient_id) if account.patient_id else None
+    return {"account_uuid": account.uuid, "username": account.username, "display_name": account.display_name, "email": account.email, "patient_uuid": patient.uuid if patient else None}
 
 
 @router.get("/messages", response_model=list[MessageThreadOut])
@@ -479,41 +486,45 @@ def close_thread(thread_uuid: str, db: Session = Depends(get_db), user: User = D
 
 
 @router.get("/portal/messages", response_model=list[MessageThreadOut])
-def list_portal_threads(account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
-    patient = db.get(Patient, account.patient_id)
-    threads = db.scalars(select(MessageThread).where(MessageThread.patient_id == account.patient_id).order_by(MessageThread.updated_at.desc())).all()
+def list_portal_threads(context: PortalPatientContext = Depends(require_portal_scope("messages")), db: Session = Depends(get_db)):
+    patient = context.patient
+    threads = db.scalars(select(MessageThread).where(MessageThread.patient_id == patient.id).order_by(MessageThread.updated_at.desc())).all()
+    portal_audit(db, context.account, "search", "message_thread", patient_id=patient.id); db.commit()
     return [thread_out(db, thread, patient, include_messages=False) for thread in threads]
 
 
 @router.post("/portal/messages", response_model=MessageThreadOut, status_code=status.HTTP_201_CREATED)
-def create_portal_thread(body: MessageCreate, account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
-    patient = db.get(Patient, account.patient_id)
+def create_portal_thread(body: MessageCreate, context: PortalPatientContext = Depends(require_portal_scope("messages")), db: Session = Depends(get_db)):
+    account = context.account; patient = context.patient
     thread = MessageThread(patient_id=patient.id, subject=body.subject)
     db.add(thread)
     db.flush()
-    db.add(SecureMessage(thread_id=thread.id, sender_kind="patient", sender_portal_account_id=account.id, sender_name=f"{patient.first_name} {patient.last_name}", body=body.body, read_by_patient_at=now_utc()))
+    db.add(SecureMessage(thread_id=thread.id, sender_kind="patient", sender_portal_account_id=account.id, sender_name=account.display_name or account.username, body=body.body, read_by_patient_at=now_utc()))
+    portal_audit(db, account, "create", "message_thread", thread.uuid, patient.id)
     db.commit()
     db.refresh(thread)
     return thread_out(db, thread, patient)
 
 
 @router.get("/portal/messages/{thread_uuid}", response_model=MessageThreadOut)
-def get_portal_thread(thread_uuid: str, account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
-    thread, patient = portal_thread(db, account, thread_uuid)
+def get_portal_thread(thread_uuid: str, context: PortalPatientContext = Depends(require_portal_scope("messages")), db: Session = Depends(get_db)):
+    thread, patient = portal_thread(db, context, thread_uuid)
     for message in db.scalars(select(SecureMessage).where(SecureMessage.thread_id == thread.id, SecureMessage.read_by_patient_at.is_(None))):
         message.read_by_patient_at = now_utc()
+    portal_audit(db, context.account, "read", "message_thread", thread.uuid, patient.id)
     db.commit()
     return thread_out(db, thread, patient)
 
 
 @router.post("/portal/messages/{thread_uuid}/replies", response_model=MessageThreadOut)
-def portal_reply(body: MessageReply, thread_uuid: str, account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
-    thread, patient = portal_thread(db, account, thread_uuid)
+def portal_reply(body: MessageReply, thread_uuid: str, context: PortalPatientContext = Depends(require_portal_scope("messages")), db: Session = Depends(get_db)):
+    account = context.account; thread, patient = portal_thread(db, context, thread_uuid)
     if thread.status != "open":
         raise HTTPException(status_code=409, detail="Message thread is closed")
-    message = SecureMessage(thread_id=thread.id, sender_kind="patient", sender_portal_account_id=account.id, sender_name=f"{patient.first_name} {patient.last_name}", body=body.body, read_by_patient_at=now_utc())
+    message = SecureMessage(thread_id=thread.id, sender_kind="patient", sender_portal_account_id=account.id, sender_name=account.display_name or account.username, body=body.body, read_by_patient_at=now_utc())
     db.add(message)
     thread.updated_at = now_utc()
+    db.flush(); portal_audit(db, account, "create", "secure_message", message.uuid, patient.id)
     db.commit()
     return thread_out(db, thread, patient)
 

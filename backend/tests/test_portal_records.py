@@ -57,4 +57,5 @@ def test_portal_records_require_release_and_are_patient_isolated():
     with SessionLocal() as db:
         events = list(db.scalars(select(IdentityAuditEvent).where(IdentityAuditEvent.identity_kind == "portal")))
         assert any(event.action == "read" and event.resource_type == "document" for event in events)
-        assert all(event.portal_account_id is not None and event.patient_id is not None for event in events)
+        assert all(event.portal_account_id is not None for event in events)
+        assert all(event.patient_id is not None for event in events if event.resource_type in {"appointment", "lab_result", "document", "clinical_form"})

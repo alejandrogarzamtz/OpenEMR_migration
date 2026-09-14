@@ -21,14 +21,16 @@ from ..models import (
     LabOrder,
     LabResult,
     Patient,
+    PortalAccessGrant,
     PortalAccount,
     PaymentIntent,
     User,
 )
-from ..schemas import AppointmentOut, ChargeOut, ClaimOut, ClinicalFormOut, DocumentOut, LabResultOut, PaymentOut, PortalClinicalFormOut, PortalLabResultOut, PortalPaymentIntentCreate, PortalPaymentIntentOut, PortalStatementOut
-from ..security import clinical_user, current_portal_account
+from ..schemas import AppointmentOut, ChargeOut, ClaimOut, ClinicalFormOut, DocumentOut, LabResultOut, PaymentOut, PortalAccessGrantCreate, PortalAccessGrantOut, PortalAccessGrantRevoke, PortalAccountOut, PortalClinicalFormOut, PortalContextOut, PortalLabResultOut, PortalPaymentIntentCreate, PortalPaymentIntentOut, PortalRepresentativeCreate, PortalStatementOut
+from ..security import clinical_user, communication_write_user, current_portal_account, password_hash
 from ..services.patients import patient_by_uuid
 from ..services.payments import payment_processor
+from ..services.portal_access import PortalPatientContext, PORTAL_SCOPES, active_grants, require_portal_scope
 from .appointments import appointment_out
 
 router = APIRouter(prefix="/api/v1", tags=["patient portal"])
@@ -40,13 +42,17 @@ def portal_account(account: PortalAccount = Depends(current_portal_account)) -> 
     return account
 
 
+def aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
 def feature(enabled: bool) -> None:
     if not enabled:
         raise HTTPException(status_code=404, detail="Portal feature is not enabled")
 
 
-def portal_audit(db: Session, account: PortalAccount, action: str, resource_type: str, resource_id: str | None = None) -> None:
-    db.add(IdentityAuditEvent(identity_kind="portal", portal_account_id=account.id, patient_id=account.patient_id, action=action, resource_type=resource_type, resource_id=resource_id))
+def portal_audit(db: Session, account: PortalAccount, action: str, resource_type: str, resource_id: str | None = None, patient_id: int | None = None) -> None:
+    db.add(IdentityAuditEvent(identity_kind="portal", portal_account_id=account.id, patient_id=patient_id if patient_id is not None else account.patient_id, action=action, resource_type=resource_type, resource_id=resource_id))
 
 
 def staff_audit(db: Session, user: User, patient_id: int, action: str, resource_type: str, resource_id: str) -> None:
@@ -77,101 +83,184 @@ def payment_intent_out(intent: PaymentIntent, claim_uuid: str) -> PortalPaymentI
     return PortalPaymentIntentOut(claim_uuid=claim_uuid, **{key: getattr(intent, key) for key in PortalPaymentIntentOut.model_fields if key != "claim_uuid"})
 
 
+def representative_out(account: PortalAccount) -> PortalAccountOut:
+    return PortalAccountOut(uuid=account.uuid, patient_uuid=None, username=account.username, email=account.email, display_name=account.display_name, identity_type=account.identity_type, active=account.active, force_password_reset=account.force_password_reset, last_login_at=account.last_login_at)
+
+
+def grant_out(grant: PortalAccessGrant, patient: Patient, account: PortalAccount) -> PortalAccessGrantOut:
+    return PortalAccessGrantOut(uuid=grant.uuid, patient_uuid=patient.uuid, representative_username=account.username, representative_name=account.display_name or account.username, relationship_code=grant.relationship_code, scopes=grant.scopes, consent_basis=grant.consent_basis, evidence_reference=grant.evidence_reference, starts_at=grant.starts_at, expires_at=grant.expires_at, revoked_at=grant.revoked_at)
+
+
+@router.post("/portal-representatives", response_model=PortalAccountOut, status_code=status.HTTP_201_CREATED)
+def create_portal_representative(body: PortalRepresentativeCreate, db: Session = Depends(get_db), user: User = Depends(communication_write_user)):
+    if db.scalar(select(PortalAccount.id).where(func.lower(PortalAccount.username) == body.username.lower())):
+        raise HTTPException(status_code=409, detail="Portal username already exists")
+    account = PortalAccount(username=body.username, email=str(body.email), display_name=body.display_name, identity_type="representative", password_hash=password_hash.hash(body.temporary_password), force_password_reset=True)
+    db.add(account); db.flush()
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="portal_representative", resource_id=account.uuid))
+    db.add(IdentityAuditEvent(identity_kind="staff", user_id=user.id, action="create", resource_type="portal_representative", resource_id=account.uuid))
+    db.commit(); db.refresh(account)
+    return representative_out(account)
+
+
+@router.get("/portal-representatives", response_model=list[PortalAccountOut])
+def list_portal_representatives(db: Session = Depends(get_db), user: User = Depends(communication_write_user)):
+    accounts = db.scalars(select(PortalAccount).where(PortalAccount.identity_type == "representative").order_by(PortalAccount.display_name, PortalAccount.username)).all()
+    return [representative_out(account) for account in accounts]
+
+
+@router.get("/patients/{patient_uuid}/portal-access-grants", response_model=list[PortalAccessGrantOut])
+def list_portal_access_grants(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(communication_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    rows = db.execute(select(PortalAccessGrant, PortalAccount).join(PortalAccount, PortalAccount.id == PortalAccessGrant.grantee_portal_account_id).where(PortalAccessGrant.patient_id == patient.id).order_by(PortalAccessGrant.created_at.desc())).all()
+    return [grant_out(grant, patient, account) for grant, account in rows]
+
+
+@router.post("/patients/{patient_uuid}/portal-access-grants", response_model=PortalAccessGrantOut, status_code=status.HTTP_201_CREATED)
+def create_portal_access_grant(patient_uuid: str, body: PortalAccessGrantCreate, db: Session = Depends(get_db), user: User = Depends(communication_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    scopes = list(dict.fromkeys(body.scopes)); invalid = set(scopes) - PORTAL_SCOPES
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Unknown portal scopes: {', '.join(sorted(invalid))}")
+    account = db.scalar(select(PortalAccount).where(func.lower(PortalAccount.username) == body.representative_username.lower(), PortalAccount.active.is_(True)))
+    if not account:
+        raise HTTPException(status_code=404, detail="Active portal representative not found")
+    if account.patient_id == patient.id:
+        raise HTTPException(status_code=409, detail="A patient does not need a representative grant for their own record")
+    now = datetime.now(timezone.utc); starts_at = aware(body.starts_at) if body.starts_at else now
+    expires_at = aware(body.expires_at) if body.expires_at else None
+    if expires_at is not None and expires_at <= starts_at:
+        raise HTTPException(status_code=422, detail="Grant expiration must be after its start")
+    existing = db.scalar(select(PortalAccessGrant.id).where(PortalAccessGrant.patient_id == patient.id, PortalAccessGrant.grantee_portal_account_id == account.id, PortalAccessGrant.revoked_at.is_(None), (PortalAccessGrant.expires_at.is_(None) | (PortalAccessGrant.expires_at > now))))
+    if existing:
+        raise HTTPException(status_code=409, detail="An active access grant already exists")
+    grant = PortalAccessGrant(patient_id=patient.id, grantee_portal_account_id=account.id, relationship_code=body.relationship_code, scopes=scopes, consent_basis=body.consent_basis, evidence_reference=body.evidence_reference, starts_at=starts_at, expires_at=expires_at, granted_by_id=user.id)
+    db.add(grant); db.flush(); staff_audit(db, user, patient.id, "grant", "portal_access", grant.uuid); db.commit(); db.refresh(grant)
+    return grant_out(grant, patient, account)
+
+
+@router.post("/patients/{patient_uuid}/portal-access-grants/{grant_uuid}/revoke", response_model=PortalAccessGrantOut)
+def revoke_portal_access_grant(patient_uuid: str, grant_uuid: str, body: PortalAccessGrantRevoke, db: Session = Depends(get_db), user: User = Depends(communication_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    row = db.execute(select(PortalAccessGrant, PortalAccount).join(PortalAccount).where(PortalAccessGrant.uuid == grant_uuid, PortalAccessGrant.patient_id == patient.id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Portal access grant not found")
+    grant, account = row
+    if grant.revoked_at is None:
+        grant.revoked_at = datetime.now(timezone.utc); grant.revoked_by_id = user.id; grant.revoke_reason = body.reason
+        staff_audit(db, user, patient.id, "revoke", "portal_access", grant.uuid); db.commit(); db.refresh(grant)
+    return grant_out(grant, patient, account)
+
+
+@router.get("/portal/contexts", response_model=list[PortalContextOut])
+def portal_contexts(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+    contexts: list[PortalContextOut] = []
+    if account.patient_id is not None:
+        patient = db.get(Patient, account.patient_id)
+        contexts.append(PortalContextOut(patient_uuid=patient.uuid, patient_name=f"{patient.first_name} {patient.last_name}", relationship_code="self", scopes=sorted(PORTAL_SCOPES), is_self=True))
+    for grant, patient in active_grants(db, account):
+        contexts.append(PortalContextOut(patient_uuid=patient.uuid, patient_name=f"{patient.first_name} {patient.last_name}", relationship_code=grant.relationship_code, scopes=grant.scopes, is_self=False))
+    portal_audit(db, account, "search", "portal_context"); db.commit()
+    return contexts
+
+
 @router.get("/portal/appointments", response_model=list[AppointmentOut])
-def portal_appointments(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_appointments(context: PortalPatientContext = Depends(require_portal_scope("appointments")), db: Session = Depends(get_db)):
     feature(settings.portal_appointments_enabled)
-    patient = db.get(Patient, account.patient_id)
-    items = list(db.scalars(select(Appointment).where(Appointment.patient_id == account.patient_id).order_by(Appointment.starts_at)))
-    portal_audit(db, account, "search", "appointment")
+    items = list(db.scalars(select(Appointment).where(Appointment.patient_id == context.patient.id).order_by(Appointment.starts_at)))
+    portal_audit(db, context.account, "search", "appointment", patient_id=context.patient.id)
     db.commit()
-    return [appointment_out(db, item, patient.uuid) for item in items]
+    return [appointment_out(db, item, context.patient.uuid) for item in items]
 
 
 @router.get("/portal/results", response_model=list[PortalLabResultOut])
-def portal_results(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_results(context: PortalPatientContext = Depends(require_portal_scope("records")), db: Session = Depends(get_db)):
     feature(settings.portal_results_enabled)
     rows = db.execute(
         select(LabResult, LabOrder).join(LabOrder).where(
-            LabOrder.patient_id == account.patient_id,
+            LabOrder.patient_id == context.patient.id,
             LabResult.released_to_patient_at.is_not(None),
             LabResult.status.in_(("final", "corrected")),
         ).order_by(LabResult.observed_at.desc())
     ).all()
-    portal_audit(db, account, "search", "lab_result")
+    portal_audit(db, context.account, "search", "lab_result", patient_id=context.patient.id)
     db.commit()
     return [PortalLabResultOut(order_uuid=order.uuid, order_name=order.name, **{key: getattr(result, key) for key in PortalLabResultOut.model_fields if key not in {"order_uuid", "order_name"}}) for result, order in rows]
 
 
 @router.get("/portal/documents", response_model=list[DocumentOut])
-def portal_documents(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_documents(context: PortalPatientContext = Depends(require_portal_scope("documents")), db: Session = Depends(get_db)):
     feature(settings.portal_documents_enabled)
-    items = list(db.scalars(select(Document).where(Document.patient_id == account.patient_id, Document.released_to_patient_at.is_not(None)).order_by(Document.uploaded_at.desc())))
-    portal_audit(db, account, "search", "document")
+    items = list(db.scalars(select(Document).where(Document.patient_id == context.patient.id, Document.released_to_patient_at.is_not(None)).order_by(Document.uploaded_at.desc())))
+    portal_audit(db, context.account, "search", "document", patient_id=context.patient.id)
     db.commit()
     return items
 
 
 @router.get("/portal/documents/{document_uuid}/content")
-def portal_document_content(document_uuid: str, account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_document_content(document_uuid: str, context: PortalPatientContext = Depends(require_portal_scope("documents")), db: Session = Depends(get_db)):
     feature(settings.portal_documents_enabled)
-    document = db.scalar(select(Document).where(Document.uuid == document_uuid, Document.patient_id == account.patient_id, Document.released_to_patient_at.is_not(None)))
+    document = db.scalar(select(Document).where(Document.uuid == document_uuid, Document.patient_id == context.patient.id, Document.released_to_patient_at.is_not(None)))
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    portal_audit(db, account, "read", "document", document.uuid)
+    portal_audit(db, context.account, "read", "document", document.uuid, context.patient.id)
     db.commit()
     safe_name = document.name.replace('"', "")
     return Response(document.content, media_type=document.mime_type, headers={"Content-Disposition": f'attachment; filename="{safe_name}"', "ETag": document.sha256})
 
 
 @router.get("/portal/forms", response_model=list[PortalClinicalFormOut])
-def portal_forms(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_forms(context: PortalPatientContext = Depends(require_portal_scope("forms")), db: Session = Depends(get_db)):
     feature(settings.portal_forms_enabled)
-    rows = db.execute(select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.patient_id == account.patient_id, ClinicalForm.status == "signed", ClinicalForm.released_to_patient_at.is_not(None)).order_by(ClinicalForm.authored_at.desc())).all()
-    portal_audit(db, account, "search", "clinical_form")
+    rows = db.execute(select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.patient_id == context.patient.id, ClinicalForm.status == "signed", ClinicalForm.released_to_patient_at.is_not(None)).order_by(ClinicalForm.authored_at.desc())).all()
+    portal_audit(db, context.account, "search", "clinical_form", patient_id=context.patient.id)
     db.commit()
     return [PortalClinicalFormOut(encounter_uuid=encounter_uuid, **{key: getattr(item, key) for key in PortalClinicalFormOut.model_fields if key != "encounter_uuid"}) for item, encounter_uuid in rows]
 
 
 @router.get("/portal/billing/statement", response_model=PortalStatementOut)
-def portal_statement(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_statement(context: PortalPatientContext = Depends(require_portal_scope("billing")), db: Session = Depends(get_db)):
     feature(settings.portal_billing_enabled)
-    claims = list(db.scalars(select(Claim).where(Claim.patient_id == account.patient_id, Claim.released_to_patient_at.is_not(None)).order_by(Claim.created_at.desc())))
+    claims = list(db.scalars(select(Claim).where(Claim.patient_id == context.patient.id, Claim.released_to_patient_at.is_not(None)).order_by(Claim.created_at.desc())))
     rows = [portal_claim_out(db, claim) for claim in claims]
     total = sum((row.total for row in rows), Decimal("0.00")); paid = sum((row.paid for row in rows), Decimal("0.00"))
-    portal_audit(db, account, "read", "patient_statement")
+    portal_audit(db, context.account, "read", "patient_statement", patient_id=context.patient.id)
     db.commit()
     return PortalStatementOut(currency=settings.billing_currency.upper(), payments_available=settings.payment_provider != "disabled" and (settings.payment_provider != "test" or settings.deployment_environment == "test"), total_charges=total, total_paid=paid, balance=total-paid, claims=rows)
 
 
 @router.get("/portal/billing/payment-intents", response_model=list[PortalPaymentIntentOut])
-def portal_payment_intents(account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def portal_payment_intents(context: PortalPatientContext = Depends(require_portal_scope("billing")), db: Session = Depends(get_db)):
     feature(settings.portal_billing_enabled)
-    rows = db.execute(select(PaymentIntent, Claim.uuid).join(Claim).where(PaymentIntent.portal_account_id == account.id, PaymentIntent.patient_id == account.patient_id).order_by(PaymentIntent.created_at.desc())).all()
-    portal_audit(db, account, "search", "payment_intent")
+    rows = db.execute(select(PaymentIntent, Claim.uuid).join(Claim).where(PaymentIntent.portal_account_id == context.account.id, PaymentIntent.patient_id == context.patient.id).order_by(PaymentIntent.created_at.desc())).all()
+    portal_audit(db, context.account, "search", "payment_intent", patient_id=context.patient.id)
     db.commit()
     return [payment_intent_out(intent, claim_uuid) for intent, claim_uuid in rows]
 
 
 @router.post("/portal/billing/payment-intents", response_model=PortalPaymentIntentOut, status_code=status.HTTP_201_CREATED)
-def create_portal_payment_intent(body: PortalPaymentIntentCreate, idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=100), account: PortalAccount = Depends(portal_account), db: Session = Depends(get_db)):
+def create_portal_payment_intent(body: PortalPaymentIntentCreate, idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=100), context: PortalPatientContext = Depends(require_portal_scope("billing")), db: Session = Depends(get_db)):
     feature(settings.portal_billing_enabled)
     currency = settings.billing_currency.upper()
     fingerprint = sha256(f"{body.claim_uuid}|{body.amount:.2f}|{currency}".encode()).hexdigest()
+    account = context.account
     existing = db.scalar(select(PaymentIntent).where(PaymentIntent.portal_account_id == account.id, PaymentIntent.idempotency_key == idempotency_key))
     if existing:
+        if existing.patient_id != context.patient.id:
+            raise HTTPException(status_code=409, detail="Idempotency key was already used in another patient context")
         if existing.request_fingerprint != fingerprint:
             raise HTTPException(status_code=409, detail="Idempotency key was already used for a different payment")
         claim = db.get(Claim, existing.claim_id)
         return payment_intent_out(existing, claim.uuid)
-    claim = db.scalar(select(Claim).where(Claim.uuid == body.claim_uuid, Claim.patient_id == account.patient_id, Claim.released_to_patient_at.is_not(None)).with_for_update())
+    claim = db.scalar(select(Claim).where(Claim.uuid == body.claim_uuid, Claim.patient_id == context.patient.id, Claim.released_to_patient_at.is_not(None)).with_for_update())
     if not claim:
         raise HTTPException(status_code=404, detail="Released claim not found")
     paid = Decimal(db.scalar(select(func.coalesce(func.sum(ClaimPayment.amount), 0)).where(ClaimPayment.claim_id == claim.id)))
     reserved = Decimal(db.scalar(select(func.coalesce(func.sum(PaymentIntent.amount), 0)).where(PaymentIntent.claim_id == claim.id, PaymentIntent.status == "processing")))
     if body.amount > claim.total - paid - reserved:
         raise HTTPException(status_code=422, detail="Payment exceeds the available claim balance")
-    intent = PaymentIntent(patient_id=account.patient_id, portal_account_id=account.id, claim_id=claim.id, idempotency_key=idempotency_key, request_fingerprint=fingerprint, amount=body.amount, currency=currency, provider=settings.payment_provider, status="processing")
-    db.add(intent); db.flush(); portal_audit(db, account, "create", "payment_intent", intent.uuid); db.commit(); db.refresh(intent)
+    intent = PaymentIntent(patient_id=context.patient.id, portal_account_id=account.id, claim_id=claim.id, idempotency_key=idempotency_key, request_fingerprint=fingerprint, amount=body.amount, currency=currency, provider=settings.payment_provider, status="processing")
+    db.add(intent); db.flush(); portal_audit(db, account, "create", "payment_intent", intent.uuid, context.patient.id); db.commit(); db.refresh(intent)
 
     result = payment_processor(settings.payment_provider, settings.deployment_environment).charge(amount=body.amount, currency=currency, token=body.payment_method_token, idempotency_key=intent.uuid)
     intent = db.scalar(select(PaymentIntent).where(PaymentIntent.id == intent.id).with_for_update())
@@ -184,7 +273,7 @@ def create_portal_payment_intent(body: PortalPaymentIntentCreate, idempotency_ke
     elif intent.status == "processing":
         intent.status = "failed"; intent.failure_code = result.failure_code
     intent.completed_at = datetime.now(timezone.utc)
-    portal_audit(db, account, intent.status, "payment_intent", intent.uuid); db.commit(); db.refresh(intent)
+    portal_audit(db, account, intent.status, "payment_intent", intent.uuid, context.patient.id); db.commit(); db.refresh(intent)
     return payment_intent_out(intent, claim.uuid)
 
 

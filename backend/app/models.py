@@ -304,8 +304,11 @@ class PortalAccount(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     legacy_access_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
-    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), unique=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), unique=True, nullable=True, index=True)
     username: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    identity_type: Mapped[str] = mapped_column(String(30), default="patient", index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(default=True)
     force_password_reset: Mapped[bool] = mapped_column(default=True)
@@ -313,6 +316,25 @@ class PortalAccount(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class PortalAccessGrant(Base):
+    __tablename__ = "portal_access_grants"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    grantee_portal_account_id: Mapped[int] = mapped_column(ForeignKey("portal_accounts.id"), index=True)
+    relationship_code: Mapped[str] = mapped_column(String(50))
+    scopes: Mapped[list[str]] = mapped_column(JSON)
+    consent_basis: Mapped[str] = mapped_column(String(50))
+    evidence_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    granted_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revoke_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class AuthSession(Base):

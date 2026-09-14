@@ -112,7 +112,6 @@ def create_portal_token(account: PortalAccount, session: AuthSession) -> str:
     now = datetime.now(timezone.utc)
     claims = {
         "sub": str(account.id),
-        "patient": str(account.patient_id),
         "kind": "portal",
         "jti": session.access_jti,
         "sid": session.uuid,
@@ -122,6 +121,8 @@ def create_portal_token(account: PortalAccount, session: AuthSession) -> str:
         "nbf": now,
         "exp": now + timedelta(minutes=settings.access_token_minutes),
     }
+    if account.patient_id is not None:
+        claims["patient"] = str(account.patient_id)
     return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
 
 

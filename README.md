@@ -185,8 +185,12 @@ use.
 
 Patient portal accounts are created by authorized staff for patients whose
 portal access has been enabled. Temporary passwords must be replaced before a
-patient can access protected information. Appointments are restricted to the
-authenticated patient. Clinical results, documents, and visit forms remain
+patient can access protected information. Representatives use separate portal
+identities and explicit patient grants with recorded relationship, authority,
+validity, and least-privilege scopes; a relationship alone does not confer
+access. The portal provides a patient-context switcher, and revocation is
+enforced on the next request without waiting for the login session to expire.
+Appointments are restricted to the resolved patient context. Clinical results, documents, and visit forms remain
 private until authorized staff explicitly release them; only final or corrected
 results and signed forms are eligible. Staff can revoke access immediately, and
 portal record reads and downloads are recorded against the portal identity.

@@ -17,6 +17,6 @@ describe("PortalRecords",()=>{
     expect(screen.getByText("USD 10.00")).toBeTruthy();
     expect(screen.getByText(/Online payments are not configured/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button",{name:"instructions.txt"}));
-    await waitFor(()=>expect(raw).toHaveBeenCalledWith("/api/v1/portal/documents/d1/content"));
+    await waitFor(()=>expect(raw).toHaveBeenCalledWith("/api/v1/portal/documents/d1/content",{headers:undefined}));
   });
 });

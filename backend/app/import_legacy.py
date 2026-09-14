@@ -371,7 +371,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                     stats["portal_accounts"]["rejected"] += 1; continue
                 safe_payload = {key: json_value(value) for key, value in row.items() if key not in {"portal_pwd", "portal_onetime"}}
                 safe_payload["legacy_credentials_discarded"] = True
-                target.add(PortalAccount(legacy_access_id=row["id"], patient_id=patient.id, username=username, password_hash=password_hash.hash(secrets.token_urlsafe(32)), active=patient.portal_allowed, force_password_reset=True, legacy_payload=safe_payload))
+                target.add(PortalAccount(legacy_access_id=row["id"], patient_id=patient.id, username=username, email=patient.email, display_name=f"{patient.first_name} {patient.last_name}", identity_type="patient", password_hash=password_hash.hash(secrets.token_urlsafe(32)), active=patient.portal_allowed, force_password_reset=True, legacy_payload=safe_payload))
                 stats["portal_accounts"]["inserted"] += 1
             target.flush()
 
