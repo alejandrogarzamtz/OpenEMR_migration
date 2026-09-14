@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from base64 import b64encode
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Practitioner, Prescription, User, VitalSet
+from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Payer, Practitioner, Prescription, User, VitalSet
 from .security import appointment_user, clinical_user
 from .services.access import facility_scope, require_facility_access
 from .services.patients import patient_by_uuid
@@ -37,6 +40,7 @@ def audit(db: Session, user: User, resource_type: str, resource_id: str | None =
 def metadata():
     read_search=[{"code":"read"},{"code":"search-type"}]
     patient_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"}]} for name in ("Condition","AllergyIntolerance","MedicationStatement","Observation","Immunization","MedicationRequest")]
+    patient_resources.extend([{"type":"Coverage","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]},{"type":"DocumentReference","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"type","type":"token"},{"name":"date","type":"date"}]},{"type":"Binary","interaction":[{"code":"read"}]}])
     status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
     directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
     resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
@@ -301,6 +305,10 @@ def organization_resource(item: Facility) -> dict:
     return {"resourceType":"Organization","id":item.uuid,"active":item.active,"name":item.name,**({"identifier":[{"system":"http://hl7.org/fhir/sid/us-npi","value":item.npi}]} if item.npi else {}),**({"telecom":telecom} if telecom else {}),**({"address":[{key:value for key,value in (("line",[item.street] if item.street else None),("city",item.city),("state",item.state),("postalCode",item.postal_code),("country",item.country_code)) if value}]} if any((item.street,item.city,item.state,item.postal_code,item.country_code)) else {})}
 
 
+def payer_organization_resource(item: Payer) -> dict:
+    return {"resourceType":"Organization","id":item.uuid,"active":item.active,"type":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/organization-type","code":"pay","display":"Payer"}]}],"name":item.name,**({"identifier":[{"system":"urn:openrm:payer-identifier","value":item.payer_identifier}]} if item.payer_identifier else {})}
+
+
 def location_resource(item: Facility) -> dict:
     return {"resourceType":"Location","id":item.uuid,"status":"active" if item.active else "inactive","name":item.name,"mode":"instance","managingOrganization":{"reference":f"Organization/{item.uuid}"},**({"telecom":[{"system":system,"value":value} for system,value in (("phone",item.phone),("fax",item.fax),("email",item.email)) if value]} if item.phone or item.fax or item.email else {}),**({"address":{key:value for key,value in (("line",[item.street] if item.street else None),("city",item.city),("state",item.state),("postalCode",item.postal_code),("country",item.country_code)) if value}} if any((item.street,item.city,item.state,item.postal_code,item.country_code)) else {})}
 
@@ -344,17 +352,19 @@ def read_encounter(resource_uuid:str,db:Session=Depends(get_db),user:User=Depend
 
 @router.get("/Organization")
 def search_organizations(name:str|None=None,active:bool|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
-    query=select(Facility)
-    if name:query=query.where(Facility.name.ilike(f"%{name}%"))
-    if active is not None:query=query.where(Facility.active.is_(active))
-    rows=list(db.scalars(query.order_by(Facility.name).limit(100)));audit(db,user,"Organization",search=True);return bundle("Organization",[organization_resource(row) for row in rows])
+    facility_query=select(Facility);payer_query=select(Payer)
+    if name:facility_query=facility_query.where(Facility.name.ilike(f"%{name}%"));payer_query=payer_query.where(Payer.name.ilike(f"%{name}%"))
+    if active is not None:facility_query=facility_query.where(Facility.active.is_(active));payer_query=payer_query.where(Payer.active.is_(active))
+    facilities=list(db.scalars(facility_query.order_by(Facility.name).limit(100)));payers=list(db.scalars(payer_query.order_by(Payer.name).limit(max(0,100-len(facilities)))));resources=[organization_resource(row) for row in facilities]+[payer_organization_resource(row) for row in payers];audit(db,user,"Organization",search=True);return bundle("Organization",resources)
 
 
 @router.get("/Organization/{resource_uuid}")
 def read_organization(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
     row=db.scalar(select(Facility).where(Facility.uuid==resource_uuid))
-    if not row:fhir_not_found("Organization")
-    audit(db,user,"Organization",row.uuid);return organization_resource(row)
+    if row:audit(db,user,"Organization",row.uuid);return organization_resource(row)
+    payer=db.scalar(select(Payer).where(Payer.uuid==resource_uuid))
+    if not payer:fhir_not_found("Organization")
+    audit(db,user,"Organization",payer.uuid);return payer_organization_resource(payer)
 
 
 @router.get("/Location")
@@ -387,3 +397,66 @@ def read_practitioner(resource_uuid:str,db:Session=Depends(get_db),user:User=Dep
     row=db.scalar(select(Practitioner).where(Practitioner.uuid==resource_uuid))
     if not row:fhir_not_found("Practitioner")
     audit(db,user,"Practitioner",row.uuid);return practitioner_resource(db,row)
+
+
+def coverage_status(item: Coverage) -> str:
+    today=date.today()
+    if item.ends_on and item.ends_on < today:return "cancelled"
+    if item.starts_on and item.starts_on > today:return "draft"
+    return "active"
+
+
+def coverage_resource(item: Coverage, patient_uuid: str, payer: Payer) -> dict:
+    order={"primary":1,"secondary":2,"tertiary":3}.get(item.priority)
+    classes=[]
+    if item.group_number:classes.append({"type":{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/coverage-class","code":"group"}]},"value":item.group_number})
+    if item.plan_name:classes.append({"type":{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/coverage-class","code":"plan"}]},"value":item.plan_name})
+    return {"resourceType":"Coverage","id":item.uuid,"status":coverage_status(item),"beneficiary":{"reference":f"Patient/{patient_uuid}"},"subscriber":{"display":item.subscriber_name},"subscriberId":item.policy_number,"relationship":{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/subscriber-relationship","code":item.relationship}]},"payor":[{"reference":f"Organization/{payer.uuid}","display":payer.name}],**({"order":order} if order else {}),**({"period":{key:value.isoformat() for key,value in (("start",item.starts_on),("end",item.ends_on)) if value}} if item.starts_on or item.ends_on else {}),**({"class":classes} if classes else {})}
+
+
+def document_reference_resource(db: Session, item: Document, patient_uuid: str) -> dict:
+    encounter_uuid=db.scalar(select(Encounter.uuid).where(Encounter.id==item.encounter_id)) if item.encounter_id else None
+    digest=b64encode(bytes.fromhex(item.sha256)).decode()
+    return {"resourceType":"DocumentReference","id":item.uuid,"status":"current","type":{"coding":[{"system":"urn:ietf:bcp:13","code":item.mime_type}],"text":item.name},"subject":{"reference":f"Patient/{patient_uuid}"},"date":item.uploaded_at.isoformat(),"content":[{"attachment":{"contentType":item.mime_type,"url":f"/fhir/Binary/{item.uuid}","title":item.name,"hash":digest}}],**({"context":{"encounter":[{"reference":f"Encounter/{encounter_uuid}"}]}} if encounter_uuid else {})}
+
+
+def matches_fhir_date(value, search_value: str) -> bool:
+    operator=search_value[:2] if search_value[:2] in {"eq","gt","ge","lt","le"} else "eq";raw=search_value[2:] if operator!="eq" or search_value.startswith("eq") else search_value
+    try:target=date.fromisoformat(raw)
+    except ValueError:raise HTTPException(status_code=400,detail={"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"invalid","diagnostics":"date must use a supported FHIR prefix and YYYY-MM-DD"}]})
+    actual=value.date();comparisons={"eq":actual==target,"gt":actual>target,"ge":actual>=target,"lt":actual<target,"le":actual<=target};return comparisons[operator]
+
+
+@router.get("/Coverage")
+def search_coverages(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));rows=db.execute(select(Coverage,Payer).join(Payer).where(Coverage.patient_id==owner.id).order_by(Coverage.priority)).all();resources=[coverage_resource(item,owner.uuid,payer) for item,payer in rows];resources=[resource for resource in resources if not status or resource["status"]==status];audit(db,user,"Coverage",owner.uuid,search=True);return bundle("Coverage",resources)
+
+
+@router.get("/Coverage/{resource_uuid}")
+def read_coverage(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.execute(select(Coverage,Patient.uuid,Payer).join(Patient,Coverage.patient_id==Patient.id).join(Payer,Coverage.payer_id==Payer.id).where(Coverage.uuid==resource_uuid)).first()
+    if not row:fhir_not_found("Coverage")
+    item,patient_uuid,payer=row;resource=coverage_resource(item,patient_uuid,payer);audit(db,user,"Coverage",item.uuid);return resource
+
+
+@router.get("/DocumentReference")
+def search_document_references(patient:str=Query(),document_type:str|None=Query(default=None,alias="type"),date_value:str|None=Query(default=None,alias="date"),db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));query=select(Document).where(Document.patient_id==owner.id)
+    if document_type:query=query.where(Document.mime_type==document_type.rsplit("|",1)[-1])
+    rows=list(db.scalars(query.order_by(Document.uploaded_at.desc())));resources=[document_reference_resource(db,item,owner.uuid) for item in rows]
+    if date_value:resources=[resource for resource,item in zip(resources,rows) if matches_fhir_date(item.uploaded_at,date_value)]
+    audit(db,user,"DocumentReference",owner.uuid,search=True);return bundle("DocumentReference",resources)
+
+
+@router.get("/DocumentReference/{resource_uuid}")
+def read_document_reference(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.execute(select(Document,Patient.uuid).join(Patient,Document.patient_id==Patient.id).where(Document.uuid==resource_uuid)).first()
+    if not row:fhir_not_found("DocumentReference")
+    item,patient_uuid=row;resource=document_reference_resource(db,item,patient_uuid);audit(db,user,"DocumentReference",item.uuid);return resource
+
+
+@router.get("/Binary/{resource_uuid}")
+def read_binary(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    item=db.scalar(select(Document).where(Document.uuid==resource_uuid))
+    if not item:fhir_not_found("Binary")
+    audit(db,user,"Binary",item.uuid);safe_name=item.name.replace('"',"");return Response(item.content,media_type=item.mime_type,headers={"Content-Disposition":f'attachment; filename="{safe_name}"',"ETag":item.sha256})

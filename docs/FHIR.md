@@ -4,7 +4,8 @@ The compatibility API is exposed below `/fhir` and advertised by
 `GET /fhir/metadata`. It currently supports authenticated read/search for
 Patient, Condition, AllergyIntolerance, MedicationStatement, MedicationRequest,
 Immunization, Observation, Appointment, Encounter, Organization, Location,
-Practitioner, CarePlan, Goal, and CareTeam resources. Observation searches
+Practitioner, Coverage, DocumentReference, Binary, CarePlan, Goal, and CareTeam
+resources. Observation searches
 combine laboratory results and LOINC-coded vital signs. Patient-bound searches
 require a patient compartment; Appointment, Encounter, and care-coordination
 searches also support normalized FHIR status filtering. Individual reads,
@@ -26,6 +27,15 @@ it is a service site, as a Location with a managing-organization reference.
 Practitioner resources include NPI, contact and primary-organization context.
 Directory searches are bounded to 100 results and support the parameters listed
 in the server CapabilityStatement.
+
+Coverage resources retain subscriber, policy, group, plan, period and priority
+and reference a resolvable payer Organization. DocumentReference resources
+retain MIME type, encounter context, upload time and a standards-encoded SHA-256
+attachment hash. Their authenticated Binary URL streams the original bytes with
+the stored media type, ETag and safe filename. Document searches support exact
+MIME type plus the `eq`, `gt`, `ge`, `lt`, and `le` FHIR date prefixes. The
+legacy `$docref` clinical-document generation operation remains separate parity
+work; it is not claimed by the read-only document surface.
 
 The development JWT is used as a bearer token. Production rollout must replace
 it with SMART on FHIR authorization, asymmetric token signing, scopes, launch
