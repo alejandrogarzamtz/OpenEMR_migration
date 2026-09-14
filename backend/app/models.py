@@ -982,6 +982,40 @@ class ClinicalForm(Base):
     released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class CarePlan(Base):
+    """Longitudinal coded care-plan entry, independent from its legacy form container."""
+
+    __tablename__ = "care_plans"
+    __table_args__ = (UniqueConstraint("legacy_form_id", "legacy_row_key", name="uq_care_plan_legacy_row"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_form_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    legacy_row_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    encounter_id: Mapped[int] = mapped_column(ForeignKey("encounters.id"), index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    code: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    code_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str] = mapped_column(Text)
+    external_id: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    plan_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    note_related_to: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason_code: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    reason_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason_status: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    target_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    engagement_category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class ClinicalSignature(Base):
     """Append-only evidence for a form signature or amendment."""
 

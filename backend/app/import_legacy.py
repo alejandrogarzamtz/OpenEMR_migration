@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, CarePlan, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -77,6 +77,15 @@ def valid_dob(value):
     return value if isinstance(value, date) and value.year > 1800 else date(1900, 1, 1)
 
 
+def legacy_datetime(value, fallback=None):
+    if isinstance(value, datetime): return value
+    if isinstance(value, date): return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    if value:
+        try: return datetime.fromisoformat(str(value))
+        except ValueError: pass
+    return fallback
+
+
 def patient_for_legacy(target: Session, legacy_pid) -> Patient | None:
     patient = target.scalar(select(Patient).where(Patient.legacy_pid == legacy_pid))
     seen = set()
@@ -91,6 +100,18 @@ def json_value(value):
     if hasattr(value, "as_tuple"): return str(value)
     if isinstance(value, bytes): return value.hex()
     return value
+
+
+def stable_legacy_row_keys(rows):
+    """Return a deterministic key for every row in a source-table multiset."""
+    normalized=[(row,{key:json_value(value) for key,value in row.items()}) for row in rows]
+    normalized.sort(key=lambda item:(item[1].get("id"),json.dumps(item[1],sort_keys=True)))
+    occurrences={}
+    result=[]
+    for row,payload in normalized:
+        digest=hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest();occurrences[digest]=occurrences.get(digest,0)+1
+        result.append((row,payload,f"{digest}:{occurrences[digest]}"))
+    return result
 
 
 def event_datetime(day, clock):
@@ -150,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "clinical_forms", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -559,6 +580,16 @@ def run(source_url: str, commit: bool = False) -> dict:
             product=target.scalar(select(InventoryProduct).where(InventoryProduct.legacy_drug_id==row["drug_id"])); lot=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["inventory_id"])) if row["inventory_id"] else None; destination=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["xfer_inventory_id"])) if row["xfer_inventory_id"] else None; patient=patient_for_legacy(target,row["pid"]) if row["pid"] else None; encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; prescription=target.scalar(select(Prescription).where(Prescription.legacy_prescription_id==row["prescription_id"])) if row["prescription_id"] else None
             if not product: stats["inventory_transactions"]["rejected"] += 1; continue
             target.add(InventoryTransaction(legacy_sale_id=row["sale_id"], product_id=product.id, lot_id=lot.id if lot else None, destination_lot_id=destination.id if destination else None, patient_id=patient.id if patient else None, encounter_id=encounter.id if encounter else None, prescription_id=prescription.id if prescription else None, transaction_type=transaction_types.get(row["trans_type"], f"legacy-{row['trans_type']}"), occurred_on=row["sale_date"], quantity=row["quantity"], fee=row["fee"], billed=bool(row["billed"]), actor_name=clean(row["user"]), notes=clean(row["notes"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_transactions"]["inserted"] += 1
+        if "form_care_plan" in legacy_tables:
+            source_rows=list(legacy.execute(text("SELECT * FROM form_care_plan")).mappings())
+            for row,payload,row_key in stable_legacy_row_keys(source_rows):
+                stats["care_plans"]["source"]+=1
+                if target.scalar(select(CarePlan.id).where(CarePlan.legacy_form_id==row["id"],CarePlan.legacy_row_key==row_key)):stats["care_plans"]["existing"]+=1;continue
+                patient=patient_for_legacy(target,row["pid"]);encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
+                if not patient or not encounter:stats["care_plans"]["rejected"]+=1;continue
+                recorded=legacy_datetime(row["date"],encounter.occurred_at);raw_status=clean(row["plan_status"]) or "draft"
+                target.add(CarePlan(legacy_form_id=row["id"],legacy_row_key=row_key,patient_id=patient.id,encounter_id=encounter.id,recorded_at=recorded,code=clean(row["code"]),code_text=clean(row["codetext"]),description=clean(row["description"]) or "",external_id=clean(row["external_id"]),plan_type=clean(row["care_plan_type"]),note_related_to=clean(row["note_related_to"]),ends_at=legacy_datetime(row["date_end"]),reason_code=clean(row["reason_code"]),reason_description=clean(row["reason_description"]),reason_recorded_at=legacy_datetime(row["reason_date_low"]),reason_ends_at=legacy_datetime(row["reason_date_high"]),reason_status=clean(row["reason_status"]),status=raw_status[:32],target_date=legacy_datetime(row["proposed_date"]),engagement_category=clean(row["plan_engagement_category"]),active=bool(row["activity"]),legacy_payload=payload));stats["care_plans"]["inserted"]+=1
+            target.flush()
         # OpenEMR's `forms` registry points to both core and installed/custom form tables.
         # Reflecting only tables that actually exist preserves every registered form payload.
         forms = legacy.execute(text("SELECT id,date,encounter,form_name,form_id,pid,authorized,deleted,formdir FROM forms ORDER BY id"))

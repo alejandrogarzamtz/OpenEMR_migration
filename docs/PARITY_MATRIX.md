@@ -14,7 +14,7 @@ are all verified. “Partial” never counts as final parity.
 | Scheduling and holidays | Partial | facility-aware events, resources, conflicts and statuses exist; recurrence expansion, categories, holidays, reminder delivery and wait list remain |
 | Patient flow board | Partial | immutable tracker stages, rooms, timestamps and dashboard exist; configurable stage rules, analytics and remaining legacy actions remain |
 | Encounters | Partial | lifecycle, locking, signing, diagnoses, providers and encounter forms |
-| Clinical forms | Partial | generic preservation, signatures, amendments and locks exist; ten source-reconciled form families now have contract-driven React editors and semantic validation: SOAP, ROS, physical exam, dictation, progress/clinic notes, instructions, aftercare, treatment and transfer summary; relational care plans, linked clinical notes and remaining specialized families remain |
+| Clinical forms | Partial | generic preservation, signatures, amendments and locks exist; ten source-reconciled form families now have contract-driven React editors and semantic validation: SOAP, ROS, physical exam, dictation, progress/clinic notes, instructions, aftercare, treatment and transfer summary; linked clinical notes and remaining specialized families remain |
 | Problems and surgeries | Partial | full coding, verification, occurrence, associations and surgery workflow |
 | Allergies | Partial | verification, intolerance detail, substance coding and reconciliation |
 | Medications | Partial | adherence, devices, medication history and reconciliation |
@@ -24,7 +24,7 @@ are all verified. “Partial” never counts as final parity.
 | Labs and procedures | Partial | multi-line orders, specimens, questions, HL7, Quest/LabCorp and review/sign-off |
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
-| Care plans and care teams | Missing | goals, participants, preferences and longitudinal workflow |
+| Care plans and care teams | Partial | relational coded plans, reason periods, targets, lifecycle, locking, auditing, React workflows and deterministic lossless row import exist; care-team participants, patient preferences, goal/intervention outcome history, FHIR resources and production reconciliation remain |
 | Questionnaires/PRO/SDOH | Partial | versioned PHQ-9/GAD-7 responses and scoring exist; PROMIS, SDOH sets, patient delivery and broader repository remain |
 | Clinical decision support | Missing | rules, reminders, alerts, measures and intervention feedback |
 | Insurance and eligibility | Partial | eligibility checks, coordination of benefits and authorization workflows |

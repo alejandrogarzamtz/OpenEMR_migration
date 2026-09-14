@@ -26,7 +26,7 @@ immunizations, vital signs and claims:
 The optional `sections` parameter accepts a comma-separated subset of:
 `demographics`, `addresses`, `telecommunications`, `previous-names`,
 `related-people`, `employment`, `clinical-items`, `prescriptions`,
-`immunizations`, `vitals`, `encounters`, `clinical-forms`, `laboratory`,
+`immunizations`, `vitals`, `encounters`, `clinical-forms`, `care-plans`, `laboratory`,
 `documents`, `insurance`, and `claims`. Unknown names and empty selections are
 rejected rather than silently producing an ambiguous report.
 

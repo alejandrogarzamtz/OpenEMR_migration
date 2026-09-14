@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class Token(BaseModel):
@@ -1094,6 +1094,62 @@ class PrescriptionCreate(BaseModel):
 class PrescriptionOut(PrescriptionCreate):
     uuid: str
     status: str
+
+
+class CarePlanBase(BaseModel):
+    recorded_at: datetime
+    code: str | None = Field(default=None, max_length=255)
+    code_text: str | None = None
+    description: str = Field(min_length=1, max_length=20_000)
+    external_id: str | None = Field(default=None, max_length=30)
+    plan_type: str | None = Field(default=None, max_length=30)
+    note_related_to: str | None = None
+    ends_at: datetime | None = None
+    reason_code: str | None = Field(default=None, max_length=31)
+    reason_description: str | None = None
+    reason_recorded_at: datetime | None = None
+    reason_ends_at: datetime | None = None
+    reason_status: str | None = Field(default=None, max_length=31)
+    status: str = Field(default="draft", pattern="^(draft|active|on-hold|completed|cancelled|entered-in-error)$")
+    target_date: datetime | None = None
+    engagement_category: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def valid_care_plan(self):
+        if self.ends_at and self.ends_at < self.recorded_at: raise ValueError("ends_at must not precede recorded_at")
+        if self.target_date and self.target_date < self.recorded_at: raise ValueError("target_date must not precede recorded_at")
+        if self.reason_ends_at and self.reason_recorded_at and self.reason_ends_at < self.reason_recorded_at: raise ValueError("reason_ends_at must not precede reason_recorded_at")
+        reason_values=(self.reason_code,self.reason_description,self.reason_recorded_at,self.reason_ends_at,self.reason_status)
+        if any(value is not None and value != "" for value in reason_values) and (not self.reason_code or not self.reason_status): raise ValueError("reason_code and reason_status are required together")
+        return self
+
+
+class CarePlanCreate(CarePlanBase):
+    encounter_uuid: str
+
+    @field_validator("recorded_at", "ends_at", "reason_recorded_at", "reason_ends_at", "target_date")
+    @classmethod
+    def timezone_required(cls, value: datetime | None):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("care-plan dates must include a timezone")
+        return value
+
+
+class CarePlanUpdate(CarePlanBase):
+    @field_validator("recorded_at", "ends_at", "reason_recorded_at", "reason_ends_at", "target_date")
+    @classmethod
+    def timezone_required(cls, value: datetime | None):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("care-plan dates must include a timezone")
+        return value
+
+
+class CarePlanOut(CarePlanBase):
+    uuid: str
+    encounter_uuid: str
+    active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class ClinicalFormCreate(BaseModel):

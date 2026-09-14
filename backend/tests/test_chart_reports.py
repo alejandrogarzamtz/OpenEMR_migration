@@ -13,6 +13,9 @@ def test_printable_chart_report_is_patient_scoped_escaped_audited_and_permission
         admin=staff_headers(client);patient=create_patient(client,admin,"ReportOne");other=create_patient(client,admin,"ReportTwo")
         item=client.post(f"/api/v1/patients/{patient['uuid']}/clinical-items",headers=admin,json={"category":"problem","title":"Risk <script>alert(1)</script>"})
         assert item.status_code==201
+        encounter=client.post("/api/v1/encounters",headers=admin,json={"patient_uuid":patient["uuid"],"occurred_at":"2026-09-14T12:00:00Z"}).json()
+        plan=client.post(f"/api/v1/patients/{patient['uuid']}/care-plans",headers=admin,json={"encounter_uuid":encounter["uuid"],"recorded_at":"2026-09-14T12:00:00Z","description":"Walk daily","status":"active"})
+        assert plan.status_code==201
         with SessionLocal() as db:
             report_user=User(email="report-only@example.com",password_hash=password_hash.hash("report-only-password"),role="records",permissions=["patients:pat_rep:read","patients:demo:read","patients:med:read","patients:docs:read","acct:bill:read"])
             limited_user=User(email="limited-report@example.com",password_hash=password_hash.hash("limited-report-password"),role="records",permissions=["patients:pat_rep:read"])
@@ -31,7 +34,7 @@ def test_printable_chart_report_is_patient_scoped_escaped_audited_and_permission
         assert response.status_code==200 and response.headers["cache-control"]=="private, no-store"
         assert response.headers["x-report-sha256"] and "ReportOne" in response.text and "ReportTwo" not in response.text
         assert "Risk &lt;script&gt;alert(1)&lt;/script&gt;" in response.text and "Risk <script>" not in response.text
-        assert all(section in response.text for section in ("Demographics","Problems, allergies, and medications","Encounters","Laboratory and procedures","Documents","Insurance","Claims"))
+        assert all(section in response.text for section in ("Demographics","Problems, allergies, and medications","Encounters","Care plans","Walk daily","Laboratory and procedures","Documents","Insurance","Claims"))
         selected=client.get(f"/api/v1/patients/{patient['uuid']}/report.html?sections=demographics,clinical-items",headers=report_headers)
         assert selected.status_code==200 and "Demographics" in selected.text and "Problems, allergies, and medications" in selected.text and "Documents" not in selected.text
         assert client.get(f"/api/v1/patients/{patient['uuid']}/report.html?sections=unknown",headers=report_headers).status_code==422

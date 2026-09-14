@@ -9,6 +9,7 @@ import { PatientPhotos } from "./features/patients/PatientPhotos";
 import { PatientDuplicates } from "./features/patients/PatientDuplicates";
 import { PatientReportButton } from "./features/patients/PatientReportButton";
 import { ClinicalFormEditor } from "./features/patients/ClinicalFormEditor";
+import { CarePlanWorkspace } from "./features/patients/CarePlanWorkspace";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 import { PatientFlowBoard } from "./features/patient-flow/PatientFlowBoard";
@@ -168,6 +169,7 @@ function App(){
         <form className="quick-add compact" onSubmit={uploadDocument}><input name="file" type="file" required/><button>Subir documento</button></form>
         <section className="summary-group"><h3>Encuentros<span>{selected.encounters.length}</span></h3>{selected.encounters.map(encounter=><article key={encounter.uuid}><strong>{encounter.chief_complaint||"Encuentro clínico"}</strong><small>{new Date(encounter.occurred_at).toLocaleString()} · {encounter.locked?"bloqueado":"abierto"} · {encounter.signature_count} firma(s)</small>{!encounter.locked&&<button className="text-button" onClick={()=>void signEncounter(encounter)}>Firmar y bloquear encuentro</button>}</article>)}</section>
         <section className="summary-group"><h3>Formularios clínicos<span>{selected.clinicalForms.length}</span></h3>{selected.clinicalForms.map(item=><article key={item.uuid}><strong>{item.title}</strong><small>{item.form_type} · {item.status}{item.locked?" · bloqueado":""} · {item.signature_count} firma(s) · {item.released_to_patient_at?"Publicado en portal":"Privado"}</small>{item.status!=="signed"?<button className="text-button" onClick={()=>void signClinicalForm(item)}>Firmar y bloquear</button>:<button className="text-button" onClick={()=>void toggleFormRelease(item)}>{item.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button>}</article>)}</section>
+        {selected.encounters.length>0&&<CarePlanWorkspace api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} locked={selected.encounters[0].locked}/>}
         {selected.encounters.length>0&&!selected.encounters[0].locked&&<ClinicalFormEditor api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} onSaved={()=>openPatient(selected.patient)}/>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={addCoverage}><input name="payer_name" placeholder="Aseguradora" required/><input name="policy_number" placeholder="Póliza" required/><button>Agregar cobertura</button></form>

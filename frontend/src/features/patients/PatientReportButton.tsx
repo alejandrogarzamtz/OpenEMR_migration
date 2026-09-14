@@ -4,7 +4,7 @@ import type { ApiRequest } from "../../api/client";
 const groups=[
   {label:"Demografía",keys:["demographics","addresses","telecommunications","previous-names","related-people","employment"]},
   {label:"Clínica",keys:["clinical-items","prescriptions","immunizations","vitals"]},
-  {label:"Encuentros",keys:["encounters","clinical-forms"]},
+  {label:"Encuentros",keys:["encounters","clinical-forms","care-plans"]},
   {label:"Laboratorio",keys:["laboratory"]},
   {label:"Documentos",keys:["documents"]},
   {label:"Finanzas",keys:["insurance","claims"]},
