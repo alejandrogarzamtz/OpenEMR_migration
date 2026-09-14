@@ -14,6 +14,8 @@ type ClientOptions = {
   onUnauthorized?: () => void;
 };
 
+export type ApiRequest = <T = any>(path: string, init?: RequestInit) => Promise<T>;
+
 export function createApiClient(options: ClientOptions) {
   return async function request<T = any>(path: string, init: RequestInit = {}): Promise<T> {
     const token = options.getToken();

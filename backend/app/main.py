@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
 from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
-from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
+from .schemas import AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
 from .security import (
     clinical_user,
 )
 from .fhir import router as fhir_router
 from .api.auth import router as auth_router
+from .api.appointments import router as appointments_router
 from .api.patients import router as patients_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
@@ -23,6 +24,7 @@ from .services.patients import patient_by_uuid
 app = FastAPI(title="OpenEMR Next API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth_router)
+app.include_router(appointments_router)
 app.include_router(patients_router)
 app.include_router(fhir_router)
 
@@ -30,26 +32,6 @@ app.include_router(fhir_router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.get("/api/v1/appointments", response_model=list[AppointmentOut])
-def list_appointments(patient_uuid: str | None = None, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    query = select(Appointment, Patient.uuid).join(Patient).order_by(Appointment.starts_at)
-    if patient_uuid:
-        query = query.where(Patient.uuid == patient_uuid)
-    rows = db.execute(query).all()
-    db.add(AuditEvent(actor_id=user.id, action="search", resource_type="appointment")); db.commit()
-    return [AppointmentOut(patient_uuid=p_uuid, **{k: getattr(item, k) for k in ("uuid", "starts_at", "ends_at", "status", "reason", "provider_name")}) for item, p_uuid in rows]
-
-
-@app.post("/api/v1/appointments", response_model=AppointmentOut, status_code=201)
-def create_appointment(body: AppointmentCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    if body.ends_at <= body.starts_at:
-        raise HTTPException(status_code=422, detail="ends_at must be after starts_at")
-    patient = patient_by_uuid(db, body.patient_uuid)
-    item = Appointment(patient_id=patient.id, **body.model_dump(exclude={"patient_uuid"}))
-    db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="appointment", resource_id=item.uuid)); db.commit(); db.refresh(item)
-    return AppointmentOut(patient_uuid=patient.uuid, **{k: getattr(item, k) for k in ("uuid", "starts_at", "ends_at", "status", "reason", "provider_name")})
 
 
 @app.post("/api/v1/encounters", response_model=EncounterOut, status_code=201)

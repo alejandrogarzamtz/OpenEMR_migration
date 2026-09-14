@@ -7,13 +7,14 @@ Usage:
 import argparse
 import hashlib
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, VitalSet
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, VitalSet
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
+APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
 
 
 def clean(value):
@@ -31,10 +32,20 @@ def json_value(value):
     return value
 
 
+def event_datetime(day, clock):
+    if isinstance(day, datetime):
+        day = day.date()
+    if isinstance(clock, timedelta):
+        return datetime.combine(day, time.min) + clock
+    if isinstance(clock, str):
+        clock = time.fromisoformat(clock)
+    return datetime.combine(day, clock or time.min)
+
+
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
+    names = ("patients", "appointments", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
@@ -73,6 +84,40 @@ def run(source_url: str, commit: bool = False) -> dict:
                 legacy_payload={key: json_value(value) for key, value in row.items()},
             ))
             stats["patients"]["inserted"] += 1
+        target.flush()
+        appointments = legacy.execute(text("SELECT e.*,u.fname AS provider_fname,u.lname AS provider_lname,f.name AS facility_name FROM openemr_postcalendar_events e LEFT JOIN users u ON u.id=e.pc_aid LEFT JOIN facility f ON f.id=e.pc_facility ORDER BY e.pc_eid"))
+        for row in appointments.mappings():
+            stats["appointments"]["source"] += 1
+            if target.scalar(select(Appointment.id).where(Appointment.legacy_event_id == row["pc_eid"])):
+                stats["appointments"]["existing"] += 1
+                continue
+            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pc_pid"]))
+            if not patient or not row["pc_eventDate"]:
+                stats["appointments"]["rejected"] += 1
+                continue
+            starts_at = event_datetime(row["pc_eventDate"], row["pc_startTime"])
+            ends_at = event_datetime(row["pc_endDate"] or row["pc_eventDate"], row["pc_endTime"]) if row["pc_endTime"] else starts_at + timedelta(seconds=int(row["pc_duration"] or 0))
+            if ends_at <= starts_at:
+                ends_at = starts_at + timedelta(minutes=15)
+            provider_name = " ".join(filter(None, (clean(row["provider_fname"]), clean(row["provider_lname"])))) or None
+            legacy_status = clean(row["pc_apptstatus"]) or "-"
+            recurrence_rule = f"LEGACY:type={row['pc_recurrtype']};frequency={row['pc_recurrfreq']};spec={clean(row['pc_recurrspec']) or ''}" if row["pc_recurrtype"] else None
+            target.add(Appointment(
+                legacy_event_id=row["pc_eid"], patient_id=patient.id,
+                legacy_provider_id=int(row["pc_aid"]) if str(row["pc_aid"] or "").isdigit() else None,
+                legacy_facility_id=row["pc_facility"] or None, category_id=row["pc_catid"] or None,
+                title=clean(row["pc_title"]), starts_at=starts_at, ends_at=ends_at,
+                status=APPOINTMENT_STATUS_MAP.get(legacy_status, "scheduled"), legacy_status=legacy_status,
+                reason=clean(row["pc_hometext"]), provider_name=provider_name,
+                facility_name=clean(row["facility_name"]), room=clean(row["pc_room"]),
+                location=clean(row["pc_location"]), contact_name=clean(row["pc_contname"]),
+                contact_phone=clean(row["pc_conttel"]), contact_email=clean(row["pc_contemail"]),
+                language=clean(row["pc_language"]), all_day=bool(row["pc_alldayevent"]),
+                recurrence_rule=recurrence_rule, send_sms=clean(row["pc_sendalertsms"]) == "YES",
+                send_email=clean(row["pc_sendalertemail"]) == "YES",
+                legacy_payload={key: json_value(value) for key, value in row.items()},
+            ))
+            stats["appointments"]["inserted"] += 1
         target.flush()
         items = legacy.execute(text("SELECT id,pid,type,title,begdate,enddate,diagnosis,activity,comments,reaction,severity_al FROM lists WHERE type IN ('medical_problem','allergy','medication') ORDER BY id"))
         for row in items.mappings():

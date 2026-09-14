@@ -94,18 +94,64 @@ class PatientPage(BaseModel):
     offset: int
 
 
-class AppointmentCreate(BaseModel):
+class AppointmentBase(BaseModel):
     patient_uuid: str
     starts_at: datetime
     ends_at: datetime
+    category_id: int | None = None
+    title: str | None = Field(default=None, max_length=150)
     reason: str | None = Field(default=None, max_length=255)
     provider_name: str | None = Field(default=None, max_length=150)
+    legacy_provider_id: int | None = None
+    facility_name: str | None = Field(default=None, max_length=150)
+    legacy_facility_id: int | None = None
+    room: str | None = Field(default=None, max_length=20)
+    location: str | None = Field(default=None, max_length=255)
+    contact_name: str | None = Field(default=None, max_length=100)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    contact_email: EmailStr | None = None
+    language: str | None = Field(default=None, max_length=30)
+    all_day: bool = False
+    recurrence_rule: str | None = Field(default=None, max_length=500)
+    send_sms: bool = False
+    send_email: bool = False
 
 
-class AppointmentOut(AppointmentCreate):
+class AppointmentCreate(AppointmentBase):
+    @model_validator(mode="after")
+    def validate_appointment(self):
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be after starts_at")
+        if self.send_sms and not self.contact_phone:
+            raise ValueError("contact_phone is required when send_sms is enabled")
+        if self.send_email and not self.contact_email:
+            raise ValueError("contact_email is required when send_email is enabled")
+        return self
+
+
+class AppointmentUpdate(BaseModel):
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    status: str | None = Field(default=None, pattern="^(scheduled|confirmed|arrived|checked-in|in-progress|fulfilled|cancelled|no-show|entered-in-error|pending)$")
+    category_id: int | None = None
+    title: str | None = Field(default=None, max_length=150)
+    reason: str | None = Field(default=None, max_length=255)
+    provider_name: str | None = Field(default=None, max_length=150)
+    legacy_provider_id: int | None = None
+    facility_name: str | None = Field(default=None, max_length=150)
+    legacy_facility_id: int | None = None
+    room: str | None = Field(default=None, max_length=20)
+    location: str | None = Field(default=None, max_length=255)
+    recurrence_rule: str | None = Field(default=None, max_length=500)
+    send_sms: bool | None = None
+    send_email: bool | None = None
+
+
+class AppointmentOut(AppointmentBase):
     model_config = ConfigDict(from_attributes=True)
     uuid: str
     status: str
+    recurrence_group: str | None
 
 
 class EncounterCreate(BaseModel):

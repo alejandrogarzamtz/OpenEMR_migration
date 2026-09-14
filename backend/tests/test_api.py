@@ -174,6 +174,34 @@ def test_extended_patient_demographics_and_consent_validation():
         assert future_birth.status_code == 422
 
 
+def test_appointment_resources_filters_lifecycle_and_conflicts():
+    with TestClient(app) as client:
+        token = client.post("/api/v1/auth/token", json={"email": "admin@example.com", "password": "change-me-now"}).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        patient = client.post("/api/v1/patients", headers=headers, json={"first_name":"Calendar","last_name":"Patient","date_of_birth":"1980-01-01","sex":"unknown"}).json()
+        body = {
+            "patient_uuid": patient["uuid"], "starts_at": "2026-10-01T15:00:00Z", "ends_at": "2026-10-01T15:30:00Z",
+            "title": "Follow-up", "provider_name": "Dr. Rivera", "legacy_provider_id": 42,
+            "facility_name": "North Clinic", "legacy_facility_id": 7, "room": "A1",
+            "contact_phone": "+528112345678", "send_sms": True,
+        }
+        created = client.post("/api/v1/appointments", headers=headers, json=body)
+        assert created.status_code == 201
+        appointment_uuid = created.json()["uuid"]
+        assert client.get(f"/api/v1/appointments/{appointment_uuid}", headers=headers).status_code == 200
+        filtered = client.get("/api/v1/appointments?provider_id=42&facility_id=7&starts_from=2026-10-01T00:00:00Z&starts_before=2026-10-02T00:00:00Z", headers=headers)
+        assert [item["uuid"] for item in filtered.json()] == [appointment_uuid]
+        conflict = client.post("/api/v1/appointments", headers=headers, json={**body, "starts_at":"2026-10-01T15:15:00Z", "ends_at":"2026-10-01T15:45:00Z"})
+        assert conflict.status_code == 409
+        moved = client.patch(f"/api/v1/appointments/{appointment_uuid}", headers=headers, json={"starts_at":"2026-10-01T16:00:00Z", "ends_at":"2026-10-01T16:30:00Z", "status":"confirmed"})
+        assert moved.status_code == 200
+        assert moved.json()["status"] == "confirmed"
+        assert client.delete(f"/api/v1/appointments/{appointment_uuid}", headers=headers).status_code == 204
+        assert client.get(f"/api/v1/appointments/{appointment_uuid}", headers=headers).json()["status"] == "cancelled"
+        invalid_reminder = client.post("/api/v1/appointments", headers=headers, json={**body, "contact_phone": None})
+        assert invalid_reminder.status_code == 422
+
+
 def test_explicit_permission_and_inactive_account_enforcement():
     with TestClient(app) as client:
         with SessionLocal() as db:
@@ -201,6 +229,7 @@ def test_explicit_permission_and_inactive_account_enforcement():
             headers={"Authorization": f"Bearer {viewer_token}"},
         )
         assert response.status_code == 200
+        assert client.get("/api/v1/appointments", headers={"Authorization": f"Bearer {viewer_token}"}).status_code == 403
         denied_write = client.post(
             "/api/v1/patients",
             headers={"Authorization": f"Bearer {viewer_token}"},

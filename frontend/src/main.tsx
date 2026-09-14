@@ -5,6 +5,7 @@ import "./clinical.css";
 import { createApiClient } from "./api/client";
 import { PatientForm } from "./features/patients/PatientForm";
 import type { Patient, PatientInput } from "./features/patients/types";
+import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
@@ -41,6 +42,7 @@ function App(){
   const [selected,setSelected]=useState<Summary|null>(null);
   const [error,setError]=useState("");
   const [creatingPatient,setCreatingPatient]=useState(false);
+  const [section,setSection]=useState<"patients"|"appointments">("patients");
 
   const api=createApiClient({baseUrl:API,getToken:()=>token,onUnauthorized:()=>{localStorage.removeItem("token");setToken("");}});
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
@@ -103,10 +105,10 @@ function App(){
   useEffect(()=>{if(token)void loadPatients("");},[token]);
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
-    <aside><div className="brand">OE</div><nav><a className="active">Pacientes</a><a>Agenda</a><a>Encuentros</a><a>Reportes</a></nav><button className="logout" onClick={()=>{localStorage.removeItem("token");setToken("");}}>Salir</button></aside>
-    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>Pacientes</h1></div><button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button></header>
+    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button>Encuentros</button><button>Reportes</button></nav><button className="logout" onClick={()=>{localStorage.removeItem("token");setToken("");}}>Salir</button></aside>
+    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":"Agenda"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
       {error&&<p className="error">{error}</p>}
-      {creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
+      {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:<>{creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
       <div className={selected?"workspace detail-open":"workspace"}><section className="card">
         <div className="toolbar"><input aria-label="Buscar pacientes" placeholder="Buscar por nombre o correo" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==="Enter"&&void loadPatients()}/><span>{patients.length} resultados</span></div>
         <table><thead><tr><th>Paciente</th><th>Fecha de nacimiento</th><th>Sexo</th><th>Correo</th></tr></thead><tbody>{patients.map(patient=><tr className="patient-row" key={patient.uuid} onClick={()=>void openPatient(patient)}><td><strong>{patient.last_name}, {patient.first_name}</strong><small>{patient.uuid.slice(0,8)}</small></td><td>{patient.date_of_birth}</td><td>{patient.sex}</td><td>{patient.email??"—"}</td></tr>)}</tbody></table>
@@ -130,7 +132,7 @@ function App(){
         {selected.encounters.length>0&&<form className="quick-add compact" onSubmit={addCharge}><input name="code" placeholder="Código CPT" required/><input name="description" placeholder="Descripción" required/><input name="unit_price" type="number" step="0.01" min="0.01" placeholder="Importe" required/><button>Agregar cargo</button></form>}
         {selected.charges.length>0&&<button className="wide-action" onClick={()=>void createClaim()}>Crear reclamación</button>}
         <form className="quick-add" onSubmit={addItem}><h3>Agregar al expediente</h3><select name="category"><option value="problem">Problema</option><option value="allergy">Alergia</option><option value="medication">Medicamento</option></select><input name="title" placeholder="Descripción" required/><button>Guardar</button></form>
-      </aside>}</div>
+      </aside>}</div></>}
     </main>
   </div>;
 }

@@ -1,6 +1,6 @@
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from app.import_legacy import clean, json_value, valid_dob
+from app.import_legacy import clean, event_datetime, json_value, valid_dob
 
 
 def test_legacy_value_normalization():
@@ -11,3 +11,5 @@ def test_legacy_value_normalization():
     assert json_value(datetime(2026, 9, 3, 12, 30)) == "2026-09-03T12:30:00"
     assert json_value(Decimal("12.30")) == "12.30"
     assert json_value(b"\x01\x02") == "0102"
+    assert event_datetime(date(2026, 9, 3), time(9, 30)) == datetime(2026, 9, 3, 9, 30)
+    assert event_datetime(date(2026, 9, 3), timedelta(hours=9, minutes=30)) == datetime(2026, 9, 3, 9, 30)

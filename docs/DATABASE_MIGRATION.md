@@ -22,7 +22,7 @@ mapping and not authorization to discard legacy columns.
 |---|---|---|
 | `users`, `users_secure`, `gacl_*` | User and policy models | Preserve usernames, account state, hash algorithm metadata and complete ACL graph; never flatten ACL to one role |
 | `patient_data`, `person*`, `contact*`, `addresses`, `phone_numbers`, `employer_data` | Patient/contact models | Core identity, address, language, race/ethnicity, gender, consent and portal fields are typed; the complete `patient_data` row is retained in `legacy_payload`. Person/contact relationships remain pending |
-| `openemr_postcalendar_events`, `patient_tracker*` | Appointment/flow models | Preserve recurrence, facility/provider/resource/status and timestamps |
+| `openemr_postcalendar_events`, `patient_tracker*` | Appointment/flow models | Appointments preserve core times, category, provider/facility/room, contacts, reminder intent, legacy status/recurrence and the complete source row; recurrence expansion and tracker event import remain |
 | `form_encounter`, `forms`, `form_*`, LBF tables | Encounter/form models | Polymorphic form registry and signatures require typed plus lossless payload storage |
 | `lists`, `immunizations`, `prescriptions`, `form_vitals` | Clinical models | Maintain codes, dates, verification/status, encounter links and provenance |
 | `procedure_*` | Order/specimen/result/report models | Preserve parent/line relationships and review state |

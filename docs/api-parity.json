@@ -18,5 +18,35 @@
     "replacement": "GET /api/v1/patients/{patient_uuid}",
     "test": "backend/tests/test_api.py::test_patient_flow",
     "status": "MIGRATED"
+  },
+  "GET /api/patient/:pid/appointment": {
+    "replacement": "GET /api/v1/appointments?patient_uuid={patient_uuid}",
+    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
+    "status": "MIGRATED"
+  },
+  "POST /api/patient/:pid/appointment": {
+    "replacement": "POST /api/v1/appointments",
+    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
+    "status": "MIGRATED"
+  },
+  "GET /api/appointment": {
+    "replacement": "GET /api/v1/appointments",
+    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
+    "status": "MIGRATED"
+  },
+  "GET /api/appointment/:eid": {
+    "replacement": "GET /api/v1/appointments/{appointment_uuid}",
+    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
+    "status": "MIGRATED"
+  },
+  "DELETE /api/patient/:pid/appointment/:eid": {
+    "replacement": "DELETE /api/v1/appointments/{appointment_uuid}",
+    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
+    "status": "MIGRATED"
+  },
+  "GET /api/patient/:pid/appointment/:eid": {
+    "replacement": "GET /api/v1/appointments/{appointment_uuid}",
+    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
+    "status": "MIGRATED"
   }
 }
