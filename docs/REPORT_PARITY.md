@@ -19,7 +19,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `clinical_reports` | PENDING |
 | `collections_report` | PENDING |
 | `cqm` | PENDING |
-| `criteria.tab` | PENDING |
+| `criteria.tab` | EMBEDDED / PENDING — criteria UI included by the legacy billing report, not an independently executable report; parity belongs to the unfinished billing-report builder |
 | `custom_report_range` | PENDING |
 | `daily_summary_report` | MIGRATED |
 | `destroyed_drugs_report` | MIGRATED |
@@ -48,15 +48,20 @@ snapshot, totals and CSV export. All entries remain visible through
 | `prescriptions_report` | MIGRATED |
 | `receipts_by_method_report` | PENDING |
 | `referrals_report` | MIGRATED — facility/date/status scoped referral-loop report with recipient organization, request/reply dates, patient identifiers and reason |
-| `report.script` | PENDING |
-| `report_results` | PENDING |
+| `report.script` | EMBEDDED / PENDING — shared JavaScript for the legacy billing criteria component, not an independently executable report; parity belongs to that parent workflow |
+| `report_results` | MIGRATED — date-filtered immutable run history with title, completion state, row count, actor, SHA-256 integrity checksum, snapshot totals and CSV |
 | `rwt_2026_report` | PENDING |
 | `sales_by_item` | MIGRATED |
 | `services_by_category` | MIGRATED — active service catalog, superbill categories, code-type/category filters, modifiers, units, related codes and multi-level prices |
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 24 migrated, 24 pending**.
+Current accounting: **48 cataloged, 25 migrated, 23 pending/embedded**.
+
+`criteria.tab` and `report.script` are included implementation assets rather
+than standalone routes. They remain explicitly accounted for, but must not be
+represented as runnable reports. Their date/text/radio/dropdown criteria
+behavior will be verified with the parent billing-report builder.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

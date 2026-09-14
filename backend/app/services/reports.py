@@ -6,13 +6,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, SecureMessage, ServiceCode, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -233,6 +233,14 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
         items=list(db.scalars(select(PatientEducationResource).order_by(PatientEducationResource.sequence,PatientEducationResource.name)))
         rows=[{"resource_uuid":item.uuid,"name":item.name,"url_template":item.url_template,"sequence":item.sequence,"active":item.active,"legacy_option_id":item.legacy_option_id} for item in items]
         return columns,rows,{"resources":len(rows),"active":sum(row["active"] for row in rows),"inactive":sum(not row["active"] for row in rows)}
+    if key == "report_results":
+        columns=["run_uuid","title","created_at","status","row_count","checksum","actor"]
+        query=select(ReportRun,User).join(User,User.id==ReportRun.actor_id).where(ReportRun.report_key!="report_results")
+        if start:query=query.where(ReportRun.created_at>=start)
+        if end:query=query.where(ReportRun.created_at<end)
+        records=db.execute(query.order_by(ReportRun.created_at.desc(),ReportRun.id.desc())).all()
+        rows=[{"run_uuid":item.uuid,"title":item.report_key.replace("_"," ").replace("."," ").title(),"created_at":value(item.created_at),"status":"complete","row_count":item.row_count,"checksum":item.checksum,"actor":actor.email} for item,actor in records]
+        return columns,rows,{"runs":len(rows),"rows_materialized":sum(row["row_count"] for row in rows),"integrity_hashes":sum(bool(row["checksum"]) for row in rows)}
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "chart_location_activity":
         patient_id=params.get("_patient_id")

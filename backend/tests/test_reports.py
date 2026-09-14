@@ -16,7 +16,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==24
+        assert sum(item["migrated"] for item in catalog.json())==25
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -31,6 +31,14 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         assert exported.status_code==200
         assert exported.headers["x-report-checksum"]==payload["checksum"]
         assert exported.text.splitlines()[0]=="appointment_uuid,starts_at,patient,status,provider,facility,room"
+        history=client.post("/api/v1/reports/report_results/runs",headers=headers,json={})
+        assert history.status_code==201
+        appointment_history=next(row for row in history.json()["rows"] if row["run_uuid"]==payload["uuid"])
+        assert appointment_history["status"]=="complete" and appointment_history["row_count"]==1
+        assert appointment_history["checksum"]==payload["checksum"]
+        assert all(row["title"]!="Report Results" for row in history.json()["rows"])
+        history_csv=client.get(f"/api/v1/report-runs/{history.json()['uuid']}/export.csv",headers=headers)
+        assert history_csv.status_code==200 and history_csv.text.splitlines()[0]=="run_uuid,title,created_at,status,row_count,checksum,actor"
         with SessionLocal() as db:
             db.add(User(email="report-reader@example.com",password_hash=password_hash.hash("report-password"),role="viewer",permissions=["patients:appt:read"]));db.commit()
         reader_token=client.post("/api/v1/auth/token",json={"email":"report-reader@example.com","password":"report-password"}).json()["access_token"]
