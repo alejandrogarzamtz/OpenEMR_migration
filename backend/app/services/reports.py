@@ -5,13 +5,13 @@ from fastapi import HTTPException
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Appointment, Charge, CommunicationDelivery, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User
+from ..models import Appointment, AuditEvent, AuditEventSeal, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -130,10 +130,43 @@ def inventory_activity(db: Session, user: User, params: dict) -> tuple[list[str]
     return columns,rows,totals
 
 
+def audit_integrity_report(db: Session, params: dict) -> tuple[list[str],list[dict],dict]:
+    start,end=bounds(params.get("date_from"),params.get("date_to"))
+    staff_query=select(AuditEvent)
+    identity_query=select(IdentityAuditEvent)
+    if start:
+        staff_query=staff_query.where(AuditEvent.occurred_at>=start);identity_query=identity_query.where(IdentityAuditEvent.occurred_at>=start)
+    if end:
+        staff_query=staff_query.where(AuditEvent.occurred_at<end);identity_query=identity_query.where(IdentityAuditEvent.occurred_at<end)
+    events=[("staff",item) for item in db.scalars(staff_query)]+[("identity",item) for item in db.scalars(identity_query)]
+    seals={(item.stream,item.event_id):item for item in db.scalars(select(AuditEventSeal))}
+    columns=["stream","event_id","occurred_at","actor","action","resource_type","resource_id","integrity","stored_checksum","computed_checksum"]
+    rows=[];tampered=0;unsealed=0
+    for stream,item in events:
+        seal=seals.get((stream,item.id));computed=audit_event_checksum(stream,item)
+        if seal and seal.checksum==computed: continue
+        integrity="tampered" if seal else "unsealed"
+        tampered+=integrity=="tampered";unsealed+=integrity=="unsealed"
+        actor=str(item.actor_id) if stream=="staff" else (f"user:{item.user_id}" if item.user_id else f"portal:{item.portal_account_id}")
+        rows.append({"stream":stream,"event_id":item.id,"occurred_at":value(item.occurred_at),"actor":actor,"action":item.action,"resource_type":item.resource_type,"resource_id":item.resource_id,"integrity":integrity,"stored_checksum":seal.checksum if seal else None,"computed_checksum":computed})
+    staff_ids=set(db.scalars(select(AuditEvent.id)));identity_ids=set(db.scalars(select(IdentityAuditEvent.id)))
+    deleted=0
+    for seal in seals.values():
+        sealed_at=seal.created_at if seal.created_at.tzinfo else seal.created_at.replace(tzinfo=timezone.utc)
+        if (start and sealed_at<start) or (end and sealed_at>=end): continue
+        existing=seal.event_id in (staff_ids if seal.stream=="staff" else identity_ids)
+        if existing: continue
+        deleted+=1
+        rows.append({"stream":seal.stream,"event_id":seal.event_id,"occurred_at":value(seal.created_at),"actor":None,"action":None,"resource_type":None,"resource_id":None,"integrity":"deleted","stored_checksum":seal.checksum,"computed_checksum":None})
+    rows.sort(key=lambda row:(row["occurred_at"],row["stream"],row["event_id"]))
+    return columns,rows,{"scanned":len(events),"tampered":tampered,"unsealed":unsealed,"deleted":deleted,"integrity_failures":len(rows)}
+
+
 def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[list[str],list[dict],dict]:
     if key not in REPORT_PATHS: raise HTTPException(status_code=404,detail="Report not found")
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
+    if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "patient_list":
         columns=["patient_uuid","last_name","first_name","date_of_birth","sex","email"]

@@ -1,7 +1,9 @@
 from datetime import date, datetime, timezone
+import hashlib
+import json
 from uuid import uuid4
 from decimal import Decimal
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -251,6 +253,7 @@ class PatientCustomFieldValue(Base):
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
+    __table_args__ = {"sqlite_autoincrement": True}
     id: Mapped[int] = mapped_column(primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -264,6 +267,7 @@ class IdentityAuditEvent(Base):
     """Audit trail for both workforce and patient-portal identities."""
 
     __tablename__ = "identity_audit_events"
+    __table_args__ = {"sqlite_autoincrement": True}
     id: Mapped[int] = mapped_column(primary_key=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
@@ -275,6 +279,44 @@ class IdentityAuditEvent(Base):
     resource_type: Mapped[str] = mapped_column(String(50))
     resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AuditEventSeal(Base):
+    """Independent checksum evidence retained even if its audit row is removed."""
+
+    __tablename__ = "audit_event_seals"
+    __table_args__ = (UniqueConstraint("stream", "event_id", name="uq_audit_event_seal_stream_event"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stream: Mapped[str] = mapped_column(String(20), index=True)
+    event_id: Mapped[int] = mapped_column(index=True)
+    checksum: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+def audit_time(value: datetime) -> str:
+    if value.tzinfo is None: value=value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def audit_event_checksum(stream: str, item: AuditEvent | IdentityAuditEvent) -> str:
+    if stream=="staff":
+        values={"occurred_at":audit_time(item.occurred_at),"actor_id":item.actor_id,"action":item.action,"resource_type":item.resource_type,"resource_id":item.resource_id,"detail":item.detail}
+    elif stream=="identity":
+        values={"occurred_at":audit_time(item.occurred_at),"identity_kind":item.identity_kind,"user_id":item.user_id,"portal_account_id":item.portal_account_id,"patient_id":item.patient_id,"action":item.action,"resource_type":item.resource_type,"resource_id":item.resource_id,"detail":item.detail}
+    else:
+        raise ValueError(f"Unsupported audit stream: {stream}")
+    canonical=json.dumps(values,sort_keys=True,separators=(",",":"),ensure_ascii=False)
+    return hashlib.sha3_512(canonical.encode()).hexdigest()
+
+
+def seal_audit_event(mapper, connection, target) -> None:
+    del mapper
+    stream="staff" if isinstance(target,AuditEvent) else "identity"
+    connection.execute(AuditEventSeal.__table__.insert().values(stream=stream,event_id=target.id,checksum=audit_event_checksum(stream,target)))
+
+
+event.listen(AuditEvent,"after_insert",seal_audit_event)
+event.listen(IdentityAuditEvent,"after_insert",seal_audit_event)
 
 
 class Facility(Base):

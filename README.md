@@ -115,6 +115,9 @@ end-to-end healthcare workflows:
   checksums and authenticated CSV exports, including PHI-minimized messaging
   history, communication-delivery operations and CVX-based immunization
   registry reporting, plus balance-reconciled inventory activity;
+- transactional SHA3-512 integrity seals for staff and portal audit streams,
+  with an administrator-only report that detects modified, unsealed or deleted
+  event records;
 - separate staff and patient identities, secure patient-bound message threads,
   forced replacement of temporary portal passwords, lockout protection,
   non-enumerating one-time portal recovery, encrypted patient TOTP MFA with
@@ -302,6 +305,8 @@ Start with these documents:
   REST, portal, and FHIR route with replacement and test status;
 - [Report Parity Ledger](docs/REPORT_PARITY.md) — every discovered legacy report
   and its individual migration status;
+- [Audit Integrity](docs/AUDIT_INTEGRITY.md) — checksum coverage, tamper
+  detection semantics, migration behavior, and trust boundaries;
 - [Printable Patient Reports](docs/PATIENT_REPORTS.md) — report scope, access,
   privacy controls and remaining parity work;
 - [Database Migration](docs/DATABASE_MIGRATION.md) — preservation, mapping,

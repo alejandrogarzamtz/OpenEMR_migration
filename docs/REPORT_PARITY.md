@@ -11,7 +11,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `amc_tracking` | PENDING |
 | `appointments_report` | MIGRATED |
 | `appt_encounter_report` | PENDING |
-| `audit_log_tamper_report` | PENDING |
+| `audit_log_tamper_report` | MIGRATED |
 | `background_services` | PENDING |
 | `cdr_log` | PENDING |
 | `chart_location_activity` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 15 migrated, 33 pending**.
+Current accounting: **48 cataloged, 16 migrated, 32 pending**.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,
@@ -80,3 +80,9 @@ distributions/consumption, purchases, both sides of transfers, adjustments and
 in-period destruction by product and warehouse. Every detail row enforces
 `ending = starting + activity`; warehouse filters and user warehouse scopes
 are applied before aggregation.
+
+`audit_log_tamper_report` verifies independent SHA3-512 seals for both staff
+and portal/identity audit streams. It reports modified rows, missing seals and
+sealed event IDs whose source row was deleted. Migration `0036` backfills
+existing modern audit rows; every subsequent ORM insert is sealed in the same
+database transaction. See `AUDIT_INTEGRITY.md` for the trust boundary.
