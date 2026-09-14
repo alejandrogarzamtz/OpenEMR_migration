@@ -154,6 +154,38 @@ class AppointmentOut(AppointmentBase):
     recurrence_group: str | None
 
 
+class PatientFlowEventCreate(BaseModel):
+    status: str = Field(pattern="^(scheduled|confirmed|arrived|checked-in|in-progress|fulfilled|cancelled|no-show|entered-in-error|pending)$")
+    room: str | None = Field(default=None, max_length=20)
+    encounter_uuid: str | None = None
+
+
+class PatientFlowEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    sequence: int
+    started_at: datetime
+    status: str
+    legacy_status: str | None
+    room: str | None
+    actor_name: str | None
+
+
+class PatientFlowEpisodeOut(BaseModel):
+    uuid: str
+    patient_uuid: str
+    patient_name: str
+    appointment_uuid: str | None
+    encounter_uuid: str | None
+    started_at: datetime
+    current_status: str | None
+    current_room: str | None
+    current_since: datetime | None
+    random_drug_test: bool | None
+    drug_screen_completed: bool
+    events: list[PatientFlowEventOut] = Field(default_factory=list)
+
+
 class EncounterCreate(BaseModel):
     patient_uuid: str
     appointment_uuid: str | None = None

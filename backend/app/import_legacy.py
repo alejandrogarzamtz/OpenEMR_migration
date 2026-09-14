@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, VitalSet
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Prescription, VitalSet
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
@@ -45,7 +45,7 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "appointments", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
+    names = ("patients", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
@@ -136,6 +136,53 @@ def run(source_url: str, commit: bool = False) -> dict:
             if not patient or not row["date"]: continue
             target.add(Encounter(legacy_encounter_id=row["encounter"], patient_id=patient.id, occurred_at=row["date"], type=clean(row["class_code"]) or "AMB", chief_complaint=clean(row["reason"])))
             stats["encounters"]["inserted"] += 1
+        target.flush()
+        trackers = legacy.execute(text("SELECT * FROM patient_tracker ORDER BY id"))
+        for row in trackers.mappings():
+            stats["patient_flow_episodes"]["source"] += 1
+            if target.scalar(select(PatientFlowEpisode.id).where(PatientFlowEpisode.legacy_tracker_id == row["id"])):
+                stats["patient_flow_episodes"]["existing"] += 1
+                continue
+            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            appointment = target.scalar(select(Appointment).where(Appointment.legacy_event_id == row["eid"])) if row["eid"] else None
+            encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"])) if row["encounter"] else None
+            if not patient:
+                stats["patient_flow_episodes"]["rejected"] += 1
+                continue
+            if not row["date"] and not row["apptdate"]:
+                stats["patient_flow_episodes"]["rejected"] += 1
+                continue
+            started_at = row["date"] or event_datetime(row["apptdate"], row["appttime"])
+            target.add(PatientFlowEpisode(
+                legacy_tracker_id=row["id"], patient_id=patient.id,
+                appointment_id=appointment.id if appointment else None,
+                encounter_id=encounter.id if encounter else None, started_at=started_at,
+                random_drug_test=None if row["random_drug_test"] is None else bool(row["random_drug_test"]),
+                drug_screen_completed=bool(row["drug_screen_completed"]),
+                legacy_payload={key: json_value(value) for key, value in row.items()},
+            ))
+            stats["patient_flow_episodes"]["inserted"] += 1
+        target.flush()
+        tracker_events = legacy.execute(text("SELECT * FROM patient_tracker_element ORDER BY pt_tracker_id,LENGTH(seq),seq"))
+        for row in tracker_events.mappings():
+            stats["patient_flow_events"]["source"] += 1
+            episode = target.scalar(select(PatientFlowEpisode).where(PatientFlowEpisode.legacy_tracker_id == row["pt_tracker_id"]))
+            sequence = int(row["seq"] or 0)
+            if not episode or sequence < 1:
+                stats["patient_flow_events"]["rejected"] += 1
+                continue
+            if target.scalar(select(PatientFlowEvent.id).where(PatientFlowEvent.episode_id == episode.id, PatientFlowEvent.sequence == sequence)):
+                stats["patient_flow_events"]["existing"] += 1
+                continue
+            legacy_status = clean(row["status"]) or "-"
+            target.add(PatientFlowEvent(
+                episode_id=episode.id, sequence=sequence,
+                started_at=row["start_datetime"] or episode.started_at,
+                status=APPOINTMENT_STATUS_MAP.get(legacy_status, "scheduled"),
+                legacy_status=legacy_status, room=clean(row["room"]), actor_name=clean(row["user"]),
+                legacy_payload={key: json_value(value) for key, value in row.items()},
+            ))
+            stats["patient_flow_events"]["inserted"] += 1
         target.flush()
         orders = legacy.execute(text("""SELECT po.procedure_order_id,po.patient_id,po.encounter_id,po.date_ordered,po.order_priority,po.order_status,po.patient_instructions,poc.procedure_code,poc.procedure_name FROM procedure_order po LEFT JOIN procedure_order_code poc ON poc.procedure_order_id=po.procedure_order_id AND poc.procedure_order_seq=(SELECT MIN(x.procedure_order_seq) FROM procedure_order_code x WHERE x.procedure_order_id=po.procedure_order_id) WHERE po.activity=1 ORDER BY po.procedure_order_id"""))
         for row in orders.mappings():

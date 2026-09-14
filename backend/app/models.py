@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import uuid4
 from decimal import Decimal
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -93,6 +93,36 @@ class Appointment(Base):
     recurrence_group: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     send_sms: Mapped[bool] = mapped_column(default=False)
     send_email: Mapped[bool] = mapped_column(default=False)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class PatientFlowEpisode(Base):
+    __tablename__ = "patient_flow_episodes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_tracker_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    appointment_id: Mapped[int | None] = mapped_column(ForeignKey("appointments.id"), nullable=True, index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    random_drug_test: Mapped[bool | None] = mapped_column(nullable=True)
+    drug_screen_completed: Mapped[bool] = mapped_column(default=False)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class PatientFlowEvent(Base):
+    __tablename__ = "patient_flow_events"
+    __table_args__ = (UniqueConstraint("episode_id", "sequence", name="uq_patient_flow_event_sequence"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    episode_id: Mapped[int] = mapped_column(ForeignKey("patient_flow_episodes.id"), index=True)
+    sequence: Mapped[int] = mapped_column()
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(30))
+    legacy_status: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    room: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    actor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 

@@ -202,6 +202,70 @@ def test_appointment_resources_filters_lifecycle_and_conflicts():
         assert invalid_reminder.status_code == 422
 
 
+def test_patient_flow_board_tracks_immutable_transitions_and_syncs_appointment():
+    with TestClient(app) as client:
+        token = client.post(
+            "/api/v1/auth/token",
+            json={"email": "admin@example.com", "password": "change-me-now"},
+        ).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        patient = client.post(
+            "/api/v1/patients",
+            headers=headers,
+            json={
+                "first_name": "Flow",
+                "last_name": "Patient",
+                "date_of_birth": "1985-04-03",
+                "sex": "unknown",
+            },
+        ).json()
+        appointment = client.post(
+            "/api/v1/appointments",
+            headers=headers,
+            json={
+                "patient_uuid": patient["uuid"],
+                "starts_at": "2026-11-01T15:00:00Z",
+                "ends_at": "2026-11-01T15:30:00Z",
+                "room": "Lobby",
+            },
+        ).json()
+
+        started = client.post(
+            f"/api/v1/appointments/{appointment['uuid']}/patient-flow",
+            headers=headers,
+            json={"status": "arrived", "room": "Lobby"},
+        )
+        assert started.status_code == 201
+        episode = started.json()
+        assert episode["current_status"] == "arrived"
+        assert episode["events"][0]["sequence"] == 1
+        assert client.post(
+            f"/api/v1/appointments/{appointment['uuid']}/patient-flow",
+            headers=headers,
+            json={"status": "arrived", "room": "Lobby"},
+        ).status_code == 409
+        assert client.post(
+            f"/api/v1/patient-flow/{episode['uuid']}/events",
+            headers=headers,
+            json={"status": "arrived", "room": "Lobby"},
+        ).status_code == 409
+
+        transitioned = client.post(
+            f"/api/v1/patient-flow/{episode['uuid']}/events",
+            headers=headers,
+            json={"status": "in-progress", "room": "Exam 2"},
+        )
+        assert transitioned.status_code == 201
+        assert [event["sequence"] for event in transitioned.json()["events"]] == [1, 2]
+        assert client.get(
+            f"/api/v1/appointments/{appointment['uuid']}", headers=headers
+        ).json()["room"] == "Exam 2"
+        board = client.get(
+            "/api/v1/patient-flow?status=in-progress", headers=headers
+        ).json()
+        assert [item["uuid"] for item in board] == [episode["uuid"]]
+
+
 def test_explicit_permission_and_inactive_account_enforcement():
     with TestClient(app) as client:
         with SessionLocal() as db:

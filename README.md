@@ -81,6 +81,8 @@ end-to-end healthcare workflows:
   lossless legacy-data preservation;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
+- a live patient-flow board with immutable arrival, room, and status history
+  synchronized with scheduled appointments;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
