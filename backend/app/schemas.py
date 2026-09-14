@@ -697,6 +697,35 @@ class ClaimOut(BaseModel):
     charges: list[ChargeOut]
     payments: list[PaymentOut]
     created_at: datetime
+    released_to_patient_at: datetime | None = None
+
+
+class PortalStatementOut(BaseModel):
+    currency: str
+    payments_available: bool
+    total_charges: Decimal
+    total_paid: Decimal
+    balance: Decimal
+    claims: list[ClaimOut]
+
+
+class PortalPaymentIntentCreate(BaseModel):
+    claim_uuid: str = Field(min_length=36, max_length=36)
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    payment_method_token: str = Field(min_length=8, max_length=2048)
+
+
+class PortalPaymentIntentOut(BaseModel):
+    uuid: str
+    claim_uuid: str
+    amount: Decimal
+    currency: str
+    provider: str
+    status: str
+    processor_reference: str | None
+    failure_code: str | None
+    created_at: datetime
+    completed_at: datetime | None
 
 
 class ImmunizationCreate(BaseModel):

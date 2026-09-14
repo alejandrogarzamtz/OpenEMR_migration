@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    deployment_environment: str = Field(default="development", pattern="^(development|test|production)$")
     database_url: str = "sqlite:///./openemr.db"
     jwt_secret: SecretStr = Field(min_length=32)
     access_token_minutes: int = 30
@@ -15,6 +16,9 @@ class Settings(BaseSettings):
     portal_results_enabled: bool = True
     portal_documents_enabled: bool = True
     portal_forms_enabled: bool = True
+    portal_billing_enabled: bool = True
+    payment_provider: str = Field(default="disabled", pattern="^(disabled|test)$")
+    billing_currency: str = Field(default="USD", min_length=3, max_length=3)
     public_web_url: str = "http://localhost:5173"
     jwt_issuer: str = "openemr-next"
     jwt_audience: str = "openemr-next-api"

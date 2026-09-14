@@ -16,6 +16,7 @@ services:
   api:
     build: ./backend
     environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+psycopg://openemr:openemr@db:5432/openemr
       JWT_SECRET: local-development-secret-change-me
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}
@@ -26,6 +27,9 @@ services:
       PORTAL_RESULTS_ENABLED: ${PORTAL_RESULTS_ENABLED:-true}
       PORTAL_DOCUMENTS_ENABLED: ${PORTAL_DOCUMENTS_ENABLED:-true}
       PORTAL_FORMS_ENABLED: ${PORTAL_FORMS_ENABLED:-true}
+      PORTAL_BILLING_ENABLED: ${PORTAL_BILLING_ENABLED:-true}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-disabled}
+      BILLING_CURRENCY: ${BILLING_CURRENCY:-USD}
       SECURE_COOKIES: ${SECURE_COOKIES:-false}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:5173}
       BOOTSTRAP_ADMIN_EMAIL: admin@example.com

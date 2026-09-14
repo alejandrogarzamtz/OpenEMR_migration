@@ -11,7 +11,7 @@
 | FHIR/SMART/OAuth | R4 US Core API, launches, scopes and bulk export | FastAPI standards module and OAuth authorization server | conformance implementation pending |
 | C-CDA/CCR/EHI | document generation, import, validation and patient export | background export/import jobs and validators | no external blocker for fixture tests |
 | Direct messaging | secure messaging and delivery log | internal patient portal messaging is implemented; Direct/HISP remains a separate adapter with immutable delivery state | internal isolation is tested; adapter implementation remains and HISP credentials block live verification |
-| Payments | Authorize.Net/Stripe/Omnipay | token-only payment adapter; webhook signatures; never store PAN | sandbox credentials block live charges |
+| Payments | Authorize.Net/Stripe/Omnipay | released statements and provider-neutral, idempotent token-only intent/accounting boundary exist; production adapter must add hosted tokenization, signed webhooks and reconciliation; never store token, PAN or CVV | disabled and deterministic test adapters are verified; a selected provider, sandbox credentials and webhook endpoint block live charges, while adapter/reconciliation engineering remains |
 | Google services | API client for configured workflows | optional OAuth client adapter | credentials block live verification |
 | RingCentral | messaging/telephony client | optional provider adapter | credentials block live verification |
 | Document/object storage | local/flysystem backends | encrypted local/S3-compatible storage abstraction | object-store credentials block remote verification |

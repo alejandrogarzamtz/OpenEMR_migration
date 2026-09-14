@@ -98,6 +98,8 @@ end-to-end healthcare workflows:
 - an isolated patient portal for owned appointments and explicitly released
   final laboratory results, documents, and signed visit forms, with revocation
   controls and identity-linked access auditing;
+- explicitly released patient statements and idempotent, token-only portal
+  payment intents that never record a payment without processor confirmation;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
@@ -192,6 +194,11 @@ provider; the internal outbox remains available without one for local
 development and integration testing. See [Patient Portal](docs/PATIENT_PORTAL.md)
 for the release and isolation contract.
 
+Online payments are disabled by default. OpenRM stores payment-intent state and
+processor references, but never card numbers, security codes, or payment-method
+tokens. A real charge requires a separately configured and verified processor
+adapter; see [Portal Billing and Payments](docs/PAYMENTS.md).
+
 Stop services without deleting the database volume:
 
 ```bash
@@ -263,6 +270,8 @@ Start with these documents:
   token lifecycle, revocation, recovery, and production controls;
 - [Patient Portal](docs/PATIENT_PORTAL.md) — record publication, patient
   isolation, auditing, and deployment controls;
+- [Portal Billing and Payments](docs/PAYMENTS.md) — statement release,
+  idempotency, token handling, accounting, and processor boundaries;
 - [Integrations](docs/INTEGRATIONS.md) — external systems, configuration,
   verification strategy, and credential-dependent blockers;
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged

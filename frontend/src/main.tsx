@@ -20,7 +20,7 @@ type LabOrder = { uuid:string; ordered_at:string; code:string; name:string; stat
 type ClinicalDocument = { uuid:string; name:string; mime_type:string; uploaded_at:string; released_to_patient_at?:string };
 type Coverage = { uuid:string; payer_name:string; policy_number:string; priority:string };
 type Charge = { uuid:string; encounter_uuid:string; code:string; description:string; unit_price:string; units:number };
-type Claim = { uuid:string; status:string; total:string; balance:string };
+type Claim = { uuid:string; status:string; total:string; balance:string; released_to_patient_at?:string };
 type Immunization = { uuid:string; vaccine_name:string; cvx_code:string; administered_at:string };
 type Vitals = { uuid:string; observed_at:string; systolic?:string; diastolic?:string; heart_rate?:string; oxygen_saturation?:string; bmi?:string };
 type Prescription = { uuid:string; drug_name:string; dosage_instructions:string; status:string };
@@ -116,6 +116,9 @@ function App(){
     await api(`/api/v1/patients/${selected.patient.uuid}/claims`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({encounter_uuid:selected.encounters[0].uuid,coverage_uuid:selected.coverages[0]?.uuid??null,charge_uuids:chargeUuids})});
     await openPatient(selected.patient);
   }
+  async function toggleClaimRelease(item:Claim){
+    if(!selected)return; await api(`/api/v1/patients/${selected.patient.uuid}/claims/${item.uuid}/release`,{method:item.released_to_patient_at?"DELETE":"POST"}); await openPatient(selected.patient);
+  }
   async function addClinicalForm(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); if(!selected?.encounters.length)return; const data=new FormData(event.currentTarget); const formType=String(data.get("form_type"));
     const content=formType==="soap"?{subjective:data.get("subjective"),objective:data.get("objective"),assessment:data.get("assessment"),plan:data.get("plan")}:{note:data.get("note")};
@@ -162,7 +165,7 @@ function App(){
         {selected.encounters.length>0&&<form className="quick-add compact" onSubmit={addClinicalForm}><select name="form_type"><option value="soap">SOAP</option><option value="ros">Revisión por sistemas</option><option value="physical_exam">Examen físico</option><option value="clinic_note">Nota clínica</option><option value="custom">Personalizado</option></select><input name="title" placeholder="Título" required/><textarea name="subjective" placeholder="Subjetivo / nota"/><textarea name="objective" placeholder="Objetivo"/><textarea name="assessment" placeholder="Evaluación"/><textarea name="plan" placeholder="Plan"/><textarea name="note" placeholder="Contenido de formulario no SOAP"/><button>Guardar borrador</button></form>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={addCoverage}><input name="payer_name" placeholder="Aseguradora" required/><input name="policy_number" placeholder="Póliza" required/><button>Agregar cobertura</button></form>
-        <section className="summary-group"><h3>Facturación<span>{selected.claims.length}</span></h3>{selected.claims.map(claim=><article key={claim.uuid}><strong>${claim.total} · {claim.status}</strong><small>Saldo ${claim.balance}</small></article>)}{selected.charges.map(charge=><article key={charge.uuid}><strong>{charge.code} · ${charge.unit_price}</strong><small>Cargo sin reclamar</small></article>)}</section>
+        <section className="summary-group"><h3>Facturación<span>{selected.claims.length}</span></h3>{selected.claims.map(claim=><article key={claim.uuid}><strong>${claim.total} · {claim.status}</strong><small>Saldo ${claim.balance} · {claim.released_to_patient_at?"Publicado en portal":"Privado"}</small><button className="text-button" onClick={()=>void toggleClaimRelease(claim)}>{claim.released_to_patient_at?"Retirar del portal":"Publicar estado de cuenta"}</button></article>)}{selected.charges.map(charge=><article key={charge.uuid}><strong>{charge.code} · ${charge.unit_price}</strong><small>Cargo sin reclamar</small></article>)}</section>
         {selected.encounters.length>0&&<form className="quick-add compact" onSubmit={addCharge}><input name="code" placeholder="Código CPT" required/><input name="description" placeholder="Descripción" required/><input name="unit_price" type="number" step="0.01" min="0.01" placeholder="Importe" required/><button>Agregar cargo</button></form>}
         {selected.charges.length>0&&<button className="wide-action" onClick={()=>void createClaim()}>Crear reclamación</button>}
         <form className="quick-add" onSubmit={addItem}><h3>Agregar al expediente</h3><select name="category"><option value="problem">Problema</option><option value="allergy">Alergia</option><option value="medication">Medicamento</option></select><input name="title" placeholder="Descripción" required/><button>Guardar</button></form>

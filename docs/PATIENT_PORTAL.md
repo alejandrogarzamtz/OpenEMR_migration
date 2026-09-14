@@ -29,6 +29,10 @@ Patient routes are under `/api/v1/portal`: `appointments`, `results`,
 are attached to the corresponding patient, laboratory result, or laboratory
 order resources. The OpenAPI document at `/docs` is the executable contract.
 
+The `billing/statement` route contains only claims explicitly released by
+staff. Payment intent history is patient- and portal-account-bound. The payment
+contract is detailed in [Portal Billing and Payments](PAYMENTS.md).
+
 ## Deployment controls
 
 Operators can disable portal areas independently with:
@@ -38,6 +42,7 @@ PORTAL_APPOINTMENTS_ENABLED
 PORTAL_RESULTS_ENABLED
 PORTAL_DOCUMENTS_ENABLED
 PORTAL_FORMS_ENABLED
+PORTAL_BILLING_ENABLED
 ```
 
 All default to `true` in the development environment. Disabling an area makes
@@ -45,8 +50,8 @@ its portal route unavailable; it does not delete data or change release state.
 
 ## Current limitations
 
-Payments, portal password recovery, portal MFA, authorized representatives and
-proxy access, patient-entered questionnaires, configurable delayed-result
+Live payment-processor adapters, portal password recovery, portal MFA,
+authorized representatives and proxy access, patient-entered questionnaires, configurable delayed-result
 release, bulk document archives, and notification preferences remain parity
 work. The portal must not be described as a complete OpenEMR replacement until
 those workflows and their organization-specific policies are verified.

@@ -564,6 +564,8 @@ class Claim(Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    released_to_patient_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class Charge(Base):
@@ -590,6 +592,27 @@ class ClaimPayment(Base):
     method: Mapped[str] = mapped_column(String(50))
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PaymentIntent(Base):
+    __tablename__ = "payment_intents"
+    __table_args__ = (UniqueConstraint("portal_account_id", "idempotency_key", name="uq_payment_intent_portal_idempotency"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    portal_account_id: Mapped[int] = mapped_column(ForeignKey("portal_accounts.id"), index=True)
+    claim_id: Mapped[int] = mapped_column(ForeignKey("claims.id"), index=True)
+    claim_payment_id: Mapped[int | None] = mapped_column(ForeignKey("claim_payments.id"), nullable=True, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3))
+    provider: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    processor_reference: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    failure_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Immunization(Base):

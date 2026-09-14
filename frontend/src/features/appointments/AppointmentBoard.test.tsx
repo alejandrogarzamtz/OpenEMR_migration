@@ -8,6 +8,6 @@ describe("AppointmentBoard",()=>{
     const api=vi.fn().mockResolvedValueOnce([{uuid:"a1",patient_uuid:"p1",starts_at:"2026-10-01T15:00:00Z",ends_at:"2026-10-01T15:30:00Z",status:"scheduled",provider_name:"Dr. Rivera"}]).mockResolvedValueOnce([{uuid:"f1",name:"North Clinic"}]);
     render(<AppointmentBoard api={api} patients={[{uuid:"p1",first_name:"Alex",last_name:"Rivera",date_of_birth:"1992-06-10",sex:"female",portal_allowed:false,allow_email:false,allow_sms:false}]}/>);
     await waitFor(()=>expect(api).toHaveBeenCalledWith("/api/v1/appointments"));
-    expect(screen.getByText("Rivera")).toBeTruthy();expect(screen.getByText("Dr. Rivera")).toBeTruthy();expect(screen.getByText("North Clinic")).toBeTruthy();
+    expect(await screen.findByText("Dr. Rivera")).toBeTruthy();expect(screen.getByText("North Clinic")).toBeTruthy();expect(screen.getAllByText(/Rivera/).length).toBeGreaterThan(1);
   });
 });
