@@ -41,16 +41,25 @@ def main() -> None:
         if result != {key: expected[name][key] for key in ("fields", "sha256")}:
             raise SystemExit(f"{name} differs from versioned legacy contract: expected={expected[name]}; actual={result}")
     source_mode = "versioned-snapshot"
-    if legacy.exists():
-        soap_sql = (legacy / "soap" / "table.sql").read_text()
-        ros_sql = (legacy / "ros" / "table.sql").read_text()
-        physical_php = (legacy / "physical_exam" / "lines.php").read_text()
+    source_locations = {name: legacy / name / "table.sql" for name in STRUCTURED_FORMS if name != "dictation"}
+    source_locations["dictation"] = legacy_root / "sql" / "database.sql"
+    required_sources = [
+        legacy / "soap" / "table.sql",
+        legacy / "ros" / "table.sql",
+        legacy / "physical_exam" / "lines.php",
+        *source_locations.values(),
+    ]
+    # The preserved legacy tree is intentionally gitignored and may be absent or
+    # only partially restored in CI. The committed contract remains authoritative
+    # there; perform the additional source comparison only for a complete tree.
+    if all(path.is_file() for path in required_sources):
+        soap_sql = required_sources[0].read_text()
+        ros_sql = required_sources[1].read_text()
+        physical_php = required_sources[2].read_text()
         same("SOAP", set(re.findall(r"`(subjective|objective|assessment|plan)`\s+text", soap_sql)), targets["soap"])
         same("ROS", set(re.findall(r"`([a-z0-9_]+)`\s+varchar\(3\)", ros_sql)), targets["ros"])
         same("physical exam", set(re.findall(r"'([A-Z][A-Z0-9]{2,7})'\s*=>\s*xl\(", physical_php)), targets["physical_exam"])
         common = {"id", "date", "pid", "user", "groupname", "authorized", "activity", "encounter"}
-        source_locations = {name: legacy / name / "table.sql" for name in STRUCTURED_FORMS if name != "dictation"}
-        source_locations["dictation"] = legacy_root / "sql" / "database.sql"
         for name, path in source_locations.items():
             sql = path.read_text()
             table = re.search(rf"CREATE TABLE(?: IF NOT EXISTS)?\s+`?form_{name}`?\s*\((.*?)\)\s*ENGINE", sql, re.I | re.S)
