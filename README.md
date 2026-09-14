@@ -87,6 +87,8 @@ end-to-end healthcare workflows:
   dispensing, stock movements, destruction records, and lossless legacy import;
 - administration of facilities, practitioners and warehouses, with explicit
   facility/warehouse assignments enforced by scheduling and inventory APIs;
+- a permission-aware report catalog with reproducible stored runs, totals,
+  checksums and authenticated CSV exports for migrated report families;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
@@ -95,8 +97,8 @@ end-to-end healthcare workflows:
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
-forms, patient relationships, recurrence rules, portal workflows, reports,
-inventory, billing exchanges, FHIR resources, integrations, administrative
+forms, patient relationships, recurrence rules, portal workflows, remaining
+reports, advanced inventory, billing exchanges, FHIR resources, integrations, administrative
 tools, and background services are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
@@ -223,6 +225,8 @@ Start with these documents:
   architectural risks in the reference application;
 - [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md) — every discovered legacy
   REST, portal, and FHIR route with replacement and test status;
+- [Report Parity Ledger](docs/REPORT_PARITY.md) — every discovered legacy report
+  and its individual migration status;
 - [Database Migration](docs/DATABASE_MIGRATION.md) — preservation, mapping,
   reconciliation, and cutover rules;
 - [Integrations](docs/INTEGRATIONS.md) — external systems, configuration,

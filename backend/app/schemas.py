@@ -244,6 +244,41 @@ class UserFacilityAccessOut(UserFacilityAccessCreate):
     warehouse_name: str | None
 
 
+class ReportCatalogItem(BaseModel):
+    key: str
+    title: str
+    category: str
+    permission: str
+    legacy_path: str
+    migrated: bool
+
+
+class ReportRunCreate(BaseModel):
+    date_from: date | None = None
+    date_to: date | None = None
+    facility_uuid: str | None = None
+    warehouse_code: str | None = Field(default=None, max_length=31)
+    status: str | None = Field(default=None, max_length=31)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_from and self.date_to and self.date_to < self.date_from:
+            raise ValueError("date_to must be on or after date_from")
+        return self
+
+
+class ReportRunOut(BaseModel):
+    uuid: str
+    report_key: str
+    parameters: dict
+    columns: list[str]
+    rows: list[dict]
+    totals: dict
+    row_count: int
+    checksum: str
+    created_at: datetime
+
+
 class PatientFlowEventCreate(BaseModel):
     status: str = Field(pattern="^(scheduled|confirmed|arrived|checked-in|in-progress|fulfilled|cancelled|no-show|entered-in-error|pending)$")
     room: str | None = Field(default=None, max_length=20)

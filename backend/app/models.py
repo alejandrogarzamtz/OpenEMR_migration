@@ -267,6 +267,21 @@ class InventoryTransaction(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class ReportRun(Base):
+    __tablename__ = "report_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    report_key: Mapped[str] = mapped_column(String(100), index=True)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    columns: Mapped[list] = mapped_column(JSON, default=list)
+    rows: Mapped[list] = mapped_column(JSON, default=list)
+    totals: Mapped[dict] = mapped_column(JSON, default=dict)
+    row_count: Mapped[int] = mapped_column(default=0)
+    checksum: Mapped[str] = mapped_column(String(64))
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class Encounter(Base):
     __tablename__ = "encounters"
     id: Mapped[int] = mapped_column(primary_key=True)
