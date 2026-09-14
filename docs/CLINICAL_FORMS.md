@@ -29,7 +29,11 @@ Run the source-contract verifier after changing a definition:
 python3 scripts/verify_clinical_form_definitions.py
 ```
 
-The verifier reads the preserved `form_soap` and `form_ros` SQL plus the
-physical-exam line registry, compares exact identifier sets, and emits stable
-counts and SHA-256 evidence. Specialized editors for the remaining installed
-form families, dictation, and form-specific clinical rules remain parity work.
+The verifier always checks the modern contract against the versioned legacy
+snapshot in `docs/legacy-clinical-form-contract.json`. When the ignored local
+`openemr-legacy/` reference tree is available, it additionally reads the
+preserved `form_soap` and `form_ros` SQL plus the physical-exam line registry
+and compares their exact identifier sets. It emits stable counts, SHA-256
+evidence, and the verification source. Specialized editors for the remaining
+installed form families, dictation, and form-specific clinical rules remain
+parity work.
