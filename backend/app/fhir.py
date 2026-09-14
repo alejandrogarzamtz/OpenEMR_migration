@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Practitioner, Prescription, User, VitalSet
-from .security import clinical_user
+from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Practitioner, Prescription, User, VitalSet
+from .security import appointment_user, clinical_user
+from .services.access import facility_scope, require_facility_access
 from .services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/fhir", tags=["FHIR R4"])
@@ -28,14 +29,18 @@ def patient_or_404(db: Session, patient_uuid: str) -> Patient:
         raise
 
 
-def audit(db: Session, user: User, resource_type: str, patient_uuid: str):
-    db.add(AuditEvent(actor_id=user.id, action="fhir-read", resource_type=resource_type, resource_id=patient_uuid)); db.commit()
+def audit(db: Session, user: User, resource_type: str, resource_id: str | None = None, *, search: bool = False):
+    db.add(AuditEvent(actor_id=user.id, action="fhir-search" if search else "fhir-read", resource_type=resource_type, resource_id=resource_id)); db.commit()
 
 
 @router.get("/metadata")
 def metadata():
-    clinical_plan_resources=[{"type":name,"interaction":[{"code":"read"},{"code":"search-type"}],"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("CarePlan","Goal","CareTeam")]
-    return {"resourceType": "CapabilityStatement", "status": "active", "date": "2026-09-14", "kind": "instance", "fhirVersion": "4.0.1", "format": ["json"], "rest": [{"mode": "server", "security": {"cors": True, "service": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/restful-security-service", "code": "OAuth"}]}]}, "resource": [{"type": "Patient", "interaction": [{"code": "read"}, {"code": "search-type"}]}, {"type": "Condition", "interaction": [{"code": "search-type"}]}, {"type": "AllergyIntolerance", "interaction": [{"code": "search-type"}]}, {"type": "MedicationStatement", "interaction": [{"code": "search-type"}]}, {"type": "Observation", "interaction": [{"code": "search-type"}]}, {"type": "Immunization", "interaction": [{"code": "search-type"}]}, {"type": "MedicationRequest", "interaction": [{"code": "search-type"}]},*clinical_plan_resources]}]}
+    read_search=[{"code":"read"},{"code":"search-type"}]
+    patient_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"}]} for name in ("Condition","AllergyIntolerance","MedicationStatement","Observation","Immunization","MedicationRequest")]
+    status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
+    directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
+    resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
+    return {"resourceType":"CapabilityStatement","status":"active","date":"2026-09-14","kind":"instance","fhirVersion":"4.0.1","format":["json"],"rest":[{"mode":"server","security":{"cors":True,"service":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/restful-security-service","code":"OAuth"}]}]},"resource":resources}]}
 
 
 @router.get("/Patient/{patient_uuid}")
@@ -64,42 +69,52 @@ def clinical_resources(db: Session, patient: Patient, category: str) -> list[dic
 
 @router.get("/Condition")
 def conditions(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    item=patient_or_404(db,patient); resources=clinical_resources(db,item,"problem"); audit(db,user,"Condition",item.uuid); return bundle("Condition",resources)
+    item=patient_or_404(db,patient_reference(patient)); resources=clinical_resources(db,item,"problem"); audit(db,user,"Condition",item.uuid,search=True); return bundle("Condition",resources)
 
 
 @router.get("/AllergyIntolerance")
 def allergies(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    item=patient_or_404(db,patient); resources=clinical_resources(db,item,"allergy"); audit(db,user,"AllergyIntolerance",item.uuid); return bundle("AllergyIntolerance",resources)
+    item=patient_or_404(db,patient_reference(patient)); resources=clinical_resources(db,item,"allergy"); audit(db,user,"AllergyIntolerance",item.uuid,search=True); return bundle("AllergyIntolerance",resources)
 
 
 @router.get("/MedicationStatement")
 def medications(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    item=patient_or_404(db,patient); resources=clinical_resources(db,item,"medication"); audit(db,user,"MedicationStatement",item.uuid); return bundle("MedicationStatement",resources)
+    item=patient_or_404(db,patient_reference(patient)); resources=clinical_resources(db,item,"medication"); audit(db,user,"MedicationStatement",item.uuid,search=True); return bundle("MedicationStatement",resources)
+
+
+VITAL_CODES=(("systolic","8480-6","Systolic blood pressure","mm[Hg]"),("diastolic","8462-4","Diastolic blood pressure","mm[Hg]"),("weight_kg","29463-7","Body weight","kg"),("height_cm","8302-2","Body height","cm"),("temperature_c","8310-5","Body temperature","Cel"),("heart_rate","8867-4","Heart rate","/min"),("respiratory_rate","9279-1","Respiratory rate","/min"),("oxygen_saturation","2708-6","Oxygen saturation","%"),("bmi","39156-5","Body mass index","kg/m2"))
+
+
+def lab_observation_resource(result: LabResult, patient_uuid: str) -> dict:
+    value={"valueQuantity":{"value":float(result.value),"unit":result.unit}} if result.value.replace(".","",1).isdigit() else {"valueString":result.value}
+    return {"resourceType":"Observation","id":result.uuid,"status":result.status,"category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"laboratory"}]}],"code":{"coding":[{"system":"http://loinc.org","code":result.code,"display":result.name}],"text":result.name},"subject":{"reference":f"Patient/{patient_uuid}"},"effectiveDateTime":result.observed_at.isoformat(),**value,**({"referenceRange":[{"text":result.reference_range}]} if result.reference_range else {})}
+
+
+def vital_observation_resource(vital: VitalSet, patient_uuid: str, field: str, code: str, name: str, unit: str) -> dict:
+    return {"resourceType":"Observation","id":f"{vital.uuid}-{field}","status":"final","category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"vital-signs"}]}],"code":{"coding":[{"system":"http://loinc.org","code":code,"display":name}]},"subject":{"reference":f"Patient/{patient_uuid}"},"effectiveDateTime":vital.observed_at.isoformat(),"valueQuantity":{"value":float(getattr(vital,field)),"unit":unit}}
 
 
 @router.get("/Observation")
 def observations(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    item=patient_or_404(db,patient); rows=db.execute(select(LabResult).join(LabOrder).where(LabOrder.patient_id==item.id).order_by(LabResult.observed_at.desc())).scalars().all(); resources=[]
+    item=patient_or_404(db,patient_reference(patient)); rows=db.execute(select(LabResult).join(LabOrder).where(LabOrder.patient_id==item.id).order_by(LabResult.observed_at.desc())).scalars().all(); resources=[]
     for result in rows:
-        value={"valueQuantity":{"value":float(result.value),"unit":result.unit}} if result.value.replace(".","",1).isdigit() else {"valueString":result.value}
-        resources.append({"resourceType":"Observation","id":result.uuid,"status":result.status,"category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"laboratory"}]}],"code":{"coding":[{"system":"http://loinc.org","code":result.code,"display":result.name}],"text":result.name},"subject":{"reference":f"Patient/{item.uuid}"},"effectiveDateTime":result.observed_at.isoformat(),**value,**({"referenceRange":[{"text":result.reference_range}]} if result.reference_range else {})})
+        resources.append(lab_observation_resource(result,item.uuid))
     vitals=db.scalars(select(VitalSet).where(VitalSet.patient_id==item.id)).all()
-    vital_codes=(("systolic","8480-6","Systolic blood pressure","mm[Hg]"),("diastolic","8462-4","Diastolic blood pressure","mm[Hg]"),("weight_kg","29463-7","Body weight","kg"),("height_cm","8302-2","Body height","cm"),("temperature_c","8310-5","Body temperature","Cel"),("heart_rate","8867-4","Heart rate","/min"),("respiratory_rate","9279-1","Respiratory rate","/min"),("oxygen_saturation","2708-6","Oxygen saturation","%"),("bmi","39156-5","Body mass index","kg/m2"))
     for vital in vitals:
-        for field,code,name,unit in vital_codes:
+        for field,code,name,unit in VITAL_CODES:
             value=getattr(vital,field)
-            if value is not None: resources.append({"resourceType":"Observation","id":f"{vital.uuid}-{field}","status":"final","category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"vital-signs"}]}],"code":{"coding":[{"system":"http://loinc.org","code":code,"display":name}]},"subject":{"reference":f"Patient/{item.uuid}"},"effectiveDateTime":vital.observed_at.isoformat(),"valueQuantity":{"value":float(value),"unit":unit}})
-    audit(db,user,"Observation",item.uuid); return bundle("Observation",resources)
+            if value is not None: resources.append(vital_observation_resource(vital,item.uuid,field,code,name,unit))
+    audit(db,user,"Observation",item.uuid,search=True); return bundle("Observation",resources)
 
 
 @router.get("/Immunization")
 def fhir_immunizations(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    item=patient_or_404(db,patient); rows=db.scalars(select(Immunization).where(Immunization.patient_id==item.id)).all(); resources=[{"resourceType":"Immunization","id":x.uuid,"status":x.status,"vaccineCode":{"coding":[{"system":"http://hl7.org/fhir/sid/cvx","code":x.cvx_code,"display":x.vaccine_name}]},"patient":{"reference":f"Patient/{item.uuid}"},"occurrenceDateTime":x.administered_at.isoformat(),**({"lotNumber":x.lot_number} if x.lot_number else {})} for x in rows]; audit(db,user,"Immunization",item.uuid); return bundle("Immunization",resources)
+    item=patient_or_404(db,patient_reference(patient)); rows=db.scalars(select(Immunization).where(Immunization.patient_id==item.id)).all(); resources=[immunization_resource(x,item.uuid) for x in rows]; audit(db,user,"Immunization",item.uuid,search=True); return bundle("Immunization",resources)
 
 
 @router.get("/MedicationRequest")
 def medication_requests(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    item=patient_or_404(db,patient); rows=db.scalars(select(Prescription).where(Prescription.patient_id==item.id)).all(); resources=[{"resourceType":"MedicationRequest","id":x.uuid,"status":x.status,"intent":"order","medicationCodeableConcept":{"coding":[{"system":"http://www.nlm.nih.gov/research/umls/rxnorm","code":x.rxnorm_code,"display":x.drug_name}] if x.rxnorm_code else [],"text":x.drug_name},"subject":{"reference":f"Patient/{item.uuid}"},"authoredOn":x.prescribed_at.isoformat(),"dosageInstruction":[{"text":x.dosage_instructions}],"dispenseRequest":{"numberOfRepeatsAllowed":x.refills,**({"quantity":{"value":float(x.quantity)}} if x.quantity and x.quantity.replace(".","",1).isdigit() else {})},"substitution":{"allowedBoolean":x.substitutions_allowed}} for x in rows]; audit(db,user,"MedicationRequest",item.uuid); return bundle("MedicationRequest",resources)
+    item=patient_or_404(db,patient_reference(patient)); rows=db.scalars(select(Prescription).where(Prescription.patient_id==item.id)).all(); resources=[medication_request_resource(x,item.uuid) for x in rows]; audit(db,user,"MedicationRequest",item.uuid,search=True); return bundle("MedicationRequest",resources)
 
 
 FHIR_STATUS={"draft":"draft","active":"active","on-hold":"on-hold","inactive":"revoked","revoked":"revoked","cancelled":"revoked","canceled":"revoked","completed":"completed","entered-in-error":"entered-in-error","unknown":"unknown"}
@@ -167,7 +182,7 @@ def care_team_resource(db:Session,team:CareTeam,patient_uuid:str)->dict:
 
 @router.get("/CarePlan")
 def search_care_plans(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
-    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CarePlan).where(CarePlan.patient_id==owner.id,or_(CarePlan.plan_type!="goal",CarePlan.plan_type.is_(None))).order_by(CarePlan.recorded_at.desc())));resources=[care_plan_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["status"]==status];audit(db,user,"CarePlan",owner.uuid);return bundle("CarePlan",resources)
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CarePlan).where(CarePlan.patient_id==owner.id,or_(CarePlan.plan_type!="goal",CarePlan.plan_type.is_(None))).order_by(CarePlan.recorded_at.desc())));resources=[care_plan_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["status"]==status];audit(db,user,"CarePlan",owner.uuid,search=True);return bundle("CarePlan",resources)
 
 
 @router.get("/CarePlan/{resource_uuid}")
@@ -179,7 +194,7 @@ def read_care_plan(resource_uuid:str,db:Session=Depends(get_db),user:User=Depend
 
 @router.get("/Goal")
 def search_goals(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
-    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CarePlan).where(CarePlan.patient_id==owner.id,CarePlan.plan_type=="goal").order_by(CarePlan.recorded_at.desc())));resources=[goal_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["lifecycleStatus"]==status];audit(db,user,"Goal",owner.uuid);return bundle("Goal",resources)
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CarePlan).where(CarePlan.patient_id==owner.id,CarePlan.plan_type=="goal").order_by(CarePlan.recorded_at.desc())));resources=[goal_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["lifecycleStatus"]==status];audit(db,user,"Goal",owner.uuid,search=True);return bundle("Goal",resources)
 
 
 @router.get("/Goal/{resource_uuid}")
@@ -191,7 +206,7 @@ def read_goal(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(cli
 
 @router.get("/CareTeam")
 def search_care_teams(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
-    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CareTeam).where(CareTeam.patient_id==owner.id).order_by(CareTeam.created_at.desc())));resources=[care_team_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["status"]==status];audit(db,user,"CareTeam",owner.uuid);return bundle("CareTeam",resources)
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CareTeam).where(CareTeam.patient_id==owner.id).order_by(CareTeam.created_at.desc())));resources=[care_team_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["status"]==status];audit(db,user,"CareTeam",owner.uuid,search=True);return bundle("CareTeam",resources)
 
 
 @router.get("/CareTeam/{resource_uuid}")
@@ -199,3 +214,176 @@ def read_care_team(resource_uuid:str,db:Session=Depends(get_db),user:User=Depend
     row=db.scalar(select(CareTeam).where(CareTeam.uuid==resource_uuid));
     if not row:fhir_not_found("CareTeam")
     owner=db.get(Patient,row.patient_id);result=care_team_resource(db,row,owner.uuid);audit(db,user,"CareTeam",row.uuid);return result
+
+
+def immunization_resource(item: Immunization, patient_uuid: str) -> dict:
+    return {"resourceType":"Immunization","id":item.uuid,"status":item.status,"vaccineCode":{"coding":[{"system":"http://hl7.org/fhir/sid/cvx","code":item.cvx_code,"display":item.vaccine_name}]},"patient":{"reference":f"Patient/{patient_uuid}"},"occurrenceDateTime":item.administered_at.isoformat(),**({"lotNumber":item.lot_number} if item.lot_number else {}),**({"manufacturer":{"display":item.manufacturer}} if item.manufacturer else {}),**({"note":[{"text":item.note}]} if item.note else {})}
+
+
+def medication_request_resource(item: Prescription, patient_uuid: str) -> dict:
+    return {"resourceType":"MedicationRequest","id":item.uuid,"status":item.status,"intent":"order","medicationCodeableConcept":{"coding":[{"system":"http://www.nlm.nih.gov/research/umls/rxnorm","code":item.rxnorm_code,"display":item.drug_name}] if item.rxnorm_code else [],"text":item.drug_name},"subject":{"reference":f"Patient/{patient_uuid}"},"authoredOn":item.prescribed_at.isoformat(),"dosageInstruction":[{"text":item.dosage_instructions}],"dispenseRequest":{"numberOfRepeatsAllowed":item.refills,**({"quantity":{"value":float(item.quantity)}} if item.quantity and item.quantity.replace(".","",1).isdigit() else {})},"substitution":{"allowedBoolean":item.substitutions_allowed}}
+
+
+def read_clinical_resource(resource_uuid: str, category: str, resource_type: str, db: Session, user: User):
+    item=db.scalar(select(ClinicalItem).where(ClinicalItem.uuid==resource_uuid,ClinicalItem.category==category))
+    if not item:fhir_not_found(resource_type)
+    patient=db.get(Patient,item.patient_id);resource=next(value for value in clinical_resources(db,patient,category) if value["id"]==item.uuid)
+    audit(db,user,resource_type,item.uuid);return resource
+
+
+@router.get("/Condition/{resource_uuid}")
+def read_condition(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    return read_clinical_resource(resource_uuid,"problem","Condition",db,user)
+
+
+@router.get("/AllergyIntolerance/{resource_uuid}")
+def read_allergy(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    return read_clinical_resource(resource_uuid,"allergy","AllergyIntolerance",db,user)
+
+
+@router.get("/MedicationStatement/{resource_uuid}")
+def read_medication_statement(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    return read_clinical_resource(resource_uuid,"medication","MedicationStatement",db,user)
+
+
+@router.get("/Immunization/{resource_uuid}")
+def read_immunization(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(Immunization).where(Immunization.uuid==resource_uuid))
+    if not row:fhir_not_found("Immunization")
+    patient=db.get(Patient,row.patient_id);resource=immunization_resource(row,patient.uuid);audit(db,user,"Immunization",row.uuid);return resource
+
+
+@router.get("/MedicationRequest/{resource_uuid}")
+def read_medication_request(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(Prescription).where(Prescription.uuid==resource_uuid))
+    if not row:fhir_not_found("MedicationRequest")
+    patient=db.get(Patient,row.patient_id);resource=medication_request_resource(row,patient.uuid);audit(db,user,"MedicationRequest",row.uuid);return resource
+
+
+@router.get("/Observation/{resource_id}")
+def read_observation(resource_id:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    result=db.execute(select(LabResult,Patient.uuid).join(LabOrder,LabResult.order_id==LabOrder.id).join(Patient,LabOrder.patient_id==Patient.id).where(LabResult.uuid==resource_id)).first()
+    if result:
+        row,patient_uuid=result;resource=lab_observation_resource(row,patient_uuid);audit(db,user,"Observation",resource_id);return resource
+    for field,code,name,unit in VITAL_CODES:
+        suffix=f"-{field}"
+        if resource_id.endswith(suffix):
+            vital_uuid=resource_id[:-len(suffix)];vital_row=db.execute(select(VitalSet,Patient.uuid).join(Patient,VitalSet.patient_id==Patient.id).where(VitalSet.uuid==vital_uuid)).first()
+            if vital_row and getattr(vital_row[0],field) is not None:
+                resource=vital_observation_resource(vital_row[0],vital_row[1],field,code,name,unit);audit(db,user,"Observation",resource_id);return resource
+    fhir_not_found("Observation")
+
+
+APPOINTMENT_STATUS={"scheduled":"booked","confirmed":"booked","arrived":"arrived","checked-in":"checked-in","in-progress":"arrived","fulfilled":"fulfilled","completed":"fulfilled","cancelled":"cancelled","canceled":"cancelled","no-show":"noshow","entered-in-error":"entered-in-error","pending":"pending"}
+ENCOUNTER_STATUS={"planned":"planned","arrived":"arrived","triaged":"triaged","open":"in-progress","in-progress":"in-progress","onleave":"onleave","closed":"finished","finished":"finished","cancelled":"cancelled","canceled":"cancelled","entered-in-error":"entered-in-error","unknown":"unknown"}
+
+
+def appointment_resource(db: Session, item: Appointment, patient_uuid: str) -> dict:
+    facility=db.get(Facility,item.facility_id) if item.facility_id else db.scalar(select(Facility).where(Facility.legacy_facility_id==item.legacy_facility_id)) if item.legacy_facility_id else None
+    resource={"resourceType":"Appointment","id":item.uuid,"status":APPOINTMENT_STATUS.get(item.status,"proposed"),"start":item.starts_at.isoformat(),"end":item.ends_at.isoformat(),"participant":[{"actor":{"reference":f"Patient/{patient_uuid}"},"status":"accepted"}],**({"description":item.title} if item.title else {}),**({"reasonCode":[{"text":item.reason}]} if item.reason else {})}
+    if facility:resource["participant"].append({"actor":{"reference":f"Location/{facility.uuid}","display":facility.name},"status":"accepted"})
+    elif item.facility_name or item.location:resource["participant"].append({"actor":{"display":item.facility_name or item.location},"status":"accepted"})
+    if item.provider_name:resource["participant"].append({"actor":{"display":item.provider_name},"status":"accepted"})
+    return resource
+
+
+def encounter_resource(db: Session, item: Encounter, patient_uuid: str) -> dict:
+    appointment_uuid=db.scalar(select(Appointment.uuid).where(Appointment.id==item.appointment_id)) if item.appointment_id else None
+    resource={"resourceType":"Encounter","id":item.uuid,"status":ENCOUNTER_STATUS.get(item.status,"unknown"),"class":{"system":"http://terminology.hl7.org/CodeSystem/v3-ActCode","code":"AMB" if item.type=="ambulatory" else item.type},"type":[{"text":item.type}],"subject":{"reference":f"Patient/{patient_uuid}"},"period":{"start":item.occurred_at.isoformat()},**({"reasonCode":[{"text":item.chief_complaint}]} if item.chief_complaint else {})}
+    if appointment_uuid:resource["appointment"]=[{"reference":f"Appointment/{appointment_uuid}"}]
+    return resource
+
+
+def organization_resource(item: Facility) -> dict:
+    telecom=[]
+    for system,value in (("phone",item.phone),("fax",item.fax),("email",item.email),("url",item.website)):
+        if value:telecom.append({"system":system,"value":value})
+    return {"resourceType":"Organization","id":item.uuid,"active":item.active,"name":item.name,**({"identifier":[{"system":"http://hl7.org/fhir/sid/us-npi","value":item.npi}]} if item.npi else {}),**({"telecom":telecom} if telecom else {}),**({"address":[{key:value for key,value in (("line",[item.street] if item.street else None),("city",item.city),("state",item.state),("postalCode",item.postal_code),("country",item.country_code)) if value}]} if any((item.street,item.city,item.state,item.postal_code,item.country_code)) else {})}
+
+
+def location_resource(item: Facility) -> dict:
+    return {"resourceType":"Location","id":item.uuid,"status":"active" if item.active else "inactive","name":item.name,"mode":"instance","managingOrganization":{"reference":f"Organization/{item.uuid}"},**({"telecom":[{"system":system,"value":value} for system,value in (("phone",item.phone),("fax",item.fax),("email",item.email)) if value]} if item.phone or item.fax or item.email else {}),**({"address":{key:value for key,value in (("line",[item.street] if item.street else None),("city",item.city),("state",item.state),("postalCode",item.postal_code),("country",item.country_code)) if value}} if any((item.street,item.city,item.state,item.postal_code,item.country_code)) else {})}
+
+
+def practitioner_resource(db: Session, item: Practitioner) -> dict:
+    facility_uuid=db.scalar(select(Facility.uuid).where(Facility.id==item.primary_facility_id)) if item.primary_facility_id else None
+    return {"resourceType":"Practitioner","id":item.uuid,"active":item.active,"name":[{"family":item.last_name,"given":[value for value in (item.first_name,item.middle_name) if value],**({"prefix":[item.title]} if item.title else {})}],**({"identifier":[{"system":"http://hl7.org/fhir/sid/us-npi","value":item.npi}]} if item.npi else {}),**({"telecom":[{"system":system,"value":value} for system,value in (("phone",item.phone),("email",item.email)) if value]} if item.phone or item.email else {}),**({"qualification":[{"code":{"text":item.specialty}}]} if item.specialty else {}),**({"extension":[{"url":"https://openrm.org/fhir/StructureDefinition/primary-organization","valueReference":{"reference":f"Organization/{facility_uuid}"}}]} if facility_uuid else {})}
+
+
+def appointment_access(db: Session, user: User, item: Appointment):
+    facility_id=item.facility_id or (db.scalar(select(Facility.id).where(Facility.legacy_facility_id==item.legacy_facility_id)) if item.legacy_facility_id else None)
+    require_facility_access(db,user,facility_id)
+
+
+@router.get("/Appointment")
+def search_appointments(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(appointment_user)):
+    owner=patient_or_404(db,patient_reference(patient));query=select(Appointment).where(Appointment.patient_id==owner.id);scope=facility_scope(db,user)
+    if scope is not None:
+        legacy_ids=list(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope),Facility.legacy_facility_id.is_not(None))));query=query.where(or_(Appointment.facility_id.in_(scope),Appointment.legacy_facility_id.in_(legacy_ids)))
+    rows=list(db.scalars(query.order_by(Appointment.starts_at)));resources=[appointment_resource(db,row,owner.uuid) for row in rows];resources=[resource for resource in resources if not status or resource["status"]==status];audit(db,user,"Appointment",owner.uuid,search=True);return bundle("Appointment",resources)
+
+
+@router.get("/Appointment/{resource_uuid}")
+def read_appointment(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(appointment_user)):
+    row=db.scalar(select(Appointment).where(Appointment.uuid==resource_uuid))
+    if not row:fhir_not_found("Appointment")
+    appointment_access(db,user,row);patient=db.get(Patient,row.patient_id);resource=appointment_resource(db,row,patient.uuid);audit(db,user,"Appointment",row.uuid);return resource
+
+
+@router.get("/Encounter")
+def search_encounters(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(Encounter).where(Encounter.patient_id==owner.id).order_by(Encounter.occurred_at.desc())));resources=[encounter_resource(db,row,owner.uuid) for row in rows];resources=[resource for resource in resources if not status or resource["status"]==status];audit(db,user,"Encounter",owner.uuid,search=True);return bundle("Encounter",resources)
+
+
+@router.get("/Encounter/{resource_uuid}")
+def read_encounter(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(Encounter).where(Encounter.uuid==resource_uuid))
+    if not row:fhir_not_found("Encounter")
+    patient=db.get(Patient,row.patient_id);resource=encounter_resource(db,row,patient.uuid);audit(db,user,"Encounter",row.uuid);return resource
+
+
+@router.get("/Organization")
+def search_organizations(name:str|None=None,active:bool|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    query=select(Facility)
+    if name:query=query.where(Facility.name.ilike(f"%{name}%"))
+    if active is not None:query=query.where(Facility.active.is_(active))
+    rows=list(db.scalars(query.order_by(Facility.name).limit(100)));audit(db,user,"Organization",search=True);return bundle("Organization",[organization_resource(row) for row in rows])
+
+
+@router.get("/Organization/{resource_uuid}")
+def read_organization(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(Facility).where(Facility.uuid==resource_uuid))
+    if not row:fhir_not_found("Organization")
+    audit(db,user,"Organization",row.uuid);return organization_resource(row)
+
+
+@router.get("/Location")
+def search_locations(name:str|None=None,active:bool|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    query=select(Facility).where(Facility.service_location.is_(True))
+    if name:query=query.where(Facility.name.ilike(f"%{name}%"))
+    if active is not None:query=query.where(Facility.active.is_(active))
+    rows=list(db.scalars(query.order_by(Facility.name).limit(100)));audit(db,user,"Location",search=True);return bundle("Location",[location_resource(row) for row in rows])
+
+
+@router.get("/Location/{resource_uuid}")
+def read_location(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(Facility).where(Facility.uuid==resource_uuid,Facility.service_location.is_(True)))
+    if not row:fhir_not_found("Location")
+    audit(db,user,"Location",row.uuid);return location_resource(row)
+
+
+@router.get("/Practitioner")
+def search_practitioners(family:str|None=None,given:str|None=None,identifier:str|None=None,active:bool|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    query=select(Practitioner)
+    if family:query=query.where(Practitioner.last_name.ilike(f"%{family}%"))
+    if given:query=query.where(Practitioner.first_name.ilike(f"%{given}%"))
+    if identifier:query=query.where(Practitioner.npi==identifier.rsplit("|",1)[-1])
+    if active is not None:query=query.where(Practitioner.active.is_(active))
+    rows=list(db.scalars(query.order_by(Practitioner.last_name,Practitioner.first_name).limit(100)));audit(db,user,"Practitioner",search=True);return bundle("Practitioner",[practitioner_resource(db,row) for row in rows])
+
+
+@router.get("/Practitioner/{resource_uuid}")
+def read_practitioner(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(Practitioner).where(Practitioner.uuid==resource_uuid))
+    if not row:fhir_not_found("Practitioner")
+    audit(db,user,"Practitioner",row.uuid);return practitioner_resource(db,row)
