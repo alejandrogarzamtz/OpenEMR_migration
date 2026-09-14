@@ -117,6 +117,24 @@ class PatientRelatedPerson(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class PatientNameHistory(Base):
+    __tablename__ = "patient_name_history"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    prefix: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    first_name: Mapped[str] = mapped_column(String(100))
+    middle_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str] = mapped_column(String(100), index=True)
+    suffix: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    use: Mapped[str] = mapped_column(String(30), default="old")
+    period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[int] = mapped_column(primary_key=True)

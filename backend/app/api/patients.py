@@ -3,12 +3,26 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientCreate, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientCreate, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
+
+
+@router.get("/{patient_uuid}/name-history", response_model=list[PatientNameHistoryOut])
+def list_name_history(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    return list(db.scalars(select(PatientNameHistory).where(PatientNameHistory.patient_id == patient.id).order_by(PatientNameHistory.period_end.desc(), PatientNameHistory.id.desc())))
+
+
+@router.post("/{patient_uuid}/name-history", response_model=PatientNameHistoryOut, status_code=status.HTTP_201_CREATED)
+def create_name_history(patient_uuid: str, body: PatientNameHistoryCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = PatientNameHistory(patient_id=patient.id, created_by_id=user.id, **body.model_dump())
+    db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_name_history", resource_id=item.uuid, detail=f"patient={patient.uuid}")); db.commit(); db.refresh(item)
+    return item
 
 
 def sync_primary_address(patient: Patient, item: PatientAddress | None) -> None:
@@ -139,6 +153,7 @@ def list_patients(
                 Patient.first_name.ilike(term, escape="\\"),
                 Patient.last_name.ilike(term, escape="\\"),
                 Patient.email.ilike(term, escape="\\"),
+                Patient.id.in_(select(PatientNameHistory.patient_id).where(or_(PatientNameHistory.first_name.ilike(term, escape="\\"), PatientNameHistory.last_name.ilike(term, escape="\\")))),
             )
         )
     items = db.scalars(

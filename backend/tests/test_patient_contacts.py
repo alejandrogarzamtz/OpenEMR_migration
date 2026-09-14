@@ -22,3 +22,14 @@ def test_patient_contacts_are_isolated_prioritized_and_inactivated_without_delet
         person=client.post(f"/api/v1/patients/{patient['uuid']}/related-people",headers=staff,json={"first_name":"Grace","last_name":"Guardian","relationship_code":"MTH","role_code":"GUARD","is_emergency_contact":True,"can_make_medical_decisions":True}).json()
         ended=client.post(f"/api/v1/patients/{patient['uuid']}/related-people/{person['uuid']}/inactivate",headers=staff,json={"reason":"Authority ended"}).json()
         assert not ended["active"] and not ended["can_make_medical_decisions"] and not ended["is_emergency_contact"]
+
+
+def test_previous_names_are_structured_audited_and_searchable():
+    with TestClient(app) as client:
+        staff=staff_headers(client); patient=create_patient(client,staff,"CurrentName")
+        created=client.post(f"/api/v1/patients/{patient['uuid']}/name-history",headers=staff,json={"first_name":"Former","last_name":"Surname","use":"official","period_end":"2020-01-01","reason":"Legal name change"})
+        assert created.status_code==201 and created.json()["last_name"]=="Surname"
+        history=client.get(f"/api/v1/patients/{patient['uuid']}/name-history",headers=staff).json()
+        assert [item["uuid"] for item in history]==[created.json()["uuid"]]
+        results=client.get("/api/v1/patients",headers=staff,params={"q":"Surname"}).json()["items"]
+        assert [item["uuid"] for item in results]==[patient["uuid"]]

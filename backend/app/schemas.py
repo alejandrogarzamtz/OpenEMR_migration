@@ -222,6 +222,30 @@ class InactivationRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=255)
 
 
+class PatientNameHistoryCreate(BaseModel):
+    prefix: str | None = Field(default=None, max_length=50)
+    first_name: str = Field(min_length=1, max_length=100)
+    middle_name: str | None = Field(default=None, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    suffix: str | None = Field(default=None, max_length=50)
+    use: str = Field(default="old", pattern="^(old|maiden|official|usual)$")
+    period_start: date | None = None
+    period_end: date | None = None
+    reason: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def valid_period(self):
+        if self.period_start and self.period_end and self.period_end < self.period_start:
+            raise ValueError("period_end must not precede period_start")
+        return self
+
+
+class PatientNameHistoryOut(PatientNameHistoryCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    created_at: datetime
+
+
 class AppointmentBase(BaseModel):
     patient_uuid: str
     facility_uuid: str | None = None
