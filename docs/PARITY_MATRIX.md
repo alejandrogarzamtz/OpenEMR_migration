@@ -22,7 +22,7 @@ are all verified. “Partial” never counts as final parity.
 | Immunizations | Partial | CVX administration exists; MVX, registry consent, refusals, inventory and registry exchange remain |
 | Vitals and observations | Partial | capture, BMI and FHIR observations exist; growth charts and abnormal flags remain |
 | Social history | Partial | append-only tobacco, alcohol, recreational-drug, activity, sleep, safety, counseling and narrative versions have lossless import, audited API, React authoring/history and printable-report coverage; coded FHIR observations and production reconciliation remain |
-| Labs and procedures | Partial | multi-line orders, specimens, questions, HL7, Quest/LabCorp and review/sign-off |
+| Labs and procedures | Partial | lossless multi-line orders, report/result provenance and legacy rehydration now exist with audited API and React visibility; specimens, order questions, HL7, Quest/LabCorp and review/sign-off remain |
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
 | Care plans, teams and preferences | Partial | relational coded plans now include append-only status/progress/measured-outcome history; named polymorphic teams and both typed preference categories have audited React workflows, deterministic lossless import, and FHIR CarePlan/Goal/CareTeam read/search mappings; production reconciliation remains |

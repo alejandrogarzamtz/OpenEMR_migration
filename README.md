@@ -100,6 +100,9 @@ end-to-end healthcare workflows:
   values, coded answer sets, and immutable amendment history;
 - append-only social-history versions with audited React authoring, printable
   report coverage and lossless retention of every legacy `history_data` field;
+- laboratory orders with complete multi-line test definitions, inactive-state
+  retention, collection/transmission and specimen metadata, intermediate report
+  review state, result provenance, and idempotent rehydration of earlier imports;
 - patient-scoped clinical-form evidence links to documents and procedure results,
   covered by signature integrity and preserved from legacy clinical notes;
 - ACL-protected configurable HTML/PDF patient reports covering demographics, contacts,

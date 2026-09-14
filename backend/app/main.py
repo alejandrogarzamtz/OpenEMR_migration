@@ -8,8 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
-from .schemas import AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalFormUpdate, ClinicalItemCreate, ClinicalItemOut, ClinicalSignatureCreate, ClinicalSignatureOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
+from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, ProcedureOrderLine, ProcedureReport, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
+from .schemas import AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalFormUpdate, ClinicalItemCreate, ClinicalItemOut, ClinicalSignatureCreate, ClinicalSignatureOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, ProcedureReportOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
 from .security import (
     clinical_user,
 )
@@ -148,7 +148,8 @@ def encounter_for_patient(db: Session, patient: Patient, encounter_uuid: str | N
 
 
 def order_out(order: LabOrder, encounter_uuid: str | None = None) -> LabOrderOut:
-    return LabOrderOut(encounter_uuid=encounter_uuid, **{key: getattr(order, key) for key in ("uuid", "ordered_at", "code", "name", "priority", "instructions", "status")})
+    fields=("uuid","ordered_at","code","name","priority","instructions","status","collected_at","transmitted_at","control_id","activity","specimen_type","specimen_location","specimen_volume","clinical_history","external_id","order_diagnosis","procedure_order_type")
+    return LabOrderOut(encounter_uuid=encounter_uuid, **{key: getattr(order, key) for key in fields})
 
 
 @app.post("/api/v1/patients/{patient_uuid}/lab-orders", response_model=LabOrderOut, status_code=201)
@@ -156,7 +157,9 @@ def create_lab_order(patient_uuid: str, body: LabOrderCreate, db: Session = Depe
     patient = patient_by_uuid(db, patient_uuid)
     encounter = encounter_for_patient(db, patient, body.encounter_uuid)
     order = LabOrder(patient_id=patient.id, encounter_id=encounter.id if encounter else None, **body.model_dump(exclude={"encounter_uuid"}))
-    db.add(order); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="lab_order", resource_id=order.uuid)); db.commit(); db.refresh(order)
+    db.add(order); db.flush()
+    db.add(ProcedureOrderLine(order_id=order.id,sequence=1,code=order.code,name=order.name,source="1"))
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="lab_order", resource_id=order.uuid)); db.commit(); db.refresh(order)
     return order_out(order, encounter.uuid if encounter else None)
 
 
@@ -185,9 +188,12 @@ def get_lab_order(order_uuid: str, db: Session = Depends(get_db), user: User = D
     if not row:
         raise HTTPException(status_code=404, detail="Lab order not found")
     order, encounter_uuid = row
-    results = list(db.scalars(select(LabResult).where(LabResult.order_id == order.id).order_by(LabResult.observed_at)))
+    lines=list(db.scalars(select(ProcedureOrderLine).where(ProcedureOrderLine.order_id==order.id).order_by(ProcedureOrderLine.sequence)))
+    reports=list(db.scalars(select(ProcedureReport).where(ProcedureReport.order_id==order.id).order_by(ProcedureReport.reported_at,ProcedureReport.id)))
+    result_rows=db.execute(select(LabResult,ProcedureReport).outerjoin(ProcedureReport,LabResult.report_id==ProcedureReport.id).where(LabResult.order_id==order.id).order_by(LabResult.observed_at,LabResult.id)).all()
+    results=[LabResultOut.model_validate(result).model_copy(update={"report":ProcedureReportOut.model_validate(report) if report else None}) for result,report in result_rows]
     db.add(AuditEvent(actor_id=user.id, action="read", resource_type="lab_order", resource_id=order.uuid)); db.commit()
-    return LabOrderDetail(**order_out(order, encounter_uuid).model_dump(), results=results)
+    return LabOrderDetail(**order_out(order, encounter_uuid).model_dump(),lines=lines,reports=reports,results=results)
 
 
 @app.post("/api/v1/patients/{patient_uuid}/documents", response_model=DocumentOut, status_code=201)

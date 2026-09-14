@@ -1071,7 +1071,53 @@ class LabOrderCreate(BaseModel):
 class LabOrderOut(LabOrderCreate):
     model_config = ConfigDict(from_attributes=True)
     uuid: str
+    ordered_at: datetime | None
     status: str
+    collected_at: datetime | None = None
+    transmitted_at: datetime | None = None
+    control_id: str | None = None
+    activity: bool = True
+    specimen_type: str | None = None
+    specimen_location: str | None = None
+    specimen_volume: str | None = None
+    clinical_history: str | None = None
+    external_id: str | None = None
+    order_diagnosis: str | None = None
+    procedure_order_type: str | None = None
+
+
+class ProcedureOrderLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    sequence: int
+    code: str
+    name: str
+    source: str | None = None
+    diagnoses: str | None = None
+    do_not_send: bool
+    title: str | None = None
+    procedure_type: str | None = None
+    transport: str | None = None
+    date_end: datetime | None = None
+    reason_code: str | None = None
+    reason_description: str | None = None
+    reason_date_low: datetime | None = None
+    reason_date_high: datetime | None = None
+    reason_status: str | None = None
+
+
+class ProcedureReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    order_sequence: int
+    collected_at: datetime | None = None
+    collected_timezone: str | None = None
+    reported_at: datetime | None = None
+    reported_timezone: str | None = None
+    specimen_number: str | None = None
+    status: str | None = None
+    review_status: str | None = None
+    notes: str | None = None
 
 
 class LabResultCreate(BaseModel):
@@ -1083,15 +1129,23 @@ class LabResultCreate(BaseModel):
     reference_range: str | None = Field(default=None, max_length=255)
     interpretation: str | None = Field(default=None, max_length=31)
     status: str = Field(default="final", pattern="^(preliminary|final|corrected|cancelled)$")
+    facility: str | None = Field(default=None, max_length=255)
+    comments: str | None = None
+    ended_at: datetime | None = None
 
 
 class LabResultOut(LabResultCreate):
     model_config = ConfigDict(from_attributes=True)
     uuid: str
     released_to_patient_at: datetime | None = None
+    data_type: str | None = None
+    legacy_document_id: int | None = None
+    report: ProcedureReportOut | None = None
 
 
 class LabOrderDetail(LabOrderOut):
+    lines: list[ProcedureOrderLineOut]
+    reports: list[ProcedureReportOut]
     results: list[LabResultOut]
 
 

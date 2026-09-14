@@ -29,8 +29,10 @@ import { SecurityWorkspace } from "./features/security/SecurityWorkspace";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
-type LabOrder = { uuid:string; ordered_at:string; code:string; name:string; status:string };
-type LabResult = { uuid:string; name:string; value:string; unit?:string };
+type ProcedureLine = { uuid:string; sequence:number; code:string; name:string; diagnoses?:string; procedure_type?:string };
+type ProcedureReport = { uuid:string; reported_at?:string; specimen_number?:string; status?:string; review_status?:string; notes?:string };
+type LabOrder = { uuid:string; ordered_at?:string; code:string; name:string; status:string; activity:boolean; control_id?:string; specimen_type?:string; lines:ProcedureLine[]; reports:ProcedureReport[] };
+type LabResult = { uuid:string; name:string; value:string; unit?:string; facility?:string; comments?:string; report?:ProcedureReport };
 type ClinicalDocument = { uuid:string; name:string; mime_type:string; uploaded_at:string; released_to_patient_at?:string };
 type Coverage = { uuid:string; payer_name:string; policy_number:string; priority:string };
 type Charge = { uuid:string; encounter_uuid:string; code:string; description:string; unit_price:string; units:number };
@@ -92,8 +94,9 @@ function App(){
   async function openPatient(patient:Patient){
     setError("");
     const [summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`),api(`/api/v1/patients/${patient.uuid}/immunizations`),api(`/api/v1/patients/${patient.uuid}/vitals`),api(`/api/v1/patients/${patient.uuid}/prescriptions`),api(`/api/v1/patients/${patient.uuid}/clinical-forms`)]);
-    const labResults=(await Promise.all((labOrders as LabOrder[]).map(order=>api<{results:LabResult[]}>(`/api/v1/lab-orders/${order.uuid}`)))).flatMap(order=>order.results);
-    setSelected({...summary,labOrders,labResults,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms});
+    const labDetails=await Promise.all((labOrders as LabOrder[]).map(order=>api<LabOrder&{results:LabResult[]}>(`/api/v1/lab-orders/${order.uuid}`)));
+    const labResults=labDetails.flatMap(order=>order.results);
+    setSelected({...summary,labOrders:labDetails,labResults,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms});
   }
   async function addItem(event:FormEvent<HTMLFormElement>){
     event.preventDefault(); if(!selected)return; const data=new FormData(event.currentTarget);
@@ -174,7 +177,7 @@ function App(){
         <section className="summary-group"><h3>Inmunizaciones<span>{selected.immunizations.length}</span></h3>{selected.immunizations.map(item=><article key={item.uuid}><strong>{item.vaccine_name}</strong><small>CVX {item.cvx_code} · {new Date(item.administered_at).toLocaleDateString()}</small></article>)}</section>
         <section className="summary-group"><h3>Signos vitales<span>{selected.vitals.length}</span></h3>{selected.vitals.slice(0,3).map(item=><article key={item.uuid}><strong>{item.systolic&&item.diastolic?`${item.systolic}/${item.diastolic} mmHg`:"Registro de vitales"}</strong><small>FC {item.heart_rate??"—"} · SpO₂ {item.oxygen_saturation??"—"}% · BMI {item.bmi??"—"}</small></article>)}</section>
         <section className="summary-group"><h3>Recetas<span>{selected.prescriptions.length}</span></h3>{selected.prescriptions.map(item=><article key={item.uuid}><strong>{item.drug_name}</strong><small>{item.dosage_instructions} · {item.status}</small></article>)}</section>
-        <section className="summary-group"><h3>Laboratorio<span>{selected.labOrders.length}</span></h3>{selected.labOrders.map(order=><article key={order.uuid}><strong>{order.name}</strong><small>{order.code} · {order.status}</small>{order.status==="complete"&&<button className="text-button" onClick={()=>void releaseLabResults(order)}>Publicar resultados finales</button>}</article>)}</section>
+        <section className="summary-group"><h3>Laboratorio<span>{selected.labOrders.length}</span></h3>{selected.labOrders.map(order=><article key={order.uuid}><strong>{order.name}</strong><small>{order.code} · {order.status}{!order.activity?" · inactiva":""}{order.control_id?` · control ${order.control_id}`:""}</small>{order.lines.length>1&&<small>{order.lines.map(line=>`${line.sequence}. ${line.code} ${line.name}`).join(" · ")}</small>}{order.specimen_type&&<small>Espécimen: {order.specimen_type}</small>}{order.reports.map(report=><small key={report.uuid}>Reporte {report.specimen_number||"sin folio"} · {report.status||"sin estado"} · revisión {report.review_status||"sin estado"}</small>)}{order.status==="complete"&&<button className="text-button" onClick={()=>void releaseLabResults(order)}>Publicar resultados finales</button>}</article>)}</section>
         <form className="quick-add compact" onSubmit={addLabOrder}><input name="code" placeholder="Código LOINC" required/><input name="name" placeholder="Estudio" required/><button>Crear orden</button></form>
         <section className="summary-group"><h3>Documentos<span>{selected.documents.length}</span></h3>{selected.documents.map(document=><article key={document.uuid}><button className="text-button" onClick={()=>void downloadDocument(document)}>{document.name}</button><small>{document.mime_type} · {document.released_to_patient_at?"Publicado en portal":"Privado"}</small><button className="text-button" onClick={()=>void toggleDocumentRelease(document)}>{document.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button></article>)}</section>
         <form className="quick-add compact" onSubmit={uploadDocument}><input name="file" type="file" required/><button>Subir documento</button></form>

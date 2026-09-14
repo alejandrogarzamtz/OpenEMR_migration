@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, Referral, SecureMessage, ServiceCode, SocialHistory, User, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, Referral, SecureMessage, ServiceCode, SocialHistory, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -199,7 +199,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -543,24 +543,79 @@ def run(source_url: str, commit: bool = False) -> dict:
             ))
             stats["patient_flow_events"]["inserted"] += 1
         target.flush()
-        orders = legacy.execute(text("""SELECT po.procedure_order_id,po.patient_id,po.encounter_id,po.date_ordered,po.order_priority,po.order_status,po.patient_instructions,poc.procedure_code,poc.procedure_name FROM procedure_order po LEFT JOIN procedure_order_code poc ON poc.procedure_order_id=po.procedure_order_id AND poc.procedure_order_seq=(SELECT MIN(x.procedure_order_seq) FROM procedure_order_code x WHERE x.procedure_order_id=po.procedure_order_id) WHERE po.activity=1 ORDER BY po.procedure_order_id"""))
+        order_lines = list(legacy.execute(text("SELECT * FROM procedure_order_code ORDER BY procedure_order_id,procedure_order_seq")).mappings())
+        first_lines = {}
+        for line in order_lines: first_lines.setdefault(line["procedure_order_id"], line)
+        orders = legacy.execute(text("SELECT * FROM procedure_order ORDER BY procedure_order_id"))
         for row in orders.mappings():
             stats["lab_orders"]["source"] += 1
-            if target.scalar(select(LabOrder.id).where(LabOrder.legacy_order_id == row["procedure_order_id"])): stats["lab_orders"]["existing"] += 1; continue
+            existing = target.scalar(select(LabOrder).where(LabOrder.legacy_order_id == row["procedure_order_id"]))
             patient = patient_for_legacy(target, row["patient_id"])
             encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter_id"])) if row["encounter_id"] else None
-            if not patient or not row["date_ordered"] or not clean(row["procedure_name"]): stats["lab_orders"]["rejected"] += 1; continue
-            target.add(LabOrder(legacy_order_id=row["procedure_order_id"], patient_id=patient.id, encounter_id=encounter.id if encounter else None, ordered_at=row["date_ordered"], code=clean(row["procedure_code"]) or "unknown", name=clean(row["procedure_name"]), priority=clean(row["order_priority"]) or "routine", status=clean(row["order_status"]) or "pending", instructions=clean(row["patient_instructions"])))
-            stats["lab_orders"]["inserted"] += 1
+            if not patient: stats["lab_orders"]["rejected"] += 1; continue
+            primary = first_lines.get(row["procedure_order_id"], {})
+            values = dict(patient_id=patient.id, encounter_id=encounter.id if encounter else None,
+                ordered_at=row["date_ordered"], code=clean(primary.get("procedure_code")) or "unknown",
+                name=clean(primary.get("procedure_name")) or "Unnamed procedure", priority=clean(row["order_priority"]) or "routine",
+                status=clean(row["order_status"]) or "pending", instructions=clean(row["patient_instructions"]),
+                collected_at=row["date_collected"], transmitted_at=row["date_transmitted"], control_id=clean(row["control_id"]),
+                activity=bool(row["activity"]), provider_legacy_id=row["provider_id"] or None, lab_legacy_id=row["lab_id"] or None,
+                specimen_type=clean(row["specimen_type"]), specimen_location=clean(row["specimen_location"]),
+                specimen_volume=clean(row["specimen_volume"]), clinical_history=clean(row["clinical_hx"]),
+                external_id=clean(row["external_id"]), order_diagnosis=clean(row["order_diagnosis"]),
+                procedure_order_type=clean(row["procedure_order_type"]),
+                legacy_payload={key: json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items(): setattr(existing,key,value)
+                stats["lab_orders"]["existing"] += 1
+            else:
+                target.add(LabOrder(legacy_order_id=row["procedure_order_id"],**values));stats["lab_orders"]["inserted"] += 1
         target.flush()
-        results = legacy.execute(text("""SELECT pr.procedure_result_id,rep.procedure_order_id,pr.date,pr.result_code,pr.result_text,pr.result,pr.units,pr.range,pr.abnormal,pr.result_status FROM procedure_result pr JOIN procedure_report rep ON rep.procedure_report_id=pr.procedure_report_id ORDER BY pr.procedure_result_id"""))
+        for row in order_lines:
+            stats["procedure_order_lines"]["source"] += 1
+            order=target.scalar(select(LabOrder).where(LabOrder.legacy_order_id==row["procedure_order_id"]))
+            if not order: stats["procedure_order_lines"]["rejected"]+=1;continue
+            line=target.scalar(select(ProcedureOrderLine).where(ProcedureOrderLine.order_id==order.id,ProcedureOrderLine.sequence==row["procedure_order_seq"]))
+            values=dict(code=clean(row["procedure_code"]) or "",name=clean(row["procedure_name"]) or "",source=clean(row["procedure_source"]),
+                diagnoses=clean(row["diagnoses"]),do_not_send=bool(row["do_not_send"]),title=clean(row["procedure_order_title"]),
+                procedure_type=clean(row["procedure_type"]),transport=clean(row["transport"]),date_end=row["date_end"],
+                reason_code=clean(row["reason_code"]),reason_description=clean(row["reason_description"]),reason_date_low=row["reason_date_low"],
+                reason_date_high=row["reason_date_high"],reason_status=clean(row["reason_status"]),legacy_payload={key:json_value(value) for key,value in row.items()})
+            if line:
+                for key,value in values.items():setattr(line,key,value)
+                stats["procedure_order_lines"]["existing"]+=1
+            else: target.add(ProcedureOrderLine(order_id=order.id,sequence=row["procedure_order_seq"],**values));stats["procedure_order_lines"]["inserted"]+=1
+        target.flush()
+        reports=legacy.execute(text("SELECT * FROM procedure_report ORDER BY procedure_report_id"))
+        for row in reports.mappings():
+            stats["procedure_reports"]["source"]+=1
+            order=target.scalar(select(LabOrder).where(LabOrder.legacy_order_id==row["procedure_order_id"])) if row["procedure_order_id"] else None
+            report=target.scalar(select(ProcedureReport).where(ProcedureReport.legacy_report_id==row["procedure_report_id"]))
+            values=dict(order_id=order.id if order else None,legacy_order_id=row["procedure_order_id"],order_sequence=row["procedure_order_seq"],
+                collected_at=row["date_collected"],collected_timezone=clean(row["date_collected_tz"]),reported_at=row["date_report"],
+                reported_timezone=clean(row["date_report_tz"]),source_legacy_user_id=row["source"] or None,specimen_number=clean(row["specimen_num"]),
+                status=clean(row["report_status"]),review_status=clean(row["review_status"]),notes=clean(row["report_notes"]),
+                legacy_payload={key:json_value(value) for key,value in row.items()})
+            if report:
+                for key,value in values.items():setattr(report,key,value)
+                stats["procedure_reports"]["existing"]+=1
+            else: target.add(ProcedureReport(legacy_report_id=row["procedure_report_id"],**values));stats["procedure_reports"]["inserted"]+=1
+        target.flush()
+        results = legacy.execute(text("SELECT * FROM procedure_result ORDER BY procedure_result_id"))
         for row in results.mappings():
             stats["lab_results"]["source"] += 1
-            if target.scalar(select(LabResult.id).where(LabResult.legacy_result_id == row["procedure_result_id"])): stats["lab_results"]["existing"] += 1; continue
-            order = target.scalar(select(LabOrder).where(LabOrder.legacy_order_id == row["procedure_order_id"]))
-            if not order or not row["date"] or not clean(row["result"]): stats["lab_results"]["rejected"] += 1; continue
-            target.add(LabResult(legacy_result_id=row["procedure_result_id"], order_id=order.id, observed_at=row["date"], code=clean(row["result_code"]) or "unknown", name=clean(row["result_text"]) or clean(row["result_code"]) or "Result", value=clean(row["result"]), unit=clean(row["units"]), reference_range=clean(row["range"]), interpretation=clean(row["abnormal"]), status=clean(row["result_status"]) or "final"))
-            stats["lab_results"]["inserted"] += 1
+            report=target.scalar(select(ProcedureReport).where(ProcedureReport.legacy_report_id==row["procedure_report_id"]))
+            existing=target.scalar(select(LabResult).where(LabResult.legacy_result_id==row["procedure_result_id"]))
+            values=dict(order_id=report.order_id if report else None,report_id=report.id if report else None,observed_at=row["date"],
+                code=clean(row["result_code"]) or "unknown",name=clean(row["result_text"]) or clean(row["result_code"]) or "Result",
+                value=clean(row["result"]) or "",unit=clean(row["units"]),reference_range=clean(row["range"]),interpretation=clean(row["abnormal"]),
+                status=clean(row["result_status"]) or "final",data_type=clean(row["result_data_type"]),facility=clean(row["facility"]),
+                comments=clean(row["comments"]),legacy_document_id=row["document_id"] or None,ended_at=row["date_end"],
+                legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["lab_results"]["existing"]+=1
+            else: target.add(LabResult(legacy_result_id=row["procedure_result_id"],**values));stats["lab_results"]["inserted"]+=1
         documents = legacy.execute(text("SELECT id,foreign_id,name,mimetype,document_data,date FROM documents WHERE deleted=0 ORDER BY id"))
         for row in documents.mappings():
             stats["documents"]["source"] += 1
