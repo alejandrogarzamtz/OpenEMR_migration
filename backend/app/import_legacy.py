@@ -7,11 +7,13 @@ Usage:
 import argparse
 import hashlib
 import json
+import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Practitioner, PractitionerFacilityAccess, Prescription, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .security import password_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
@@ -45,9 +47,10 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms")
+    names = ("patients", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
+        legacy_tables = set(inspect(source).get_table_names())
         patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
         for row in patients.mappings():
             stats["patients"]["source"] += 1
@@ -337,7 +340,6 @@ def run(source_url: str, commit: bool = False) -> dict:
             target.add(InventoryTransaction(legacy_sale_id=row["sale_id"], product_id=product.id, lot_id=lot.id if lot else None, destination_lot_id=destination.id if destination else None, patient_id=patient.id if patient else None, encounter_id=encounter.id if encounter else None, prescription_id=prescription.id if prescription else None, transaction_type=transaction_types.get(row["trans_type"], f"legacy-{row['trans_type']}"), occurred_on=row["sale_date"], quantity=row["quantity"], fee=row["fee"], billed=bool(row["billed"]), actor_name=clean(row["user"]), notes=clean(row["notes"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_transactions"]["inserted"] += 1
         # OpenEMR's `forms` registry points to both core and installed/custom form tables.
         # Reflecting only tables that actually exist preserves every registered form payload.
-        legacy_tables = set(inspect(source).get_table_names())
         forms = legacy.execute(text("SELECT id,date,encounter,form_name,form_id,pid,authorized,deleted,formdir FROM forms ORDER BY id"))
         known_types = {"soap": "soap", "ros": "ros", "physical_exam": "physical_exam", "clinic_note": "clinic_note"}
         for row in forms.mappings():
@@ -354,6 +356,100 @@ def run(source_url: str, commit: bool = False) -> dict:
             if formdir == "soap": content = {key: json_value(payload_rows[0].get(key)) for key in ("subjective", "objective", "assessment", "plan")}
             target.add(ClinicalForm(legacy_form_key=legacy_key, patient_id=patient.id, encounter_id=encounter.id, form_type=known_types.get(formdir, "custom"), title=clean(row["form_name"]) or formdir.replace("_", " ").title(), content=content, status="signed" if row["authorized"] else "draft", authored_at=row["date"] or encounter.occurred_at))
             stats["clinical_forms"]["inserted"] += 1
+
+        # Portal password verifiers belong to the legacy authentication system and
+        # are deliberately not accepted as modern credentials. Every imported
+        # account receives an unguessable placeholder and must reset its password.
+        if "patient_access_onsite" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM patient_access_onsite ORDER BY id")).mappings():
+                stats["portal_accounts"]["source"] += 1
+                if target.scalar(select(PortalAccount.id).where(PortalAccount.legacy_access_id == row["id"])):
+                    stats["portal_accounts"]["existing"] += 1; continue
+                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+                username = clean(row.get("portal_username")) or clean(row.get("portal_login_username"))
+                if not patient or not username or target.scalar(select(PortalAccount.id).where(PortalAccount.username == username)):
+                    stats["portal_accounts"]["rejected"] += 1; continue
+                safe_payload = {key: json_value(value) for key, value in row.items() if key not in {"portal_pwd", "portal_onetime"}}
+                safe_payload["legacy_credentials_discarded"] = True
+                target.add(PortalAccount(legacy_access_id=row["id"], patient_id=patient.id, username=username, password_hash=password_hash.hash(secrets.token_urlsafe(32)), active=patient.portal_allowed, force_password_reset=True, legacy_payload=safe_payload))
+                stats["portal_accounts"]["inserted"] += 1
+            target.flush()
+
+        if "pnotes" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM pnotes ORDER BY id")).mappings():
+                stats["message_threads"]["source"] += 1; stats["secure_messages"]["source"] += 1
+                legacy_key = f"pnotes:{row['id']}"
+                if target.scalar(select(MessageThread.id).where(MessageThread.legacy_thread_key == legacy_key)):
+                    stats["message_threads"]["existing"] += 1; stats["secure_messages"]["existing"] += 1; continue
+                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row.get("pid")))
+                body = clean(row.get("body"))
+                if not patient or not body:
+                    stats["message_threads"]["rejected"] += 1; stats["secure_messages"]["rejected"] += 1; continue
+                created = row.get("date") or datetime.now(timezone.utc)
+                thread = MessageThread(legacy_thread_key=legacy_key, patient_id=patient.id, subject=clean(row.get("title")) or "Legacy patient note", status="closed" if row.get("deleted") else "open", created_at=created, updated_at=created, legacy_payload={key: json_value(value) for key, value in row.items()})
+                target.add(thread); target.flush()
+                target.add(SecureMessage(legacy_message_key=legacy_key, thread_id=thread.id, sender_kind="legacy-staff", sender_name=clean(row.get("user")), body=body, created_at=created, legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["message_threads"]["inserted"] += 1; stats["secure_messages"]["inserted"] += 1
+
+        if "onsite_mail" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM onsite_mail ORDER BY id")).mappings():
+                stats["message_threads"]["source"] += 1; stats["secure_messages"]["source"] += 1
+                legacy_key = f"onsite_mail:{row['id']}"
+                if target.scalar(select(MessageThread.id).where(MessageThread.legacy_thread_key == legacy_key)):
+                    stats["message_threads"]["existing"] += 1; stats["secure_messages"]["existing"] += 1; continue
+                owner = row.get("owner")
+                patient = target.scalar(select(Patient).where(Patient.legacy_pid == int(owner))) if str(owner or "").isdigit() else None
+                body = clean(row.get("body"))
+                if not patient or not body:
+                    stats["message_threads"]["rejected"] += 1; stats["secure_messages"]["rejected"] += 1; continue
+                created = row.get("date") or row.get("date_created") or datetime.now(timezone.utc)
+                thread = MessageThread(legacy_thread_key=legacy_key, patient_id=patient.id, subject=clean(row.get("subject")) or clean(row.get("title")) or "Legacy portal message", status="closed" if row.get("deleted") else "open", created_at=created, updated_at=created, legacy_payload={key: json_value(value) for key, value in row.items()})
+                target.add(thread); target.flush()
+                target.add(SecureMessage(legacy_message_key=legacy_key, thread_id=thread.id, sender_kind="legacy", sender_name=clean(row.get("sender_name")) or clean(row.get("sender")), body=body, created_at=created, legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["message_threads"]["inserted"] += 1; stats["secure_messages"]["inserted"] += 1
+
+        if "onsite_messages" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM onsite_messages ORDER BY id")).mappings():
+                stats["message_threads"]["source"] += 1; stats["secure_messages"]["source"] += 1
+                legacy_key = f"onsite_messages:{row['id']}"
+                if target.scalar(select(MessageThread.id).where(MessageThread.legacy_thread_key == legacy_key)):
+                    stats["message_threads"]["existing"] += 1; stats["secure_messages"]["existing"] += 1; continue
+                account = target.scalar(select(PortalAccount).where(PortalAccount.username == row.get("username")))
+                body = clean(row.get("message"))
+                if not account or not body:
+                    stats["message_threads"]["rejected"] += 1; stats["secure_messages"]["rejected"] += 1; continue
+                created = row.get("date") or datetime.now(timezone.utc)
+                thread = MessageThread(legacy_thread_key=legacy_key, patient_id=account.patient_id, subject="Legacy portal notification", created_at=created, updated_at=created, legacy_payload={key: json_value(value) for key, value in row.items()})
+                target.add(thread); target.flush()
+                target.add(SecureMessage(legacy_message_key=legacy_key, thread_id=thread.id, sender_kind="legacy", sender_name=clean(row.get("sender_id")), body=body, created_at=created, legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["message_threads"]["inserted"] += 1; stats["secure_messages"]["inserted"] += 1
+
+        if "form_taskman" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM form_taskman ORDER BY ID")).mappings():
+                stats["clinical_tasks"]["source"] += 1
+                if target.scalar(select(ClinicalTask.id).where(ClinicalTask.legacy_task_id == row["ID"])):
+                    stats["clinical_tasks"]["existing"] += 1; continue
+                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row.get("PATIENT_ID")))
+                encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row.get("ENC_ID"))) if row.get("ENC_ID") else None
+                if not patient:
+                    stats["clinical_tasks"]["rejected"] += 1; continue
+                completed = bool(row.get("COMPLETED"))
+                target.add(ClinicalTask(legacy_task_id=row["ID"], patient_id=patient.id, encounter_id=encounter.id if encounter else None, method=clean(row.get("METHOD")) or "legacy", comment=clean(row.get("COMMENT")), status="completed" if completed else "open", due_at=row.get("REQ_DATE"), completed_at=row.get("COMPLETED_DATE") if completed else None, legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["clinical_tasks"]["inserted"] += 1
+
+        if "email_queue" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM email_queue ORDER BY id")).mappings():
+                stats["communication_deliveries"]["source"] += 1
+                if target.scalar(select(CommunicationDelivery.id).where(CommunicationDelivery.legacy_email_id == row["id"])):
+                    stats["communication_deliveries"]["existing"] += 1; continue
+                recipient = clean(row.get("recipient")) or clean(row.get("to"))
+                if not recipient:
+                    stats["communication_deliveries"]["rejected"] += 1; continue
+                sent_at = row.get("datetime_sent") if row.get("sent") else None
+                error = clean(row.get("error_message")) if row.get("error") else None
+                delivery_status = "sent" if sent_at else "failed" if error else "pending"
+                target.add(CommunicationDelivery(legacy_email_id=row["id"], channel="email", recipient=recipient, subject=clean(row.get("subject")) or "Legacy message", body=clean(row.get("body")) or "", template_name=clean(row.get("template_name")), status=delivery_status, queued_at=row.get("datetime_queued") or datetime.now(timezone.utc), sent_at=sent_at, failed_at=row.get("datetime_error") if error else None, error_message=error, legacy_payload={key: json_value(value) for key, value in row.items()}))
+                stats["communication_deliveries"]["inserted"] += 1
         if commit: target.commit()
         else: target.rollback()
     stats["mode"] = "committed" if commit else "dry-run"

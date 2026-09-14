@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
-from .models import User
+from .models import PortalAccount, User
 
 password_hash = PasswordHash.recommended()
 bearer = HTTPBearer()
@@ -20,6 +20,7 @@ def create_token(user: User) -> str:
     expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
     claims = {
         "sub": str(user.id),
+        "kind": "staff",
         "jti": str(uuid4()),
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
@@ -40,12 +41,48 @@ def current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer), db
             audience=settings.jwt_audience,
             options={"require": ["sub", "jti", "iss", "aud", "iat", "nbf", "exp"]},
         )
-        user = db.get(User, int(payload["sub"]))
+        user = db.get(User, int(payload["sub"])) if payload.get("kind") == "staff" else None
     except (jwt.PyJWTError, KeyError, ValueError):
         user = None
     if not user or not user.active:
         raise HTTPException(status_code=401, detail="Invalid or expired credentials")
     return user
+
+
+def create_portal_token(account: PortalAccount) -> str:
+    now = datetime.now(timezone.utc)
+    claims = {
+        "sub": str(account.id),
+        "patient": str(account.patient_id),
+        "kind": "portal",
+        "jti": str(uuid4()),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": now,
+        "nbf": now,
+        "exp": now + timedelta(minutes=settings.access_token_minutes),
+    }
+    return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
+
+
+def current_portal_account(credentials: HTTPAuthorizationCredentials = Depends(bearer), db: Session = Depends(get_db)) -> PortalAccount:
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=["HS256"],
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+            options={"require": ["sub", "patient", "kind", "jti", "iss", "aud", "iat", "nbf", "exp"]},
+        )
+        account = db.get(PortalAccount, int(payload["sub"])) if payload.get("kind") == "portal" else None
+        if account and str(account.patient_id) != str(payload.get("patient")):
+            account = None
+    except (jwt.PyJWTError, KeyError, ValueError):
+        account = None
+    if not account or not account.active:
+        raise HTTPException(status_code=401, detail="Invalid or expired portal credentials")
+    return account
 
 
 def user_has_permission(user: User, section: str, value: str, mode: str = "read") -> bool:
@@ -83,3 +120,5 @@ inventory_write_user = require_permission("inventory", "lots", "write")
 inventory_dispense_user = require_permission("inventory", "consumption", "write")
 administration_user = require_permission("admin", "users")
 administration_write_user = require_permission("admin", "users", "write")
+communication_user = require_permission("patients", "notes")
+communication_write_user = require_permission("patients", "notes", "write")

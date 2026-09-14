@@ -89,6 +89,9 @@ end-to-end healthcare workflows:
   facility/warehouse assignments enforced by scheduling and inventory APIs;
 - a permission-aware report catalog with reproducible stored runs, totals,
   checksums and authenticated CSV exports for migrated report families;
+- separate staff and patient identities, secure patient-bound message threads,
+  forced replacement of temporary portal passwords, lockout protection,
+  clinical tasks, consent-aware generic email notices, and a durable outbox;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
@@ -97,8 +100,8 @@ end-to-end healthcare workflows:
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
-forms, patient relationships, recurrence rules, portal workflows, remaining
-reports, advanced inventory, billing exchanges, FHIR resources, integrations, administrative
+forms, patient relationships, recurrence rules, broader portal workflows,
+remaining reports, advanced inventory, billing exchanges, FHIR resources, integrations, administrative
 tools, and background services are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
@@ -147,6 +150,7 @@ docker compose up --build
 Local services:
 
 - Web application: <http://localhost:5173>
+- Patient portal: <http://localhost:5173/portal>
 - REST/OpenAPI documentation: <http://localhost:8000/docs>
 - API health endpoint: <http://localhost:8000/health>
 - PostgreSQL: port `5432` inside the Compose environment
@@ -161,6 +165,12 @@ change-me-now
 Production deployments must omit bootstrap credentials, provide a unique JWT
 secret through a secret manager, and provision administrators through a
 controlled process.
+
+Patient portal accounts are created by authorized staff for patients whose
+portal access has been enabled. Temporary passwords must be replaced before a
+patient can read or send protected messages. Live email delivery additionally
+requires a configured provider; the internal outbox remains available without
+one for local development and integration testing.
 
 Stop services without deleting the database volume:
 

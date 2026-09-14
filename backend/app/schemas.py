@@ -279,6 +279,100 @@ class ReportRunOut(BaseModel):
     created_at: datetime
 
 
+class PortalLogin(BaseModel):
+    username: str = Field(min_length=1,max_length=255)
+    password: str = Field(min_length=8,max_length=255)
+
+
+class PortalToken(Token):
+    force_password_reset: bool
+
+
+class PortalPasswordChange(BaseModel):
+    new_password: str = Field(min_length=12, max_length=255)
+
+
+class PortalAccountCreate(BaseModel):
+    username: str = Field(min_length=3,max_length=255)
+    temporary_password: str = Field(min_length=12,max_length=255)
+
+
+class PortalAccountOut(BaseModel):
+    uuid: str
+    patient_uuid: str
+    username: str
+    active: bool
+    force_password_reset: bool
+    last_login_at: datetime | None
+
+
+class MessageCreate(BaseModel):
+    subject: str = Field(min_length=2,max_length=255)
+    body: str = Field(min_length=2,max_length=65535)
+
+
+class MessageReply(BaseModel):
+    body: str = Field(min_length=2,max_length=65535)
+
+
+class SecureMessageOut(BaseModel):
+    uuid: str
+    sender_kind: str
+    sender_name: str | None
+    body: str
+    created_at: datetime
+    read_by_patient_at: datetime | None
+    read_by_staff_at: datetime | None
+
+
+class MessageThreadOut(BaseModel):
+    uuid: str
+    patient_uuid: str
+    patient_name: str
+    subject: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    messages: list[SecureMessageOut]=Field(default_factory=list)
+
+
+class ClinicalTaskCreate(BaseModel):
+    patient_uuid: str
+    encounter_uuid: str | None = None
+    assigned_user_uuid: str | None = None
+    method: str = Field(min_length=1,max_length=30)
+    comment: str | None = Field(default=None,max_length=255)
+    due_at: datetime | None = None
+
+
+class ClinicalTaskOut(BaseModel):
+    uuid: str
+    patient_uuid: str
+    encounter_uuid: str | None
+    assigned_user_uuid: str | None
+    method: str
+    comment: str | None
+    status: str
+    due_at: datetime | None
+    completed_at: datetime | None
+
+
+class CommunicationDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    channel: str
+    recipient: str
+    subject: str
+    body: str
+    template_name: str | None
+    status: str
+    queued_at: datetime
+    sent_at: datetime | None
+    failed_at: datetime | None
+    error_message: str | None
+    attempts: int
+
+
 class PatientFlowEventCreate(BaseModel):
     status: str = Field(pattern="^(scheduled|confirmed|arrived|checked-in|in-progress|fulfilled|cancelled|no-show|entered-in-error|pending)$")
     room: str | None = Field(default=None, max_length=20)
