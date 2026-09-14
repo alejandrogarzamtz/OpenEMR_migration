@@ -310,6 +310,30 @@ class PatientConsentOut(PatientConsentCreate):
     created_at: datetime
 
 
+class PatientCustomFieldValueUpdate(BaseModel):
+    value: str | None = None
+
+
+class PatientCustomFieldOut(BaseModel):
+    uuid: str
+    field_key: str
+    group_key: str | None
+    title: str
+    sequence: int
+    data_type: int
+    list_id: str | None
+    options: list[dict]
+    default_value: str | None
+    max_length: int | None
+    required: bool
+    description: str | None
+    validation: str | None
+    typed_mapping: bool
+    value: str | None
+    value_source: str | None
+    updated_at: datetime | None
+
+
 class AppointmentBase(BaseModel):
     patient_uuid: str
     facility_uuid: str | None = None

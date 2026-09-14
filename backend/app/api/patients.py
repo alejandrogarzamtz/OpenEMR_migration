@@ -4,12 +4,55 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
+
+
+def custom_field_out(definition: PatientCustomFieldDefinition, value: PatientCustomFieldValue | None) -> PatientCustomFieldOut:
+    return PatientCustomFieldOut(
+        uuid=definition.uuid, field_key=definition.field_key, group_key=definition.group_key,
+        title=definition.title, sequence=definition.sequence, data_type=definition.data_type,
+        list_id=definition.list_id, options=definition.options or [], default_value=definition.default_value,
+        max_length=definition.max_length, required=definition.required, description=definition.description,
+        validation=definition.validation, typed_mapping=definition.typed_mapping,
+        value=value.value_text if value else definition.default_value, value_source=value.source if value else None,
+        updated_at=value.updated_at if value else None,
+    )
+
+
+@router.get("/{patient_uuid}/custom-fields", response_model=list[PatientCustomFieldOut])
+def list_custom_fields(patient_uuid: str, include_typed: bool = False, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    query = select(PatientCustomFieldDefinition, PatientCustomFieldValue).outerjoin(PatientCustomFieldValue, (PatientCustomFieldValue.definition_id == PatientCustomFieldDefinition.id) & (PatientCustomFieldValue.patient_id == patient.id))
+    if not include_typed: query = query.where(PatientCustomFieldDefinition.typed_mapping.is_(False))
+    rows = db.execute(query.order_by(PatientCustomFieldDefinition.group_key, PatientCustomFieldDefinition.sequence, PatientCustomFieldDefinition.id)).all()
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_custom_fields", resource_id=patient.uuid, detail=f"records={len(rows)}; include_typed={include_typed}")); db.commit()
+    return [custom_field_out(definition, value) for definition, value in rows]
+
+
+@router.put("/{patient_uuid}/custom-fields/{definition_uuid}", response_model=PatientCustomFieldOut)
+def update_custom_field(patient_uuid: str, definition_uuid: str, body: PatientCustomFieldValueUpdate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    definition = db.scalar(select(PatientCustomFieldDefinition).where(PatientCustomFieldDefinition.uuid == definition_uuid))
+    if not definition: raise HTTPException(status_code=404, detail="Custom field definition not found")
+    value = body.value.strip() if body.value is not None else None
+    value = value or None
+    if definition.required and value is None: raise HTTPException(status_code=422, detail="A value is required")
+    if value and definition.max_length and definition.max_length > 0 and len(value) > definition.max_length: raise HTTPException(status_code=422, detail="Value exceeds the configured maximum length")
+    option_ids = {str(option.get("id")) for option in definition.options or []}
+    if value and definition.data_type in {1, 43, 46} and option_ids and value not in option_ids: raise HTTPException(status_code=422, detail="Value is not in the configured option list")
+    if value and definition.data_type == 4:
+        try: datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError: raise HTTPException(status_code=422, detail="Value must be an ISO date or date-time")
+    item = db.scalar(select(PatientCustomFieldValue).where(PatientCustomFieldValue.patient_id == patient.id, PatientCustomFieldValue.definition_id == definition.id))
+    if item: item.value_text = value; item.source = "staff"; item.updated_by_id = user.id; item.updated_at = datetime.now(timezone.utc)
+    else: item = PatientCustomFieldValue(patient_id=patient.id, definition_id=definition.id, value_text=value, source="staff", updated_by_id=user.id); db.add(item)
+    db.flush(); db.add(AuditEvent(actor_id=user.id, action="update", resource_type="patient_custom_field", resource_id=item.uuid, detail=f"patient={patient.uuid}; field={definition.field_key}")); db.commit(); db.refresh(item)
+    return custom_field_out(definition, item)
 
 
 def sync_operational_consent(patient: Patient, purpose: str, permitted: bool) -> None:

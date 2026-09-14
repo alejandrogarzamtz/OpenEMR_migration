@@ -181,6 +181,44 @@ class PatientConsent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class PatientCustomFieldDefinition(Base):
+    __tablename__ = "patient_custom_field_definitions"
+    __table_args__ = (UniqueConstraint("legacy_form_id", "field_key", "sequence", name="uq_patient_custom_field_layout"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_form_id: Mapped[str] = mapped_column(String(31), default="DEM")
+    field_key: Mapped[str] = mapped_column(String(100), index=True)
+    group_key: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    title: Mapped[str] = mapped_column(String(255))
+    sequence: Mapped[int] = mapped_column(default=0)
+    data_type: Mapped[int] = mapped_column(default=2)
+    list_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    options: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    default_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    max_length: Mapped[int | None] = mapped_column(nullable=True)
+    required: Mapped[bool] = mapped_column(default=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validation: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    codes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    typed_mapping: Mapped[bool] = mapped_column(default=False)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class PatientCustomFieldValue(Base):
+    __tablename__ = "patient_custom_field_values"
+    __table_args__ = (UniqueConstraint("patient_id", "definition_id", name="uq_patient_custom_field_value"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    definition_id: Mapped[int] = mapped_column(ForeignKey("patient_custom_field_definitions.id"), index=True)
+    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default="staff")
+    legacy_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[int] = mapped_column(primary_key=True)

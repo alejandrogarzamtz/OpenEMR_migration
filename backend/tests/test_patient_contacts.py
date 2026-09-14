@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 from app.main import app
+from app.db import SessionLocal
+from app.models import PatientCustomFieldDefinition
 from test_communications import create_patient, create_portal, staff_headers
 
 
@@ -72,3 +74,20 @@ def test_consents_are_versioned_scoped_validated_and_synchronize_operational_fla
         assert portal_denied.status_code==201
         assert client.get("/api/v1/portal/me",headers=portal_headers).status_code==401
         assert client.post("/api/v1/portal/auth/token",json={"username":"consent-one-portal","password":"permanent-password-456"}).status_code==401
+
+
+def test_layout_driven_demographics_validate_options_and_isolate_patient_values():
+    with TestClient(app) as client:
+        with SessionLocal() as db:
+            custom=PatientCustomFieldDefinition(legacy_form_id="DEM",field_key="clinic_program",group_key="custom",title="Clinic program",sequence=1,data_type=1,list_id="clinic_programs",options=[{"id":"A","title":"Program A","active":True},{"id":"B","title":"Program B","active":True}],max_length=10,required=True,typed_mapping=False)
+            typed=PatientCustomFieldDefinition(legacy_form_id="DEM",field_key="race",group_key="identity",title="Race",sequence=2,data_type=2,typed_mapping=True)
+            db.add_all([custom,typed]); db.commit(); custom_uuid=custom.uuid
+        staff=staff_headers(client); patient=create_patient(client,staff,"CustomOne"); other=create_patient(client,staff,"CustomTwo")
+        fields=client.get(f"/api/v1/patients/{patient['uuid']}/custom-fields",headers=staff).json()
+        assert [field["field_key"] for field in fields]==["clinic_program"]
+        assert client.put(f"/api/v1/patients/{patient['uuid']}/custom-fields/{custom_uuid}",headers=staff,json={"value":"INVALID"}).status_code==422
+        saved=client.put(f"/api/v1/patients/{patient['uuid']}/custom-fields/{custom_uuid}",headers=staff,json={"value":"A"})
+        assert saved.status_code==200 and saved.json()["value"]=="A" and saved.json()["value_source"]=="staff"
+        assert client.get(f"/api/v1/patients/{other['uuid']}/custom-fields",headers=staff).json()[0]["value"] is None
+        all_fields=client.get(f"/api/v1/patients/{patient['uuid']}/custom-fields",headers=staff,params={"include_typed":True}).json()
+        assert {field["field_key"] for field in all_fields}>={"clinic_program","race"}

@@ -82,7 +82,8 @@ end-to-end healthcare workflows:
 - backend-enforced, OpenEMR-compatible ACL section/value grants;
 - expanded patient search, normalized addresses and telecoms, related people,
   searchable previous names, structured employment history, versioned and
-  revocable consent/directive records, and lossless legacy-data preservation;
+  revocable consent/directive records, layout-driven advanced demographics,
+  and lossless legacy-data preservation;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

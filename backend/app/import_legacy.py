@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
@@ -23,6 +23,14 @@ LEGACY_CONSENT_PURPOSES = {
     "allow_imm_reg_use": "immunization-registry", "allow_imm_info_share": "immunization-sharing",
     "allow_health_info_ex": "health-information-exchange", "allow_patient_portal": "patient-portal",
     "completed_ad": "advance-directive",
+}
+TYPED_PATIENT_FIELDS = {
+    "fname", "mname", "lname", "preferred_name", "suffix", "DOB", "sex", "gender_identity",
+    "sexual_orientation", "pronoun", "language", "race", "ethnicity", "email", "phone_cell",
+    "phone_home", "street", "street_line_2", "city", "state", "postal_code", "country_code",
+    "allow_patient_portal", "hipaa_allowemail", "hipaa_allowsms", "hipaa_voice", "hipaa_mail",
+    "hipaa_notice", "hipaa_message", "allow_imm_reg_use", "allow_imm_info_share",
+    "allow_health_info_ex", "completed_ad", "deceased_date", "deceased_reason",
 }
 
 
@@ -62,7 +70,7 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_consents", "patient_employments", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -120,6 +128,47 @@ def run(source_url: str, commit: bool = False) -> dict:
                     legacy_field=legacy_field, legacy_value=raw,
                 ))
                 stats["patient_consents"]["inserted"] += 1
+        target.flush()
+        layout_rows = list(legacy.execute(text("SELECT * FROM layout_options WHERE form_id='DEM' ORDER BY group_id,seq,field_id")).mappings()) if "layout_options" in legacy_tables else []
+        option_groups: dict[str, list[dict]] = {}
+        if layout_rows and "list_options" in legacy_tables:
+            wanted_lists = {clean(row["list_id"]) for row in layout_rows if clean(row["list_id"])}
+            for option in legacy.execute(text("SELECT list_id,option_id,title,seq,activity FROM list_options ORDER BY list_id,seq,option_id")).mappings():
+                if option["list_id"] in wanted_lists:
+                    option_groups.setdefault(option["list_id"], []).append({"id": str(option["option_id"]), "title": clean(option["title"]) or str(option["option_id"]), "sequence": option["seq"] or 0, "active": bool(option["activity"])})
+        for row in layout_rows:
+            stats["patient_custom_field_definitions"]["source"] += 1
+            definition = target.scalar(select(PatientCustomFieldDefinition).where(PatientCustomFieldDefinition.legacy_form_id == row["form_id"], PatientCustomFieldDefinition.field_key == row["field_id"], PatientCustomFieldDefinition.sequence == row["seq"]))
+            if definition:
+                stats["patient_custom_field_definitions"]["existing"] += 1; continue
+            list_id = clean(row["list_id"])
+            target.add(PatientCustomFieldDefinition(
+                legacy_form_id=row["form_id"], field_key=row["field_id"], group_key=clean(row["group_id"]),
+                title=clean(row["title"]) or row["field_id"], sequence=row["seq"] or 0,
+                data_type=row["data_type"] or 0, list_id=list_id, options=option_groups.get(list_id, []),
+                default_value=clean(row["default_value"]), max_length=row["max_length"] or None,
+                required=row["uor"] == 2, description=clean(row["description"]), validation=clean(row["validation"]),
+                conditions=clean(row["conditions"]), codes=clean(row["codes"]),
+                typed_mapping=row["field_id"] in TYPED_PATIENT_FIELDS,
+                legacy_payload={key: json_value(value) for key, value in row.items()},
+            ))
+            stats["patient_custom_field_definitions"]["inserted"] += 1
+        target.flush()
+        patient_columns = {column["name"] for column in inspect(source).get_columns("patient_data")}
+        definitions = list(target.scalars(select(PatientCustomFieldDefinition).where(PatientCustomFieldDefinition.legacy_form_id == "DEM")))
+        patients_by_legacy = {patient.legacy_pid: patient for patient in target.scalars(select(Patient).where(Patient.legacy_pid.is_not(None)))}
+        for row in legacy.execute(text("SELECT * FROM patient_data ORDER BY pid")).mappings():
+            patient = patients_by_legacy.get(row["pid"])
+            for definition in definitions:
+                if definition.field_key not in patient_columns: continue
+                stats["patient_custom_field_values"]["source"] += 1
+                if not patient:
+                    stats["patient_custom_field_values"]["rejected"] += 1; continue
+                if target.scalar(select(PatientCustomFieldValue.id).where(PatientCustomFieldValue.patient_id == patient.id, PatientCustomFieldValue.definition_id == definition.id)):
+                    stats["patient_custom_field_values"]["existing"] += 1; continue
+                raw = json_value(row[definition.field_key]); value_text = None if raw is None else str(raw)
+                target.add(PatientCustomFieldValue(patient_id=patient.id, definition_id=definition.id, value_text=value_text, source="legacy", legacy_value=value_text))
+                stats["patient_custom_field_values"]["inserted"] += 1
         target.flush()
         if "employer_data" in legacy_tables:
             employments = legacy.execute(text("SELECT * FROM employer_data ORDER BY id"))
