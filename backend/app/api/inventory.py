@@ -9,6 +9,7 @@ from ..db import get_db
 from ..models import AuditEvent, Encounter, InventoryLot, InventoryProduct, InventoryTransaction, Patient, Prescription, User
 from ..schemas import InventoryDispenseCreate, InventoryLotCreate, InventoryLotDestroy, InventoryLotOut, InventoryMovementCreate, InventoryProductCreate, InventoryProductOut, InventoryTransactionOut
 from ..security import inventory_dispense_user, inventory_user, inventory_write_user
+from ..services.access import require_warehouse_access, warehouse_scope
 
 router = APIRouter(prefix="/api/v1/inventory", tags=["inventory"])
 
@@ -29,8 +30,11 @@ def lot_by_uuid(db: Session, product: InventoryProduct, lot_uuid: str, lock: boo
     return lot
 
 
-def product_out(db: Session, product: InventoryProduct) -> InventoryProductOut:
-    on_hand = db.scalar(select(func.coalesce(func.sum(InventoryLot.on_hand), 0)).where(InventoryLot.product_id == product.id, InventoryLot.destroyed_at.is_(None)))
+def product_out(db: Session, product: InventoryProduct, user: User) -> InventoryProductOut:
+    query = select(func.coalesce(func.sum(InventoryLot.on_hand), 0)).where(InventoryLot.product_id == product.id, InventoryLot.destroyed_at.is_(None))
+    scope = warehouse_scope(db, user)
+    if scope is not None: query = query.where(InventoryLot.warehouse_id.in_(scope))
+    on_hand = db.scalar(query)
     return InventoryProductOut.model_validate({**product.__dict__, "on_hand": int(on_hand or 0)})
 
 
@@ -52,20 +56,22 @@ def list_products(q: str | None = None, active: bool | None = True, db: Session 
         query = query.where(InventoryProduct.active == active)
     products = list(db.scalars(query.order_by(InventoryProduct.name).limit(500)))
     db.add(AuditEvent(actor_id=user.id, action="search", resource_type="inventory_product")); db.commit()
-    return [product_out(db, product) for product in products]
+    return [product_out(db, product, user) for product in products]
 
 
 @router.post("/products", response_model=InventoryProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(body: InventoryProductCreate, db: Session = Depends(get_db), user: User = Depends(inventory_write_user)):
     product = InventoryProduct(**body.model_dump())
     db.add(product); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="inventory_product", resource_id=product.uuid)); db.commit(); db.refresh(product)
-    return product_out(db, product)
+    return product_out(db, product, user)
 
 
 @router.get("/products/{product_uuid}/lots", response_model=list[InventoryLotOut])
 def list_lots(product_uuid: str, include_destroyed: bool = False, warehouse_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(inventory_user)):
     product = product_by_uuid(db, product_uuid)
     query = select(InventoryLot).where(InventoryLot.product_id == product.id)
+    scope = warehouse_scope(db, user)
+    if scope is not None: query = query.where(InventoryLot.warehouse_id.in_(scope))
     if not include_destroyed:
         query = query.where(InventoryLot.destroyed_at.is_(None))
     if warehouse_id is not None:
@@ -78,6 +84,7 @@ def list_lots(product_uuid: str, include_destroyed: bool = False, warehouse_id: 
 @router.post("/products/{product_uuid}/lots", response_model=InventoryLotOut, status_code=status.HTTP_201_CREATED)
 def create_lot(product_uuid: str, body: InventoryLotCreate, db: Session = Depends(get_db), user: User = Depends(inventory_write_user)):
     product = product_by_uuid(db, product_uuid, lock=True)
+    require_warehouse_access(db, user, body.warehouse_id)
     if not product.allow_multiple:
         existing = db.scalar(select(InventoryLot.id).where(InventoryLot.product_id == product.id, InventoryLot.warehouse_id == body.warehouse_id, InventoryLot.destroyed_at.is_(None)))
         if existing:
@@ -93,6 +100,7 @@ def create_lot(product_uuid: str, body: InventoryLotCreate, db: Session = Depend
 @router.post("/products/{product_uuid}/lots/{lot_uuid}/destroy", response_model=InventoryLotOut)
 def destroy_lot(product_uuid: str, lot_uuid: str, body: InventoryLotDestroy, db: Session = Depends(get_db), user: User = Depends(inventory_write_user)):
     product = product_by_uuid(db, product_uuid, lock=True); lot = lot_by_uuid(db, product, lot_uuid, lock=True)
+    require_warehouse_access(db, user, lot.warehouse_id)
     if lot.destroyed_at:
         raise HTTPException(status_code=409, detail="Inventory lot is already destroyed")
     lot.destroyed_at = body.destroyed_at; lot.destruction_method = body.method; lot.destruction_witness = body.witness; lot.destruction_notes = body.notes
@@ -103,6 +111,7 @@ def destroy_lot(product_uuid: str, lot_uuid: str, body: InventoryLotDestroy, db:
 @router.post("/products/{product_uuid}/movements", response_model=list[InventoryTransactionOut], status_code=status.HTTP_201_CREATED)
 def move_inventory(product_uuid: str, body: InventoryMovementCreate, db: Session = Depends(get_db), user: User = Depends(inventory_write_user)):
     product = product_by_uuid(db, product_uuid, lock=True); lot = lot_by_uuid(db, product, body.lot_uuid, lock=True)
+    require_warehouse_access(db, user, lot.warehouse_id)
     if lot.destroyed_at:
         raise HTTPException(status_code=409, detail="Destroyed lots cannot be moved")
     if body.quantity == 0:
@@ -115,6 +124,7 @@ def move_inventory(product_uuid: str, body: InventoryMovementCreate, db: Session
         if not body.destination_lot_uuid:
             raise HTTPException(status_code=422, detail="Transfer requires a destination lot")
         destination = lot_by_uuid(db, product, body.destination_lot_uuid, lock=True)
+        require_warehouse_access(db, user, destination.warehouse_id)
         if destination.id == lot.id or destination.destroyed_at:
             raise HTTPException(status_code=409, detail="Invalid transfer destination")
     if lot.on_hand + delta < 0:
@@ -143,11 +153,17 @@ def dispense(product_uuid: str, body: InventoryDispenseCreate, db: Session = Dep
         if not prescription:
             raise HTTPException(status_code=404, detail="Prescription not found for patient")
     if not product.dispensable:
+        if warehouse_scope(db, user) is not None:
+            raise HTTPException(status_code=403, detail="Restricted users must select stock-backed dispensable products")
         lots = [None]
     else:
         query = select(InventoryLot).where(InventoryLot.product_id == product.id, InventoryLot.destroyed_at.is_(None), InventoryLot.on_hand > 0, (InventoryLot.expiration.is_(None) | (InventoryLot.expiration > body.occurred_on)))
         if body.warehouse_id is not None:
+            require_warehouse_access(db, user, body.warehouse_id)
             query = query.where(InventoryLot.warehouse_id == body.warehouse_id)
+        else:
+            scope = warehouse_scope(db, user)
+            if scope is not None: query = query.where(InventoryLot.warehouse_id.in_(scope))
         available = list(db.scalars(query.order_by(InventoryLot.expiration.asc().nullslast(), InventoryLot.lot_number, InventoryLot.id).with_for_update()))
         combining = product.allow_combining and prescription is None
         lots = available if combining else [next((lot for lot in available if lot.on_hand >= body.quantity), None)]
@@ -170,6 +186,9 @@ def dispense(product_uuid: str, body: InventoryDispenseCreate, db: Session = Dep
 @router.get("/transactions", response_model=list[InventoryTransactionOut])
 def list_transactions(product_uuid: str | None = None, transaction_type: str | None = Query(default=None, alias="type"), db: Session = Depends(get_db), user: User = Depends(inventory_user)):
     query = select(InventoryTransaction)
+    scope = warehouse_scope(db, user)
+    if scope is not None:
+        query = query.join(InventoryLot, InventoryTransaction.lot_id == InventoryLot.id).where(InventoryLot.warehouse_id.in_(scope))
     if product_uuid:
         product = product_by_uuid(db, product_uuid); query = query.where(InventoryTransaction.product_id == product.id)
     if transaction_type:

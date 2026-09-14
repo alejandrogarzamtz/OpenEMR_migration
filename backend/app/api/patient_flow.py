@@ -1,15 +1,27 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Appointment, AuditEvent, Encounter, Patient, PatientFlowEpisode, PatientFlowEvent, User
+from ..models import Appointment, AuditEvent, Encounter, Facility, Patient, PatientFlowEpisode, PatientFlowEvent, User
 from ..schemas import PatientFlowEpisodeOut, PatientFlowEventCreate, PatientFlowEventOut
 from ..security import appointment_user, appointment_write_user
+from ..services.access import facility_scope, require_facility_access
 
 router = APIRouter(prefix="/api/v1", tags=["patient-flow"])
+
+
+def require_episode_access(db: Session, user: User, episode: PatientFlowEpisode) -> None:
+    if not episode.appointment_id:
+        require_facility_access(db, user, None)
+        return
+    appointment = db.get(Appointment, episode.appointment_id)
+    facility_id = appointment.facility_id if appointment else None
+    if appointment and not facility_id and appointment.legacy_facility_id:
+        facility_id = db.scalar(select(Facility.id).where(Facility.legacy_facility_id == appointment.legacy_facility_id))
+    require_facility_access(db, user, facility_id)
 
 
 def latest_event(db: Session, episode_id: int) -> PatientFlowEvent | None:
@@ -39,6 +51,10 @@ def list_patient_flow(
     db: Session = Depends(get_db), user: User = Depends(appointment_user),
 ) -> list[PatientFlowEpisodeOut]:
     query = select(PatientFlowEpisode)
+    scope = facility_scope(db, user)
+    if scope is not None:
+        legacy_ids = list(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope), Facility.legacy_facility_id.is_not(None))))
+        query = query.join(Appointment, PatientFlowEpisode.appointment_id == Appointment.id).where(or_(Appointment.facility_id.in_(scope), Appointment.legacy_facility_id.in_(legacy_ids)))
     if starts_from: query = query.where(PatientFlowEpisode.started_at >= starts_from)
     if starts_before: query = query.where(PatientFlowEpisode.started_at < starts_before)
     episodes = list(db.scalars(query.order_by(PatientFlowEpisode.started_at).limit(500)))
@@ -55,6 +71,8 @@ def start_patient_flow(
 ) -> PatientFlowEpisodeOut:
     appointment = db.scalar(select(Appointment).where(Appointment.uuid == appointment_uuid))
     if not appointment: raise HTTPException(status_code=404, detail="Appointment not found")
+    facility_id = appointment.facility_id or (db.scalar(select(Facility.id).where(Facility.legacy_facility_id == appointment.legacy_facility_id)) if appointment.legacy_facility_id else None)
+    require_facility_access(db, user, facility_id)
     existing = db.scalar(select(PatientFlowEpisode).where(PatientFlowEpisode.appointment_id == appointment.id))
     if existing: raise HTTPException(status_code=409, detail="Patient flow already started")
     encounter = None
@@ -72,12 +90,9 @@ def start_patient_flow(
 
 @router.get("/patient-flow/{episode_uuid}", response_model=PatientFlowEpisodeOut)
 def get_patient_flow(episode_uuid: str, db: Session = Depends(get_db), user: User = Depends(appointment_user)) -> PatientFlowEpisodeOut:
-    episode = db.scalar(
-        select(PatientFlowEpisode)
-        .where(PatientFlowEpisode.uuid == episode_uuid)
-        .with_for_update()
-    )
+    episode = db.scalar(select(PatientFlowEpisode).where(PatientFlowEpisode.uuid == episode_uuid))
     if not episode: raise HTTPException(status_code=404, detail="Patient flow not found")
+    require_episode_access(db, user, episode)
     db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_flow", resource_id=episode.uuid)); db.commit()
     return episode_out(db, episode, include_events=True)
 
@@ -87,8 +102,9 @@ def transition_patient_flow(
     episode_uuid: str, body: PatientFlowEventCreate,
     db: Session = Depends(get_db), user: User = Depends(appointment_write_user),
 ) -> PatientFlowEpisodeOut:
-    episode = db.scalar(select(PatientFlowEpisode).where(PatientFlowEpisode.uuid == episode_uuid))
+    episode = db.scalar(select(PatientFlowEpisode).where(PatientFlowEpisode.uuid == episode_uuid).with_for_update())
     if not episode: raise HTTPException(status_code=404, detail="Patient flow not found")
+    require_episode_access(db, user, episode)
     previous = latest_event(db, episode.id)
     if previous and previous.status == body.status and previous.room == body.room:
         raise HTTPException(status_code=409, detail="Patient flow status and room are unchanged")

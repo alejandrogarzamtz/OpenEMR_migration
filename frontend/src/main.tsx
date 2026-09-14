@@ -8,6 +8,7 @@ import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 import { PatientFlowBoard } from "./features/patient-flow/PatientFlowBoard";
 import { InventoryWorkspace } from "./features/inventory/InventoryWorkspace";
+import { AdministrationWorkspace } from "./features/administration/AdministrationWorkspace";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
@@ -44,7 +45,7 @@ function App(){
   const [selected,setSelected]=useState<Summary|null>(null);
   const [error,setError]=useState("");
   const [creatingPatient,setCreatingPatient]=useState(false);
-  const [section,setSection]=useState<"patients"|"appointments"|"flow"|"inventory">("patients");
+  const [section,setSection]=useState<"patients"|"appointments"|"flow"|"inventory"|"administration">("patients");
 
   const api=createApiClient({baseUrl:API,getToken:()=>token,onUnauthorized:()=>{localStorage.removeItem("token");setToken("");}});
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
@@ -107,10 +108,10 @@ function App(){
   useEffect(()=>{if(token)void loadPatients("");},[token]);
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
-    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button>Encuentros</button><button>Reportes</button></nav><button className="logout" onClick={()=>{localStorage.removeItem("token");setToken("");}}>Salir</button></aside>
-    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":section==="appointments"?"Agenda":section==="flow"?"Flujo de pacientes":"Inventario"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
+    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button>Encuentros</button><button>Reportes</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>Administración</button></nav><button className="logout" onClick={()=>{localStorage.removeItem("token");setToken("");}}>Salir</button></aside>
+    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":section==="appointments"?"Agenda":section==="flow"?"Flujo de pacientes":section==="inventory"?"Inventario":"Administración"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
       {error&&<p className="error">{error}</p>}
-      {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:section==="flow"?<PatientFlowBoard api={api}/>:section==="inventory"?<InventoryWorkspace api={api}/>:<>{creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
+      {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:section==="flow"?<PatientFlowBoard api={api}/>:section==="inventory"?<InventoryWorkspace api={api}/>:section==="administration"?<AdministrationWorkspace api={api}/>:<>{creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
       <div className={selected?"workspace detail-open":"workspace"}><section className="card">
         <div className="toolbar"><input aria-label="Buscar pacientes" placeholder="Buscar por nombre o correo" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==="Enter"&&void loadPatients()}/><span>{patients.length} resultados</span></div>
         <table><thead><tr><th>Paciente</th><th>Fecha de nacimiento</th><th>Sexo</th><th>Correo</th></tr></thead><tbody>{patients.map(patient=><tr className="patient-row" key={patient.uuid} onClick={()=>void openPatient(patient)}><td><strong>{patient.last_name}, {patient.first_name}</strong><small>{patient.uuid.slice(0,8)}</small></td><td>{patient.date_of_birth}</td><td>{patient.sex}</td><td>{patient.email??"—"}</td></tr>)}</tbody></table>

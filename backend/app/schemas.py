@@ -96,6 +96,7 @@ class PatientPage(BaseModel):
 
 class AppointmentBase(BaseModel):
     patient_uuid: str
+    facility_uuid: str | None = None
     starts_at: datetime
     ends_at: datetime
     category_id: int | None = None
@@ -140,6 +141,7 @@ class AppointmentUpdate(BaseModel):
     legacy_provider_id: int | None = None
     facility_name: str | None = Field(default=None, max_length=150)
     legacy_facility_id: int | None = None
+    facility_uuid: str | None = None
     room: str | None = Field(default=None, max_length=20)
     location: str | None = Field(default=None, max_length=255)
     recurrence_rule: str | None = Field(default=None, max_length=500)
@@ -152,6 +154,94 @@ class AppointmentOut(AppointmentBase):
     uuid: str
     status: str
     recurrence_group: str | None
+
+
+class AppointmentFacilityOut(BaseModel):
+    uuid: str
+    name: str
+
+
+class FacilityCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    phone: str | None = Field(default=None, max_length=30)
+    fax: str | None = Field(default=None, max_length=30)
+    email: EmailStr | None = None
+    website: str | None = Field(default=None, max_length=255)
+    street: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=255)
+    state: str | None = Field(default=None, max_length=50)
+    postal_code: str | None = Field(default=None, max_length=20)
+    country_code: str | None = Field(default=None, max_length=30)
+    npi: str | None = Field(default=None, max_length=15)
+    taxonomy: str | None = Field(default=None, max_length=15)
+    service_location: bool = True
+    billing_location: bool = True
+    accepts_assignment: bool = True
+
+
+class FacilityOut(FacilityCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    active: bool
+
+
+class WarehouseCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=31)
+    name: str = Field(min_length=1, max_length=255)
+    facility_uuid: str | None = None
+    sequence: int = 0
+
+
+class WarehouseOut(BaseModel):
+    uuid: str
+    code: str
+    name: str
+    facility_uuid: str | None
+    sequence: int
+    active: bool
+
+
+class PractitionerCreate(BaseModel):
+    username: str | None = Field(default=None, max_length=255)
+    first_name: str = Field(min_length=1, max_length=255)
+    middle_name: str | None = Field(default=None, max_length=255)
+    last_name: str = Field(min_length=1, max_length=255)
+    title: str | None = Field(default=None, max_length=30)
+    specialty: str | None = Field(default=None, max_length=255)
+    npi: str | None = Field(default=None, max_length=15)
+    taxonomy: str | None = Field(default=None, max_length=30)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=30)
+    primary_facility_uuid: str | None = None
+    calendar_enabled: bool = False
+
+
+class PractitionerOut(PractitionerCreate):
+    uuid: str
+    username: str | None
+    first_name: str
+    middle_name: str | None
+    last_name: str
+    title: str | None
+    specialty: str | None
+    npi: str | None
+    taxonomy: str | None
+    email: str | None
+    phone: str | None
+    primary_facility_uuid: str | None
+    calendar_enabled: bool
+    active: bool
+
+
+class UserFacilityAccessCreate(BaseModel):
+    facility_uuid: str
+    warehouse_uuid: str | None = None
+
+
+class UserFacilityAccessOut(UserFacilityAccessCreate):
+    uuid: str
+    facility_name: str
+    warehouse_name: str | None
 
 
 class PatientFlowEventCreate(BaseModel):

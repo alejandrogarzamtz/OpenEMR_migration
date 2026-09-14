@@ -5,24 +5,33 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Appointment, AuditEvent, Patient, User
-from ..schemas import AppointmentCreate, AppointmentOut, AppointmentUpdate
+from ..models import Appointment, AuditEvent, Facility, Patient, User
+from ..schemas import AppointmentCreate, AppointmentFacilityOut, AppointmentOut, AppointmentUpdate
 from ..security import appointment_user, appointment_write_user
 from ..services.patients import patient_by_uuid
+from ..services.access import facility_scope, require_facility_access
 
 router = APIRouter(prefix="/api/v1/appointments", tags=["appointments"])
 
 ACTIVE_STATUSES = {"scheduled", "confirmed", "arrived", "checked-in", "in-progress", "pending"}
 
 
-def appointment_out(item: Appointment, patient_uuid: str) -> AppointmentOut:
+def appointment_out(db: Session, item: Appointment, patient_uuid: str) -> AppointmentOut:
     fields = (
         "uuid", "starts_at", "ends_at", "status", "category_id", "title", "reason",
         "provider_name", "legacy_provider_id", "facility_name", "legacy_facility_id", "room",
         "location", "contact_name", "contact_phone", "contact_email", "language", "all_day",
         "recurrence_rule", "recurrence_group", "send_sms", "send_email",
     )
-    return AppointmentOut(patient_uuid=patient_uuid, **{key: getattr(item, key) for key in fields})
+    facility = db.get(Facility, item.facility_id) if item.facility_id else db.scalar(select(Facility).where(Facility.legacy_facility_id == item.legacy_facility_id)) if item.legacy_facility_id else None
+    return AppointmentOut(patient_uuid=patient_uuid, facility_uuid=facility.uuid if facility else None, **{key: getattr(item, key) for key in fields})
+
+
+def require_appointment_access(db: Session, user: User, item: Appointment) -> None:
+    facility_id = item.facility_id
+    if not facility_id and item.legacy_facility_id:
+        facility_id = db.scalar(select(Facility.id).where(Facility.legacy_facility_id == item.legacy_facility_id))
+    require_facility_access(db, user, facility_id)
 
 
 def ensure_no_conflict(db: Session, item: Appointment, exclude_id: int | None = None) -> None:
@@ -62,6 +71,10 @@ def list_appointments(
     user: User = Depends(appointment_user),
 ) -> list[AppointmentOut]:
     query = select(Appointment, Patient.uuid).join(Patient)
+    scope = facility_scope(db, user)
+    if scope is not None:
+        legacy_ids = list(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope), Facility.legacy_facility_id.is_not(None))))
+        query = query.where(or_(Appointment.facility_id.in_(scope), Appointment.legacy_facility_id.in_(legacy_ids)))
     if patient_uuid:
         query = query.where(Patient.uuid == patient_uuid)
     if starts_from:
@@ -77,7 +90,7 @@ def list_appointments(
     rows = db.execute(query.order_by(Appointment.starts_at).limit(limit)).all()
     db.add(AuditEvent(actor_id=user.id, action="search", resource_type="appointment"))
     db.commit()
-    return [appointment_out(item, patient_id) for item, patient_id in rows]
+    return [appointment_out(db, item, patient_id) for item, patient_id in rows]
 
 
 @router.post("", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
@@ -87,14 +100,29 @@ def create_appointment(
     user: User = Depends(appointment_write_user),
 ) -> AppointmentOut:
     patient = patient_by_uuid(db, body.patient_uuid)
-    item = Appointment(patient_id=patient.id, **body.model_dump(exclude={"patient_uuid"}))
+    facility = db.scalar(select(Facility).where(Facility.uuid == body.facility_uuid)) if body.facility_uuid else None
+    if body.facility_uuid and not facility:
+        raise HTTPException(status_code=404, detail="Facility not found")
+    require_facility_access(db, user, facility.id if facility else None)
+    values = body.model_dump(exclude={"patient_uuid", "facility_uuid"})
+    if facility:
+        values.update(facility_id=facility.id, legacy_facility_id=facility.legacy_facility_id, facility_name=facility.name)
+    item = Appointment(patient_id=patient.id, **values)
     ensure_no_conflict(db, item)
     db.add(item)
     db.flush()
     db.add(AuditEvent(actor_id=user.id, action="create", resource_type="appointment", resource_id=item.uuid))
     db.commit()
     db.refresh(item)
-    return appointment_out(item, patient.uuid)
+    return appointment_out(db, item, patient.uuid)
+
+
+@router.get("/facilities", response_model=list[AppointmentFacilityOut])
+def list_appointment_facilities(db: Session = Depends(get_db), user: User = Depends(appointment_user)):
+    query = select(Facility).where(Facility.active.is_(True), Facility.service_location.is_(True))
+    scope = facility_scope(db, user)
+    if scope is not None: query = query.where(Facility.id.in_(scope))
+    return list(db.scalars(query.order_by(Facility.name)))
 
 
 @router.get("/{appointment_uuid}", response_model=AppointmentOut)
@@ -107,9 +135,10 @@ def get_appointment(
     if not row:
         raise HTTPException(status_code=404, detail="Appointment not found")
     item, patient_uuid = row
+    require_appointment_access(db, user, item)
     db.add(AuditEvent(actor_id=user.id, action="read", resource_type="appointment", resource_id=item.uuid))
     db.commit()
-    return appointment_out(item, patient_uuid)
+    return appointment_out(db, item, patient_uuid)
 
 
 @router.patch("/{appointment_uuid}", response_model=AppointmentOut)
@@ -123,7 +152,14 @@ def update_appointment(
     if not row:
         raise HTTPException(status_code=404, detail="Appointment not found")
     item, patient_uuid = row
+    require_appointment_access(db, user, item)
     changes = body.model_dump(exclude_unset=True)
+    if "facility_uuid" in changes:
+        value = changes.pop("facility_uuid")
+        facility = db.scalar(select(Facility).where(Facility.uuid == value)) if value else None
+        if value and not facility: raise HTTPException(status_code=404, detail="Facility not found")
+        require_facility_access(db, user, facility.id if facility else None)
+        changes.update(facility_id=facility.id if facility else None, facility_name=facility.name if facility else None, legacy_facility_id=facility.legacy_facility_id if facility else None)
     for field, value in changes.items():
         setattr(item, field, value)
     if item.ends_at <= item.starts_at:
@@ -132,7 +168,7 @@ def update_appointment(
     db.add(AuditEvent(actor_id=user.id, action="update", resource_type="appointment", resource_id=item.uuid, detail=",".join(sorted(changes))))
     db.commit()
     db.refresh(item)
-    return appointment_out(item, patient_uuid)
+    return appointment_out(db, item, patient_uuid)
 
 
 @router.delete("/{appointment_uuid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -144,6 +180,7 @@ def delete_appointment(
     item = db.scalar(select(Appointment).where(Appointment.uuid == appointment_uuid))
     if not item:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    require_appointment_access(db, user, item)
     item.status = "cancelled"
     db.add(AuditEvent(actor_id=user.id, action="cancel", resource_type="appointment", resource_id=item.uuid))
     db.commit()

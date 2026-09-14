@@ -19,6 +19,7 @@ from .api.appointments import router as appointments_router
 from .api.patients import router as patients_router
 from .api.patient_flow import router as patient_flow_router
 from .api.inventory import router as inventory_router
+from .api.administration import router as administration_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
 
@@ -30,6 +31,7 @@ app.include_router(appointments_router)
 app.include_router(patients_router)
 app.include_router(patient_flow_router)
 app.include_router(inventory_router)
+app.include_router(administration_router)
 app.include_router(fhir_router)
 
 

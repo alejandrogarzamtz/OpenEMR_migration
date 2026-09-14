@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Prescription, VitalSet
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Practitioner, PractitionerFacilityAccess, Prescription, VitalSet, Warehouse
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
@@ -45,7 +45,7 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms")
+    names = ("patients", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
@@ -85,10 +85,42 @@ def run(source_url: str, commit: bool = False) -> dict:
             ))
             stats["patients"]["inserted"] += 1
         target.flush()
+        facilities = legacy.execute(text("SELECT * FROM facility ORDER BY id"))
+        for row in facilities.mappings():
+            stats["facilities"]["source"] += 1
+            if target.scalar(select(Facility.id).where(Facility.legacy_facility_id == row["id"])): stats["facilities"]["existing"] += 1; continue
+            if not clean(row["name"]): stats["facilities"]["rejected"] += 1; continue
+            target.add(Facility(legacy_facility_id=row["id"],name=clean(row["name"]),phone=clean(row["phone"]),fax=clean(row["fax"]),email=clean(row["email"]),website=clean(row["website"]),street=clean(row["street"]),city=clean(row["city"]),state=clean(row["state"]),postal_code=clean(row["postal_code"]),country_code=clean(row["country_code"]),npi=clean(row["facility_npi"]),taxonomy=clean(row["facility_taxonomy"]),service_location=bool(row["service_location"]),billing_location=bool(row["billing_location"]),accepts_assignment=bool(row["accepts_assignment"]),active=not bool(row["inactive"]),legacy_payload={key:json_value(value) for key,value in row.items()})); stats["facilities"]["inserted"] += 1
+        target.flush()
+        warehouses = legacy.execute(text("SELECT option_id,title,option_value,seq,activity FROM list_options WHERE list_id='warehouse' ORDER BY seq,option_id"))
+        for row in warehouses.mappings():
+            stats["warehouses"]["source"] += 1
+            if target.scalar(select(Warehouse.id).where(Warehouse.legacy_option_id == row["option_id"])): stats["warehouses"]["existing"] += 1; continue
+            facility=target.scalar(select(Facility).where(Facility.legacy_facility_id==int(row["option_value"]))) if str(row["option_value"] or "").isdigit() else None
+            target.add(Warehouse(legacy_option_id=row["option_id"],code=row["option_id"],name=clean(row["title"]) or row["option_id"],facility_id=facility.id if facility else None,sequence=row["seq"] or 0,active=bool(row["activity"]),legacy_payload={key:json_value(value) for key,value in row.items()})); stats["warehouses"]["inserted"] += 1
+        target.flush()
+        practitioners = legacy.execute(text("SELECT * FROM users ORDER BY id"))
+        for row in practitioners.mappings():
+            stats["practitioners"]["source"] += 1
+            if target.scalar(select(Practitioner.id).where(Practitioner.legacy_user_id==row["id"])): stats["practitioners"]["existing"] += 1; continue
+            facility=target.scalar(select(Facility).where(Facility.legacy_facility_id==row["facility_id"])) if row["facility_id"] else None
+            target.add(Practitioner(legacy_user_id=row["id"],username=clean(row["username"]),first_name=clean(row["fname"]) or clean(row["username"]) or "Unknown",middle_name=clean(row["mname"]),last_name=clean(row["lname"]) or "User",title=clean(row["title"]),specialty=clean(row["specialty"]),npi=clean(row["npi"]),taxonomy=clean(row["taxonomy"]),email=clean(row["email"]),phone=clean(row["phonew1"]) or clean(row["phone"]),primary_facility_id=facility.id if facility else None,calendar_enabled=bool(row["calendar"]),active=bool(row["active"]),legacy_payload={key:json_value(value) for key,value in row.items()})); stats["practitioners"]["inserted"] += 1
+        target.flush()
+        assignments = legacy.execute(text("SELECT tablename,table_id,facility_id,warehouse_id FROM users_facility WHERE tablename='users' ORDER BY table_id,facility_id,warehouse_id"))
+        for row in assignments.mappings():
+            stats["practitioner_facility_access"]["source"] += 1
+            practitioner=target.scalar(select(Practitioner).where(Practitioner.legacy_user_id==row["table_id"])); facility=target.scalar(select(Facility).where(Facility.legacy_facility_id==row["facility_id"]))
+            if not practitioner or not facility: stats["practitioner_facility_access"]["rejected"] += 1; continue
+            if target.scalar(select(PractitionerFacilityAccess.id).where(PractitionerFacilityAccess.practitioner_id==practitioner.id,PractitionerFacilityAccess.facility_id==facility.id,PractitionerFacilityAccess.warehouse_code==(clean(row["warehouse_id"]) or ""))): stats["practitioner_facility_access"]["existing"] += 1; continue
+            target.add(PractitionerFacilityAccess(practitioner_id=practitioner.id,facility_id=facility.id,warehouse_code=clean(row["warehouse_id"]) or "")); stats["practitioner_facility_access"]["inserted"] += 1
+        target.flush()
         appointments = legacy.execute(text("SELECT e.*,u.fname AS provider_fname,u.lname AS provider_lname,f.name AS facility_name FROM openemr_postcalendar_events e LEFT JOIN users u ON u.id=e.pc_aid LEFT JOIN facility f ON f.id=e.pc_facility ORDER BY e.pc_eid"))
         for row in appointments.mappings():
             stats["appointments"]["source"] += 1
-            if target.scalar(select(Appointment.id).where(Appointment.legacy_event_id == row["pc_eid"])):
+            existing_appointment = target.scalar(select(Appointment).where(Appointment.legacy_event_id == row["pc_eid"]))
+            if existing_appointment:
+                if not existing_appointment.facility_id and row["pc_facility"]:
+                    existing_appointment.facility_id = target.scalar(select(Facility.id).where(Facility.legacy_facility_id == row["pc_facility"]))
                 stats["appointments"]["existing"] += 1
                 continue
             patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pc_pid"]))
@@ -102,10 +134,11 @@ def run(source_url: str, commit: bool = False) -> dict:
             provider_name = " ".join(filter(None, (clean(row["provider_fname"]), clean(row["provider_lname"])))) or None
             legacy_status = clean(row["pc_apptstatus"]) or "-"
             recurrence_rule = f"LEGACY:type={row['pc_recurrtype']};frequency={row['pc_recurrfreq']};spec={clean(row['pc_recurrspec']) or ''}" if row["pc_recurrtype"] else None
+            facility = target.scalar(select(Facility).where(Facility.legacy_facility_id == row["pc_facility"])) if row["pc_facility"] else None
             target.add(Appointment(
                 legacy_event_id=row["pc_eid"], patient_id=patient.id,
                 legacy_provider_id=int(row["pc_aid"]) if str(row["pc_aid"] or "").isdigit() else None,
-                legacy_facility_id=row["pc_facility"] or None, category_id=row["pc_catid"] or None,
+                legacy_facility_id=row["pc_facility"] or None, facility_id=facility.id if facility else None, category_id=row["pc_catid"] or None,
                 title=clean(row["pc_title"]), starts_at=starts_at, ends_at=ends_at,
                 status=APPOINTMENT_STATUS_MAP.get(legacy_status, "scheduled"), legacy_status=legacy_status,
                 reason=clean(row["pc_hometext"]), provider_name=provider_name,

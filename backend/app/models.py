@@ -65,6 +65,83 @@ class AuditEvent(Base):
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class Facility(Base):
+    __tablename__ = "facilities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_facility_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    fax: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    street: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    npi: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    taxonomy: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    service_location: Mapped[bool] = mapped_column(default=True)
+    billing_location: Mapped[bool] = mapped_column(default=True)
+    accepts_assignment: Mapped[bool] = mapped_column(default=True)
+    active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class Warehouse(Base):
+    __tablename__ = "warehouses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_option_id: Mapped[str | None] = mapped_column(String(31), unique=True, nullable=True)
+    code: Mapped[str] = mapped_column(String(31), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
+    sequence: Mapped[int] = mapped_column(default=0)
+    active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class Practitioner(Base):
+    __tablename__ = "practitioners"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_user_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[str] = mapped_column(String(255))
+    middle_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_name: Mapped[str] = mapped_column(String(255))
+    title: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    specialty: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    npi: Mapped[str | None] = mapped_column(String(15), nullable=True, index=True)
+    taxonomy: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    primary_facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True)
+    calendar_enabled: Mapped[bool] = mapped_column(default=False)
+    active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class UserFacilityAccess(Base):
+    __tablename__ = "user_facility_access"
+    __table_args__ = (UniqueConstraint("user_id", "facility_id", "warehouse_id", name="uq_user_facility_warehouse"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("facilities.id"), index=True)
+    warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"), nullable=True, index=True)
+
+
+class PractitionerFacilityAccess(Base):
+    __tablename__ = "practitioner_facility_access"
+    __table_args__ = (UniqueConstraint("practitioner_id", "facility_id", "warehouse_code", name="uq_practitioner_facility_warehouse"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    practitioner_id: Mapped[int] = mapped_column(ForeignKey("practitioners.id"), index=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("facilities.id"), index=True)
+    warehouse_code: Mapped[str] = mapped_column(String(31), default="")
+
+
 class Appointment(Base):
     __tablename__ = "appointments"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -73,6 +150,7 @@ class Appointment(Base):
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
     legacy_provider_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     legacy_facility_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
     category_id: Mapped[int | None] = mapped_column(nullable=True)
     title: Mapped[str | None] = mapped_column(String(150), nullable=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

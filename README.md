@@ -85,6 +85,8 @@ end-to-end healthcare workflows:
   synchronized with scheduled appointments;
 - medication and supply inventory with warehouse lots, expiration-aware FEFO
   dispensing, stock movements, destruction records, and lossless legacy import;
+- administration of facilities, practitioners and warehouses, with explicit
+  facility/warehouse assignments enforced by scheduling and inventory APIs;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
