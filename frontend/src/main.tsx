@@ -8,6 +8,7 @@ import { PatientContacts } from "./features/patients/PatientContacts";
 import { PatientPhotos } from "./features/patients/PatientPhotos";
 import { PatientDuplicates } from "./features/patients/PatientDuplicates";
 import { PatientReportButton } from "./features/patients/PatientReportButton";
+import { ClinicalFormEditor } from "./features/patients/ClinicalFormEditor";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 import { PatientFlowBoard } from "./features/patient-flow/PatientFlowBoard";
@@ -124,12 +125,6 @@ function App(){
   async function toggleClaimRelease(item:Claim){
     if(!selected)return; await api(`/api/v1/patients/${selected.patient.uuid}/claims/${item.uuid}/release`,{method:item.released_to_patient_at?"DELETE":"POST"}); await openPatient(selected.patient);
   }
-  async function addClinicalForm(event:FormEvent<HTMLFormElement>){
-    event.preventDefault(); if(!selected?.encounters.length)return; const data=new FormData(event.currentTarget); const formType=String(data.get("form_type"));
-    const content=formType==="soap"?{subjective:data.get("subjective"),objective:data.get("objective"),assessment:data.get("assessment"),plan:data.get("plan")}:{note:data.get("note")};
-    await api(`/api/v1/patients/${selected.patient.uuid}/clinical-forms`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({encounter_uuid:selected.encounters[0].uuid,form_type:formType,title:data.get("title"),content})});
-    event.currentTarget.reset(); await openPatient(selected.patient);
-  }
   async function signClinicalForm(item:ClinicalForm){
     if(!selected)return; const password=window.prompt("Confirma tu contraseña para firmar. La firma bloqueará el formulario.");if(!password)return;
     try{await api(`/api/v1/patients/${selected.patient.uuid}/clinical-forms/${item.uuid}/sign`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,lock:true,attestation:"I attest that this clinical record is accurate and complete."})});await openPatient(selected.patient);}catch(reason){setError(reason instanceof Error?reason.message:"No se pudo firmar el formulario");}
@@ -173,7 +168,7 @@ function App(){
         <form className="quick-add compact" onSubmit={uploadDocument}><input name="file" type="file" required/><button>Subir documento</button></form>
         <section className="summary-group"><h3>Encuentros<span>{selected.encounters.length}</span></h3>{selected.encounters.map(encounter=><article key={encounter.uuid}><strong>{encounter.chief_complaint||"Encuentro clínico"}</strong><small>{new Date(encounter.occurred_at).toLocaleString()} · {encounter.locked?"bloqueado":"abierto"} · {encounter.signature_count} firma(s)</small>{!encounter.locked&&<button className="text-button" onClick={()=>void signEncounter(encounter)}>Firmar y bloquear encuentro</button>}</article>)}</section>
         <section className="summary-group"><h3>Formularios clínicos<span>{selected.clinicalForms.length}</span></h3>{selected.clinicalForms.map(item=><article key={item.uuid}><strong>{item.title}</strong><small>{item.form_type} · {item.status}{item.locked?" · bloqueado":""} · {item.signature_count} firma(s) · {item.released_to_patient_at?"Publicado en portal":"Privado"}</small>{item.status!=="signed"?<button className="text-button" onClick={()=>void signClinicalForm(item)}>Firmar y bloquear</button>:<button className="text-button" onClick={()=>void toggleFormRelease(item)}>{item.released_to_patient_at?"Retirar del portal":"Publicar en portal"}</button>}</article>)}</section>
-        {selected.encounters.length>0&&!selected.encounters[0].locked&&<form className="quick-add compact" onSubmit={addClinicalForm}><select name="form_type"><option value="soap">SOAP</option><option value="ros">Revisión por sistemas</option><option value="physical_exam">Examen físico</option><option value="clinic_note">Nota clínica</option><option value="custom">Personalizado</option></select><input name="title" placeholder="Título" required/><textarea name="subjective" placeholder="Subjetivo / nota"/><textarea name="objective" placeholder="Objetivo"/><textarea name="assessment" placeholder="Evaluación"/><textarea name="plan" placeholder="Plan"/><textarea name="note" placeholder="Contenido de formulario no SOAP"/><button>Guardar borrador</button></form>}
+        {selected.encounters.length>0&&!selected.encounters[0].locked&&<ClinicalFormEditor api={api} patientUuid={selected.patient.uuid} encounterUuid={selected.encounters[0].uuid} onSaved={()=>openPatient(selected.patient)}/>}
         <section className="summary-group"><h3>Coberturas<span>{selected.coverages.length}</span></h3>{selected.coverages.map(coverage=><article key={coverage.uuid}><strong>{coverage.payer_name}</strong><small>{coverage.policy_number} · {coverage.priority}</small></article>)}</section>
         <form className="quick-add compact" onSubmit={addCoverage}><input name="payer_name" placeholder="Aseguradora" required/><input name="policy_number" placeholder="Póliza" required/><button>Agregar cobertura</button></form>
         <section className="summary-group"><h3>Facturación<span>{selected.claims.length}</span></h3>{selected.claims.map(claim=><article key={claim.uuid}><strong>${claim.total} · {claim.status}</strong><small>Saldo ${claim.balance} · {claim.released_to_patient_at?"Publicado en portal":"Privado"}</small><button className="text-button" onClick={()=>void toggleClaimRelease(claim)}>{claim.released_to_patient_at?"Retirar del portal":"Publicar estado de cuenta"}</button></article>)}{selected.charges.map(charge=><article key={charge.uuid}><strong>{charge.code} · ${charge.unit_price}</strong><small>Cargo sin reclamar</small></article>)}</section>

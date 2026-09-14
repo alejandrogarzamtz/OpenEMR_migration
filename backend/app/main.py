@@ -27,6 +27,7 @@ from .api.chart_reports import router as chart_reports_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
 from .services.clinical_signatures import create_encounter_signature, create_signature, encounter_locked, encounter_signatures, form_locked, form_signatures, verify_encounter_signature_chain, verify_signature_chain
+from .services.clinical_forms import ClinicalFormValidationError, FORM_DEFINITIONS, validate_clinical_form_content
 from .security import password_hash
 
 
@@ -341,11 +342,24 @@ def list_prescriptions(patient_uuid: str, db: Session = Depends(get_db), user: U
     return [PrescriptionOut(uuid=x.uuid,encounter_uuid=e,pharmacy_uuid=p,status=x.status,**{k:getattr(x,k) for k in ("prescribed_at","start_date","end_date","drug_name","rxnorm_code","dosage_instructions","quantity","refills","substitutions_allowed","indication")}) for x,e,p in rows]
 
 
+@app.get("/api/v1/clinical-form-definitions")
+def clinical_form_definitions(user: User = Depends(clinical_user)):
+    return FORM_DEFINITIONS
+
+
+def validated_form_content(form_type: str, content: dict) -> dict:
+    try:
+        return validate_clinical_form_content(form_type, content)
+    except ClinicalFormValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @app.post("/api/v1/patients/{patient_uuid}/clinical-forms", response_model=ClinicalFormOut, status_code=201)
 def create_clinical_form(patient_uuid: str, body: ClinicalFormCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     patient = patient_by_uuid(db, patient_uuid); encounter = encounter_for_patient(db, patient, body.encounter_uuid)
     if encounter_locked(db, encounter.id): raise HTTPException(status_code=423, detail="Encounter is electronically signed and locked")
-    item = ClinicalForm(patient_id=patient.id, encounter_id=encounter.id, author_id=user.id, **body.model_dump(exclude={"encounter_uuid"})); db.add(item); db.flush()
+    data=body.model_dump(exclude={"encounter_uuid"});data["content"]=validated_form_content(body.form_type,body.content)
+    item = ClinicalForm(patient_id=patient.id, encounter_id=encounter.id, author_id=user.id, **data); db.add(item); db.flush()
     db.add(AuditEvent(actor_id=user.id, action="create", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
     return ClinicalFormOut(encounter_uuid=encounter.uuid, **{k: getattr(item, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")})
 
@@ -371,7 +385,7 @@ def update_clinical_form(patient_uuid: str, form_uuid: str, body: ClinicalFormUp
     if not row: raise HTTPException(status_code=404, detail="Clinical form not found")
     item, encounter_uuid = row
     if form_locked(db, item): raise HTTPException(status_code=423, detail="Clinical form is electronically signed and locked")
-    item.title = body.title; item.content = body.content
+    item.title = body.title; item.content = validated_form_content(item.form_type,body.content)
     db.add(AuditEvent(actor_id=user.id, action="update", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
     return clinical_form_out(item, encounter_uuid, db)
 
