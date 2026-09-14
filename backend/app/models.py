@@ -458,6 +458,25 @@ class PatientFlowEvent(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class ChartLocationEvent(Base):
+    """Append-only physical chart custody and location history."""
+
+    __tablename__ = "chart_location_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_chart_tracker_key: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    destination_type: Mapped[str] = mapped_column(String(20), index=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    custodian_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    legacy_custodian_user_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    custodian_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class InventoryProduct(Base):
     __tablename__ = "inventory_products"
     id: Mapped[int] = mapped_column(primary_key=True)

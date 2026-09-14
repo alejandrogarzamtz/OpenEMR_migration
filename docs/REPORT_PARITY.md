@@ -14,8 +14,8 @@ snapshot, totals and CSV export. All entries remain visible through
 | `audit_log_tamper_report` | MIGRATED |
 | `background_services` | PENDING |
 | `cdr_log` | PENDING |
-| `chart_location_activity` | PENDING |
-| `charts_checked_out` | PENDING |
+| `chart_location_activity` | MIGRATED — patient-scoped, date-filtered append-only physical chart location/custody history with totals and CSV |
+| `charts_checked_out` | MIGRATED — current checkout state derived from each patient's latest custody event, including named external custodians |
 | `clinical_reports` | PENDING |
 | `collections_report` | PENDING |
 | `cqm` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 16 migrated, 32 pending**.
+Current accounting: **48 cataloged, 18 migrated, 30 pending**.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,

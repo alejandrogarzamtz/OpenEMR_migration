@@ -106,6 +106,7 @@ end-to-end healthcare workflows:
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history
+- append-only physical chart location and custody history, with current-checkout and patient activity reports
   synchronized with scheduled appointments;
 - medication and supply inventory with warehouse lots, expiration-aware FEFO
   dispensing, stock movements, destruction records, and lossless legacy import;

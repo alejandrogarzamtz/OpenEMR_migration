@@ -5,17 +5,18 @@ from fastapi import HTTPException
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Appointment, AuditEvent, AuditEventSeal, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
     "collections_report":"acct:rep_a:read", "custom_report_range":"encounters:coding_a:read",
+    "chart_location_activity":"patients:demo:read", "charts_checked_out":"patients:demo:read",
     "daily_summary_report":"acct:rep_a:read", "direct_message_log":"admin:super:read",
     "encounters_report":"encounters:coding_a:read", "front_receipts_report":"acct:rep_a:read",
     "insurance_allocation_report":"acct:rep_a:read", "inventory_activity":"acct:rep:read",
@@ -168,6 +169,29 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "inventory_activity": return inventory_activity(db,user,params)
+    if key == "chart_location_activity":
+        patient_id=params.get("_patient_id")
+        if not patient_id: raise HTTPException(status_code=422,detail="patient_uuid is required")
+        columns=["event_uuid","occurred_at","patient","patient_uuid","destination_type","destination","custodian_uuid","note"]
+        query=(select(ChartLocationEvent.uuid,ChartLocationEvent.occurred_at,(Patient.last_name+", "+Patient.first_name),Patient.uuid,ChartLocationEvent.destination_type,
+                      func.coalesce(ChartLocationEvent.location,ChartLocationEvent.custodian_name,literal("Returned to records")),User.uuid,ChartLocationEvent.note)
+               .join(Patient,Patient.id==ChartLocationEvent.patient_id).outerjoin(User,User.id==ChartLocationEvent.custodian_user_id)
+               .where(ChartLocationEvent.patient_id==patient_id))
+        if start: query=query.where(ChartLocationEvent.occurred_at>=start)
+        if end: query=query.where(ChartLocationEvent.occurred_at<end)
+        rows=rows_from(db.execute(query.order_by(ChartLocationEvent.occurred_at,ChartLocationEvent.id)).all(),columns)
+        return columns,rows,{"events":len(rows),"checkouts":sum(row["destination_type"]=="user" for row in rows),"locations":sum(row["destination_type"]=="location" for row in rows),"returns":sum(row["destination_type"]=="returned" for row in rows)}
+    if key == "charts_checked_out":
+        ranked=(select(ChartLocationEvent.id.label("event_id"),func.row_number().over(partition_by=ChartLocationEvent.patient_id,order_by=(ChartLocationEvent.occurred_at.desc(),ChartLocationEvent.id.desc())).label("position")).subquery())
+        columns=["event_uuid","checked_out_at","patient","patient_uuid","custodian","custodian_uuid","note"]
+        query=(select(ChartLocationEvent.uuid,ChartLocationEvent.occurred_at,(Patient.last_name+", "+Patient.first_name),Patient.uuid,ChartLocationEvent.custodian_name,User.uuid,ChartLocationEvent.note)
+               .join(ranked,ranked.c.event_id==ChartLocationEvent.id).join(Patient,Patient.id==ChartLocationEvent.patient_id)
+               .outerjoin(User,User.id==ChartLocationEvent.custodian_user_id)
+               .where(ranked.c.position==1,ChartLocationEvent.destination_type=="user"))
+        if start: query=query.where(ChartLocationEvent.occurred_at>=start)
+        if end: query=query.where(ChartLocationEvent.occurred_at<end)
+        rows=rows_from(db.execute(query.order_by(Patient.last_name,Patient.first_name)).all(),columns)
+        return columns,rows,{"checked_out":len(rows)}
     if key == "patient_list":
         columns=["patient_uuid","last_name","first_name","date_of_birth","sex","email"]
         result=db.execute(select(Patient.uuid,Patient.last_name,Patient.first_name,Patient.date_of_birth,Patient.sex,Patient.email).order_by(Patient.last_name,Patient.first_name)).all()

@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -787,6 +787,31 @@ def run(source_url: str, commit: bool = False) -> dict:
                 delivery_status = "sent" if sent_at else "failed" if error else "pending"
                 target.add(CommunicationDelivery(legacy_email_id=row["id"], channel="email", recipient=recipient, subject=clean(row.get("subject")) or "Legacy message", body=clean(row.get("body")) or "", template_name=clean(row.get("template_name")), status=delivery_status, queued_at=row.get("datetime_queued") or datetime.now(timezone.utc), sent_at=sent_at, failed_at=row.get("datetime_error") if error else None, error_message=error, legacy_payload={key: json_value(value) for key, value in row.items()}))
                 stats["communication_deliveries"]["inserted"] += 1
+
+        if "chart_tracker" in legacy_tables:
+            user_names = {}
+            if "users" in legacy_tables:
+                for legacy_user in legacy.execute(text("SELECT id, username, fname, mname, lname FROM users ORDER BY id")).mappings():
+                    display = " ".join(filter(None, (clean(legacy_user.get("fname")), clean(legacy_user.get("mname")), clean(legacy_user.get("lname")))))
+                    user_names[legacy_user["id"]] = display or clean(legacy_user.get("username"))
+            for row in legacy.execute(text("SELECT ct_pid, ct_when, ct_userid, ct_location FROM chart_tracker ORDER BY ct_pid, ct_when")).mappings():
+                stats["chart_location_events"]["source"] += 1
+                occurred = row.get("ct_when")
+                key = f'{row.get("ct_pid")}:{occurred.isoformat() if occurred else "missing"}'
+                if target.scalar(select(ChartLocationEvent.id).where(ChartLocationEvent.legacy_chart_tracker_key == key)):
+                    stats["chart_location_events"]["existing"] += 1; continue
+                patient = patient_for_legacy(target, row.get("ct_pid"))
+                if not patient or not occurred:
+                    stats["chart_location_events"]["rejected"] += 1; continue
+                location = clean(row.get("ct_location")); legacy_user_id = row.get("ct_userid") or None
+                destination = "location" if location else "user" if legacy_user_id else "returned"
+                target.add(ChartLocationEvent(
+                    legacy_chart_tracker_key=key, patient_id=patient.id, destination_type=destination,
+                    location=location, legacy_custodian_user_id=legacy_user_id,
+                    custodian_name=user_names.get(legacy_user_id), occurred_at=occurred,
+                    legacy_payload={field: json_value(value) for field, value in row.items()},
+                ))
+                stats["chart_location_events"]["inserted"] += 1
         stats["patient_demographic_reconciliation"] = reconcile_patient_demographics(patient_rows, target)
         if commit: target.commit()
         else: target.rollback()

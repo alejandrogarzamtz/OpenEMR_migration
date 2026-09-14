@@ -6,8 +6,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, ChartLocationEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import ChartLocationEventCreate, ChartLocationEventOut, InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 from ..services.patient_duplicates import duplicate_candidates
@@ -16,6 +16,31 @@ from ..services.patient_merges import merge_patients, merge_preview
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 PHOTO_LIMIT = 5 * 1024 * 1024
+
+
+def chart_location_out(item: ChartLocationEvent, patient: Patient, custodian: User | None) -> ChartLocationEventOut:
+    return ChartLocationEventOut(uuid=item.uuid,patient_uuid=patient.uuid,destination_type=item.destination_type,location=item.location,custodian_user_uuid=custodian.uuid if custodian else None,custodian_name=item.custodian_name,occurred_at=item.occurred_at,note=item.note)
+
+
+@router.get("/{patient_uuid}/chart-locations",response_model=list[ChartLocationEventOut])
+def list_chart_locations(patient_uuid: str,db: Session=Depends(get_db),user: User=Depends(patient_demographics_user)):
+    patient=patient_by_uuid(db,patient_uuid)
+    rows=db.execute(select(ChartLocationEvent,User).outerjoin(User,User.id==ChartLocationEvent.custodian_user_id).where(ChartLocationEvent.patient_id==patient.id).order_by(ChartLocationEvent.occurred_at.desc(),ChartLocationEvent.id.desc())).all()
+    db.add(AuditEvent(actor_id=user.id,action="read",resource_type="chart_location",resource_id=patient.uuid,detail=f"records={len(rows)}"));db.commit()
+    return [chart_location_out(item,patient,custodian) for item,custodian in rows]
+
+
+@router.post("/{patient_uuid}/chart-locations",response_model=ChartLocationEventOut,status_code=status.HTTP_201_CREATED)
+def record_chart_location(patient_uuid: str,body: ChartLocationEventCreate,db: Session=Depends(get_db),user: User=Depends(patient_demographics_write_user)):
+    patient=patient_by_uuid(db,patient_uuid);db.scalar(select(Patient.id).where(Patient.id==patient.id).with_for_update())
+    custodian=None
+    if body.custodian_user_uuid:
+        custodian=db.scalar(select(User).where(User.uuid==body.custodian_user_uuid,User.active.is_(True)))
+        if not custodian: raise HTTPException(status_code=404,detail="Active chart custodian not found")
+    custodian_name=(custodian.username or custodian.email) if custodian else body.custodian_name
+    item=ChartLocationEvent(patient_id=patient.id,destination_type=body.destination_type,location=body.location,custodian_user_id=custodian.id if custodian else None,custodian_name=custodian_name,occurred_at=body.occurred_at or datetime.now(timezone.utc),actor_id=user.id,note=body.note)
+    db.add(item);db.flush();db.add(AuditEvent(actor_id=user.id,action="move",resource_type="chart_location",resource_id=item.uuid,detail=f"patient={patient.uuid}; destination={item.destination_type}"));db.commit();db.refresh(item)
+    return chart_location_out(item,patient,custodian)
 
 
 def photo_mime(content: bytes) -> str | None:

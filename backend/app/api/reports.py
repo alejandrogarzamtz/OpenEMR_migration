@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Facility, ReportRun, User
+from ..models import AuditEvent, Facility, Patient, ReportRun, User
 from ..schemas import ReportCatalogItem, ReportRunCreate, ReportRunOut
 from ..security import current_user, user_has_permission
 from ..services.access import require_facility_access, require_warehouse_access
@@ -46,6 +46,10 @@ def run_report(report_key: str,body: ReportRunCreate,db: Session=Depends(get_db)
         if not facility: raise HTTPException(status_code=404,detail="Facility not found")
         require_facility_access(db,user,facility.id); parameters.update(_facility_id=facility.id,_legacy_facility_id=facility.legacy_facility_id)
     if body.warehouse_code: require_warehouse_access(db,user,body.warehouse_code)
+    if body.patient_uuid:
+        patient=db.scalar(select(Patient).where(Patient.uuid==body.patient_uuid,Patient.merged_into_id.is_(None)))
+        if not patient: raise HTTPException(status_code=404,detail="Patient not found")
+        parameters["_patient_id"]=patient.id
     columns,rows,totals=execute_report(db,user,report_key,parameters)
     canonical=json.dumps({"report":report_key,"parameters":public_parameters,"columns":columns,"rows":rows,"totals":totals},sort_keys=True,separators=(",",":"))
     item=ReportRun(report_key=report_key,parameters=public_parameters,columns=columns,rows=rows,totals=totals,row_count=len(rows),checksum=hashlib.sha256(canonical.encode()).hexdigest(),actor_id=user.id)

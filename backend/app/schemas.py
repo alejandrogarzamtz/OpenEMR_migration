@@ -146,6 +146,38 @@ class PatientPage(BaseModel):
     offset: int
 
 
+class ChartLocationEventCreate(BaseModel):
+    destination_type: str = Field(pattern="^(location|user|returned)$")
+    location: str | None = Field(default=None, max_length=255)
+    custodian_user_uuid: str | None = Field(default=None, min_length=36, max_length=36)
+    custodian_name: str | None = Field(default=None, max_length=255)
+    occurred_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_destination(self):
+        if self.occurred_at and self.occurred_at.tzinfo is None:
+            raise ValueError("occurred_at must include a timezone")
+        if self.destination_type == "location" and not self.location:
+            raise ValueError("location is required for a location destination")
+        if self.destination_type == "user" and not (self.custodian_user_uuid or self.custodian_name):
+            raise ValueError("custodian_user_uuid or custodian_name is required for a user destination")
+        if self.destination_type == "returned" and (self.location or self.custodian_user_uuid or self.custodian_name):
+            raise ValueError("returned destinations cannot specify a location or custodian")
+        return self
+
+
+class ChartLocationEventOut(BaseModel):
+    uuid: str
+    patient_uuid: str
+    destination_type: str
+    location: str | None
+    custodian_user_uuid: str | None
+    custodian_name: str | None
+    occurred_at: datetime
+    note: str | None
+
+
 class PatientDuplicateCandidate(BaseModel):
     patient: PatientOut
     score: int = Field(ge=0, le=100)
@@ -548,6 +580,7 @@ class ReportRunCreate(BaseModel):
     facility_uuid: str | None = None
     warehouse_code: str | None = Field(default=None, max_length=31)
     status: str | None = Field(default=None, max_length=31)
+    patient_uuid: str | None = Field(default=None, min_length=36, max_length=36)
 
     @model_validator(mode="after")
     def validate_range(self):
