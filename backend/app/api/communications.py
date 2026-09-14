@@ -233,7 +233,9 @@ def portal_login(body: PortalLogin, request: Request, response: Response, db: Se
     locked_until = account.locked_until if account else None
     if locked_until and locked_until.tzinfo is None:
         locked_until = locked_until.replace(tzinfo=timezone.utc)
-    if not account or not account.active or (locked_until and locked_until > current):
+    patient = db.get(Patient, account.patient_id) if account and account.patient_id is not None else None
+    patient_access_denied = bool(account and account.patient_id is not None and (not patient or not patient.portal_allowed))
+    if not account or not account.active or patient_access_denied or (locked_until and locked_until > current):
         raise HTTPException(status_code=401, detail="Invalid portal credentials")
     if not password_hash.verify(body.password, account.password_hash):
         account.failed_attempts += 1
@@ -264,7 +266,9 @@ def complete_portal_mfa_challenge(body: MfaChallengeComplete, request: Request, 
     registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == challenge.portal_account_id, PortalMfaRegistration.active.is_(True)))
     account = db.get(PortalAccount, challenge.portal_account_id)
     challenge.attempts += 1
-    if not registration or not account or not account.active or not consume_portal_mfa_code(registration, body.code):
+    patient = db.get(Patient, account.patient_id) if account and account.patient_id is not None else None
+    patient_access_denied = bool(account and account.patient_id is not None and (not patient or not patient.portal_allowed))
+    if not registration or not account or not account.active or patient_access_denied or not consume_portal_mfa_code(registration, body.code):
         if challenge.attempts >= 5:
             challenge.consumed_at = current
         if account:
@@ -327,7 +331,9 @@ def portal_refresh(response: Response, refresh_token: str | None = Cookie(defaul
         session.revoked_at = now_utc(); session.revoke_reason = "expired"; db.commit()
         raise HTTPException(status_code=401, detail="Refresh token expired")
     account = db.get(PortalAccount, session.portal_account_id) if session.portal_account_id else None
-    if not account or not account.active:
+    patient = db.get(Patient, account.patient_id) if account and account.patient_id is not None else None
+    patient_access_denied = bool(account and account.patient_id is not None and (not patient or not patient.portal_allowed))
+    if not account or not account.active or patient_access_denied:
         session.revoked_at = now_utc(); session.revoke_reason = "inactive-identity"; db.commit()
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     next_refresh_token = rotate_session(session)

@@ -276,6 +276,40 @@ class PatientEmploymentOut(PatientEmploymentCreate):
     created_at: datetime
 
 
+class PatientConsentCreate(BaseModel):
+    purpose: str = Field(pattern="^(email|sms|voice|postal-mail|privacy-notice|message-delegate|immunization-registry|immunization-sharing|health-information-exchange|patient-portal|advance-directive)$")
+    decision: str = Field(pattern="^(permit|deny|acknowledged|completed|not-completed|unknown)$")
+    effective_at: datetime | None = None
+    expires_at: datetime | None = None
+    details: str | None = None
+    evidence_reference: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def valid_consent_period(self):
+        if self.effective_at and self.expires_at and self.expires_at < self.effective_at:
+            raise ValueError("expires_at must not precede effective_at")
+        allowed = {"privacy-notice": {"acknowledged", "unknown"}, "advance-directive": {"completed", "not-completed", "unknown"}}
+        if self.purpose in allowed and self.decision not in allowed[self.purpose]:
+            raise ValueError(f"invalid decision for {self.purpose}")
+        if self.purpose not in allowed and self.decision not in {"permit", "deny", "unknown"}:
+            raise ValueError(f"invalid decision for {self.purpose}")
+        if self.purpose == "message-delegate" and self.decision == "permit" and not self.details:
+            raise ValueError("details are required for a message delegate")
+        return self
+
+
+class PatientConsentOut(PatientConsentCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    status: str
+    revoked_at: datetime | None
+    revocation_reason: str | None
+    source: str
+    legacy_field: str | None
+    legacy_value: str | None
+    created_at: datetime
+
+
 class AppointmentBase(BaseModel):
     patient_uuid: str
     facility_uuid: str | None = None

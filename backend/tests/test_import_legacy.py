@@ -1,6 +1,6 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from app.import_legacy import clean, event_datetime, json_value, valid_dob
+from app.import_legacy import clean, event_datetime, json_value, legacy_consent_decision, valid_dob
 
 
 def test_legacy_value_normalization():
@@ -13,3 +13,9 @@ def test_legacy_value_normalization():
     assert json_value(b"\x01\x02") == "0102"
     assert event_datetime(date(2026, 9, 3), time(9, 30)) == datetime(2026, 9, 3, 9, 30)
     assert event_datetime(date(2026, 9, 3), timedelta(hours=9, minutes=30)) == datetime(2026, 9, 3, 9, 30)
+    assert legacy_consent_decision("email", "YES") == "permit"
+    assert legacy_consent_decision("sms", "NO") == "deny"
+    assert legacy_consent_decision("privacy-notice", "YES") == "acknowledged"
+    assert legacy_consent_decision("advance-directive", "NO") == "not-completed"
+    assert legacy_consent_decision("message-delegate", "Ada Guardian") == "permit"
+    assert legacy_consent_decision("health-information-exchange", "") == "unknown"

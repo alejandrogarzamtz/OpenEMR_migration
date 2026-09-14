@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
-from .models import AuthSession, PortalAccount, User
+from .models import AuthSession, Patient, PortalAccount, User
 
 password_hash = PasswordHash.recommended()
 bearer = HTTPBearer()
@@ -135,6 +135,10 @@ def current_portal_account(session: AuthSession = Depends(current_portal_session
     account = db.get(PortalAccount, session.portal_account_id) if session.portal_account_id else None
     if not account or not account.active:
         raise HTTPException(status_code=401, detail="Invalid or expired portal credentials")
+    if account.patient_id is not None:
+        patient = db.get(Patient, account.patient_id)
+        if not patient or not patient.portal_allowed:
+            raise HTTPException(status_code=401, detail="Invalid or expired portal credentials")
     return account
 
 

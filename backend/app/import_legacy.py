@@ -12,15 +12,30 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
+LEGACY_CONSENT_PURPOSES = {
+    "hipaa_allowemail": "email", "hipaa_allowsms": "sms", "hipaa_voice": "voice",
+    "hipaa_mail": "postal-mail", "hipaa_notice": "privacy-notice", "hipaa_message": "message-delegate",
+    "allow_imm_reg_use": "immunization-registry", "allow_imm_info_share": "immunization-sharing",
+    "allow_health_info_ex": "health-information-exchange", "allow_patient_portal": "patient-portal",
+    "completed_ad": "advance-directive",
+}
 
 
 def clean(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def legacy_consent_decision(purpose: str, value) -> str:
+    raw = clean(value); normalized = (raw or "").upper()
+    if purpose == "privacy-notice": return "acknowledged" if normalized == "YES" else "unknown"
+    if purpose == "advance-directive": return "completed" if normalized == "YES" else "not-completed" if normalized == "NO" else "unknown"
+    if purpose == "message-delegate": return "permit" if raw else "unknown"
+    return "permit" if normalized == "YES" else "deny" if normalized == "NO" else "unknown"
 
 
 def valid_dob(value):
@@ -47,7 +62,7 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_employments", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_consents", "patient_employments", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -87,6 +102,24 @@ def run(source_url: str, commit: bool = False) -> dict:
                 legacy_payload={key: json_value(value) for key, value in row.items()},
             ))
             stats["patients"]["inserted"] += 1
+        target.flush()
+        consent_rows = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
+        for row in consent_rows.mappings():
+            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            for legacy_field, purpose in LEGACY_CONSENT_PURPOSES.items():
+                stats["patient_consents"]["source"] += 1
+                if not patient:
+                    stats["patient_consents"]["rejected"] += 1; continue
+                if target.scalar(select(PatientConsent.id).where(PatientConsent.patient_id == patient.id, PatientConsent.legacy_field == legacy_field)):
+                    stats["patient_consents"]["existing"] += 1; continue
+                raw = clean(row[legacy_field]); decision = legacy_consent_decision(purpose, raw)
+                target.add(PatientConsent(
+                    patient_id=patient.id, purpose=purpose, decision=decision, status="active", source="legacy",
+                    effective_at=row["ad_reviewed"] if purpose == "advance-directive" else None,
+                    details=raw if purpose == "message-delegate" else None,
+                    legacy_field=legacy_field, legacy_value=raw,
+                ))
+                stats["patient_consents"]["inserted"] += 1
         target.flush()
         if "employer_data" in legacy_tables:
             employments = legacy.execute(text("SELECT * FROM employer_data ORDER BY id"))

@@ -46,7 +46,8 @@ python -m app.import_legacy --source 'mysql+pymysql://user:pass@openemr/openemr'
 python -m app.import_legacy --source 'mysql+pymysql://user:pass@openemr/openemr' --commit
 ```
 
-It currently migrates `patient_data`, the problem/allergy/medication records in
+It currently migrates `patient_data`, its structured consent/directive decisions
+and employment history, the problem/allergy/medication records in
 `lists`, `form_encounter`, `form_vitals`, `immunizations`, `pharmacies`,
 `prescriptions`, laboratory orders/results, and database-backed documents.
 File-system document references are counted as rejected until their storage

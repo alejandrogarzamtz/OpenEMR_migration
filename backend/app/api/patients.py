@@ -4,12 +4,54 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientCreate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
+
+
+def sync_operational_consent(patient: Patient, purpose: str, permitted: bool) -> None:
+    if purpose == "email": patient.allow_email = permitted
+    elif purpose == "sms": patient.allow_sms = permitted
+    elif purpose == "patient-portal": patient.portal_allowed = permitted
+
+
+@router.get("/{patient_uuid}/consents", response_model=list[PatientConsentOut])
+def list_consents(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    items = list(db.scalars(select(PatientConsent).where(PatientConsent.patient_id == patient.id).order_by(PatientConsent.status, PatientConsent.created_at.desc(), PatientConsent.id.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_consent", resource_id=patient.uuid, detail=f"records={len(items)}")); db.commit()
+    return items
+
+
+@router.post("/{patient_uuid}/consents", response_model=PatientConsentOut, status_code=status.HTTP_201_CREATED)
+def create_consent(patient_uuid: str, body: PatientConsentCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    if body.purpose == "email" and body.decision == "permit" and not patient.email:
+        raise HTTPException(status_code=409, detail="Patient email is required before email consent can be granted")
+    if body.purpose == "sms" and body.decision == "permit" and not patient.phone:
+        raise HTTPException(status_code=409, detail="Patient phone is required before SMS consent can be granted")
+    now = datetime.now(timezone.utc)
+    for current in db.scalars(select(PatientConsent).where(PatientConsent.patient_id == patient.id, PatientConsent.purpose == body.purpose, PatientConsent.status == "active")):
+        current.status = "revoked"; current.revoked_at = now; current.revocation_reason = "Superseded by a newer decision"
+    item = PatientConsent(patient_id=patient.id, recorded_by_id=user.id, source="staff", **body.model_dump())
+    db.add(item); db.flush(); sync_operational_consent(patient, item.purpose, item.decision == "permit")
+    db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_consent", resource_id=item.uuid, detail=f"patient={patient.uuid}; purpose={item.purpose}; decision={item.decision}")); db.commit(); db.refresh(item)
+    return item
+
+
+@router.post("/{patient_uuid}/consents/{consent_uuid}/revoke", response_model=PatientConsentOut)
+def revoke_consent(patient_uuid: str, consent_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    item = db.scalar(select(PatientConsent).where(PatientConsent.uuid == consent_uuid, PatientConsent.patient_id == patient.id))
+    if not item: raise HTTPException(status_code=404, detail="Consent not found")
+    if item.status != "active": raise HTTPException(status_code=409, detail="Consent is already revoked")
+    item.status = "revoked"; item.revoked_at = datetime.now(timezone.utc); item.revocation_reason = body.reason
+    sync_operational_consent(patient, item.purpose, False)
+    db.add(AuditEvent(actor_id=user.id, action="revoke", resource_type="patient_consent", resource_id=item.uuid, detail=f"patient={patient.uuid}; reason={body.reason}")); db.commit(); db.refresh(item)
+    return item
 
 
 @router.get("/{patient_uuid}/employments", response_model=list[PatientEmploymentOut])

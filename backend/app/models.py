@@ -159,6 +159,28 @@ class PatientEmployment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class PatientConsent(Base):
+    __tablename__ = "patient_consents"
+    __table_args__ = (UniqueConstraint("patient_id", "legacy_field", name="uq_patient_consent_legacy_field"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(50), index=True)
+    decision: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revocation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default="staff")
+    legacy_field: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    legacy_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[int] = mapped_column(primary_key=True)

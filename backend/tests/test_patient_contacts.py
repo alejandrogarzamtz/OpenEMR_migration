@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from test_communications import create_patient, staff_headers
+from test_communications import create_patient, create_portal, staff_headers
 
 
 def test_patient_contacts_are_isolated_prioritized_and_inactivated_without_deletion():
@@ -47,3 +47,28 @@ def test_employment_history_is_patient_scoped_validated_and_preserved_on_inactiv
         assert ended.status_code==200 and ended.json()["active"] is False and ended.json()["ends_at"]
         history=client.get(f"/api/v1/patients/{patient['uuid']}/employments",headers=staff).json()
         assert len(history)==1 and history[0]["inactivated_reason"]=="Employment ended"
+
+
+def test_consents_are_versioned_scoped_validated_and_synchronize_operational_flags():
+    with TestClient(app) as client:
+        staff=staff_headers(client); patient=create_patient(client,staff,"ConsentOne"); other=create_patient(client,staff,"ConsentTwo")
+        granted=client.post(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff,json={"purpose":"email","decision":"permit","evidence_reference":"signed-form-1"})
+        assert granted.status_code==201 and granted.json()["status"]=="active"
+        denied=client.post(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff,json={"purpose":"email","decision":"deny"})
+        assert denied.status_code==201
+        history=client.get(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff).json()
+        assert len(history)==2 and sum(item["status"]=="active" for item in history)==1
+        assert next(item for item in history if item["uuid"]==granted.json()["uuid"])["revocation_reason"].startswith("Superseded")
+        assert client.get(f"/api/v1/patients/{patient['uuid']}",headers=staff).json()["allow_email"] is False
+        assert client.post(f"/api/v1/patients/{other['uuid']}/consents/{denied.json()['uuid']}/revoke",headers=staff,json={"reason":"Wrong patient"}).status_code==404
+        revoked=client.post(f"/api/v1/patients/{patient['uuid']}/consents/{denied.json()['uuid']}/revoke",headers=staff,json={"reason":"Patient withdrew decision"})
+        assert revoked.status_code==200 and revoked.json()["status"]=="revoked"
+        assert client.post(f"/api/v1/patients/{patient['uuid']}/consents/{denied.json()['uuid']}/revoke",headers=staff,json={"reason":"Again"}).status_code==409
+        assert client.post(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff,json={"purpose":"privacy-notice","decision":"permit"}).status_code==422
+        assert client.post(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff,json={"purpose":"message-delegate","decision":"permit"}).status_code==422
+        assert client.post(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff,json={"purpose":"sms","decision":"permit"}).status_code==409
+        portal_headers=create_portal(client,staff,patient,"consent-one-portal")
+        portal_denied=client.post(f"/api/v1/patients/{patient['uuid']}/consents",headers=staff,json={"purpose":"patient-portal","decision":"deny"})
+        assert portal_denied.status_code==201
+        assert client.get("/api/v1/portal/me",headers=portal_headers).status_code==401
+        assert client.post("/api/v1/portal/auth/token",json={"username":"consent-one-portal","password":"permanent-password-456"}).status_code==401
