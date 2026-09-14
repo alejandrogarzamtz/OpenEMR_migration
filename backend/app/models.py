@@ -754,6 +754,24 @@ class CommunicationDelivery(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class BackgroundService(Base):
+    """Persisted scheduler configuration and lease state for managed workers."""
+
+    __tablename__ = "background_services"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(31), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(127))
+    active: Mapped[bool] = mapped_column(default=False, index=True)
+    running_state: Mapped[int] = mapped_column(default=-1)
+    next_run: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    execute_interval_minutes: Mapped[int] = mapped_column(default=0)
+    handler: Mapped[str] = mapped_column(String(127))
+    legacy_include: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sort_order: Mapped[int] = mapped_column(default=100)
+    lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class Encounter(Base):
     __tablename__ = "encounters"
     id: Mapped[int] = mapped_column(primary_key=True)

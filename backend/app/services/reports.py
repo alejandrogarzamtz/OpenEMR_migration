@@ -5,13 +5,13 @@ from fastapi import HTTPException
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Appointment, AuditEvent, AuditEventSeal, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -168,6 +168,16 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
+    if key == "background_services":
+        columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]
+        now=datetime.now(timezone.utc);rows=[]
+        for item in db.scalars(select(BackgroundService).order_by(BackgroundService.sort_order,BackgroundService.name)):
+            next_run=item.next_run if item.next_run.tzinfo else item.next_run.replace(tzinfo=timezone.utc)
+            lock=item.lock_expires_at
+            if lock and not lock.tzinfo: lock=lock.replace(tzinfo=timezone.utc)
+            automatic=item.active and item.execute_interval_minutes>0
+            rows.append({"name":item.name,"service":item.title,"active":item.active,"automatic":automatic,"interval_minutes":item.execute_interval_minutes if automatic else None,"currently_busy":bool(lock and lock>now),"last_run_started_at":value(next_run-timedelta(minutes=item.execute_interval_minutes)) if item.running_state>-1 else None,"next_scheduled_run":value(next_run) if automatic else None,"handler":item.handler})
+        return columns,rows,{"services":len(rows),"active":sum(row["active"] for row in rows),"automatic":sum(row["automatic"] for row in rows),"busy":sum(row["currently_busy"] for row in rows)}
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "chart_location_activity":
         patient_id=params.get("_patient_id")
