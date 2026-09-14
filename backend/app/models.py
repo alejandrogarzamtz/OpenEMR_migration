@@ -126,6 +126,69 @@ class PatientFlowEvent(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class InventoryProduct(Base):
+    __tablename__ = "inventory_products"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_drug_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    ndc_number: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    drug_code: Mapped[str | None] = mapped_column(String(25), nullable=True)
+    form: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    size: Mapped[str | None] = mapped_column(String(25), nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    route: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    reorder_point: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=0)
+    max_level: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=0)
+    allow_combining: Mapped[bool] = mapped_column(default=False)
+    allow_multiple: Mapped[bool] = mapped_column(default=True)
+    consumable: Mapped[bool] = mapped_column(default=False)
+    dispensable: Mapped[bool] = mapped_column(default=True)
+    active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class InventoryLot(Base):
+    __tablename__ = "inventory_lots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_inventory_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("inventory_products.id"), index=True)
+    lot_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    expiration: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    warehouse_id: Mapped[str] = mapped_column(String(31), default="", index=True)
+    vendor_id: Mapped[int | None] = mapped_column(nullable=True)
+    on_hand: Mapped[int] = mapped_column(default=0)
+    destroyed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    destruction_method: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    destruction_witness: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    destruction_notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class InventoryTransaction(Base):
+    __tablename__ = "inventory_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_sale_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("inventory_products.id"), index=True)
+    lot_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_lots.id"), nullable=True, index=True)
+    destination_lot_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_lots.id"), nullable=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    prescription_id: Mapped[int | None] = mapped_column(ForeignKey("prescriptions.id"), nullable=True)
+    transaction_type: Mapped[str] = mapped_column(String(20), index=True)
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    quantity: Mapped[int] = mapped_column()
+    fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    billed: Mapped[bool] = mapped_column(default=False)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    actor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class Encounter(Base):
     __tablename__ = "encounters"
     id: Mapped[int] = mapped_column(primary_key=True)

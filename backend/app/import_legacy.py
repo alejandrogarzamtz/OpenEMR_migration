@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Prescription, VitalSet
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, Patient, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Prescription, VitalSet
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
@@ -45,7 +45,7 @@ def event_datetime(day, clock):
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
+    names = ("patients", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
@@ -279,6 +279,29 @@ def run(source_url: str, commit: bool = False) -> dict:
             patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; pharmacy=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["pharmacy_id"])) if row["pharmacy_id"] else None
             if not patient or not clean(row["drug"]): stats["prescriptions"]["rejected"]+=1; continue
             target.add(Prescription(legacy_prescription_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,prescribed_at=row["date_added"] or datetime.now(timezone.utc),start_date=row["start_date"],end_date=row["end_date"],drug_name=clean(row["drug"]),rxnorm_code=clean(row["rxnorm_drugcode"]),dosage_instructions=clean(row["drug_dosage_instructions"]) or clean(row["dosage"]) or "As directed",quantity=clean(row["quantity"]),refills=row["refills"] or 0,substitutions_allowed=bool(row["substitute"]),indication=clean(row["indication"]),status="active" if row["active"] else "stopped")); stats["prescriptions"]["inserted"]+=1
+        products = legacy.execute(text("SELECT * FROM drugs ORDER BY drug_id"))
+        for row in products.mappings():
+            stats["inventory_products"]["source"] += 1
+            if target.scalar(select(InventoryProduct.id).where(InventoryProduct.legacy_drug_id == row["drug_id"])): stats["inventory_products"]["existing"] += 1; continue
+            if not clean(row["name"]): stats["inventory_products"]["rejected"] += 1; continue
+            target.add(InventoryProduct(legacy_drug_id=row["drug_id"], name=clean(row["name"]), ndc_number=clean(row["ndc_number"]), drug_code=clean(row["drug_code"]), form=clean(row["form"]), size=clean(row["size"]), unit=clean(row["unit"]), route=clean(row["route"]), reorder_point=row["reorder_point"] or 0, max_level=row["max_level"] or 0, allow_combining=bool(row["allow_combining"]), allow_multiple=bool(row["allow_multiple"]), consumable=bool(row["consumable"]), dispensable=bool(row["dispensable"]), active=bool(row["active"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_products"]["inserted"] += 1
+        target.flush()
+        lots = legacy.execute(text("SELECT * FROM drug_inventory ORDER BY inventory_id"))
+        for row in lots.mappings():
+            stats["inventory_lots"]["source"] += 1
+            if target.scalar(select(InventoryLot.id).where(InventoryLot.legacy_inventory_id == row["inventory_id"])): stats["inventory_lots"]["existing"] += 1; continue
+            product = target.scalar(select(InventoryProduct).where(InventoryProduct.legacy_drug_id == row["drug_id"]))
+            if not product: stats["inventory_lots"]["rejected"] += 1; continue
+            target.add(InventoryLot(legacy_inventory_id=row["inventory_id"], product_id=product.id, lot_number=clean(row["lot_number"]), expiration=row["expiration"], manufacturer=clean(row["manufacturer"]), warehouse_id=clean(row["warehouse_id"]) or "", vendor_id=row["vendor_id"] or None, on_hand=row["on_hand"] or 0, destroyed_at=row["destroy_date"], destruction_method=clean(row["destroy_method"]), destruction_witness=clean(row["destroy_witness"]), destruction_notes=clean(row["destroy_notes"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_lots"]["inserted"] += 1
+        target.flush()
+        transaction_types = {1: "dispense", 2: "purchase", 3: "return", 4: "transfer", 5: "adjustment", 7: "consumption"}
+        transactions = legacy.execute(text("SELECT * FROM drug_sales ORDER BY sale_id"))
+        for row in transactions.mappings():
+            stats["inventory_transactions"]["source"] += 1
+            if target.scalar(select(InventoryTransaction.id).where(InventoryTransaction.legacy_sale_id == row["sale_id"])): stats["inventory_transactions"]["existing"] += 1; continue
+            product=target.scalar(select(InventoryProduct).where(InventoryProduct.legacy_drug_id==row["drug_id"])); lot=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["inventory_id"])) if row["inventory_id"] else None; destination=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["xfer_inventory_id"])) if row["xfer_inventory_id"] else None; patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"])) if row["pid"] else None; encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; prescription=target.scalar(select(Prescription).where(Prescription.legacy_prescription_id==row["prescription_id"])) if row["prescription_id"] else None
+            if not product: stats["inventory_transactions"]["rejected"] += 1; continue
+            target.add(InventoryTransaction(legacy_sale_id=row["sale_id"], product_id=product.id, lot_id=lot.id if lot else None, destination_lot_id=destination.id if destination else None, patient_id=patient.id if patient else None, encounter_id=encounter.id if encounter else None, prescription_id=prescription.id if prescription else None, transaction_type=transaction_types.get(row["trans_type"], f"legacy-{row['trans_type']}"), occurred_on=row["sale_date"], quantity=row["quantity"], fee=row["fee"], billed=bool(row["billed"]), actor_name=clean(row["user"]), notes=clean(row["notes"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_transactions"]["inserted"] += 1
         # OpenEMR's `forms` registry points to both core and installed/custom form tables.
         # Reflecting only tables that actually exist preserves every registered form payload.
         legacy_tables = set(inspect(source).get_table_names())

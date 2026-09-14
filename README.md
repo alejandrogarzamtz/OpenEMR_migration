@@ -83,6 +83,8 @@ end-to-end healthcare workflows:
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history
   synchronized with scheduled appointments;
+- medication and supply inventory with warehouse lots, expiration-aware FEFO
+  dispensing, stock movements, destruction records, and lossless legacy import;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,

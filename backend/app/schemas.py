@@ -186,6 +186,94 @@ class PatientFlowEpisodeOut(BaseModel):
     events: list[PatientFlowEventOut] = Field(default_factory=list)
 
 
+class InventoryProductCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    ndc_number: str | None = Field(default=None, max_length=20)
+    drug_code: str | None = Field(default=None, max_length=25)
+    form: str | None = Field(default=None, max_length=31)
+    size: str | None = Field(default=None, max_length=25)
+    unit: str | None = Field(default=None, max_length=31)
+    route: str | None = Field(default=None, max_length=31)
+    reorder_point: Decimal = Field(default=Decimal("0"), ge=0)
+    max_level: Decimal = Field(default=Decimal("0"), ge=0)
+    allow_combining: bool = False
+    allow_multiple: bool = True
+    consumable: bool = False
+    dispensable: bool = True
+
+
+class InventoryProductOut(InventoryProductCreate):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    active: bool
+    on_hand: int = 0
+
+
+class InventoryLotCreate(BaseModel):
+    lot_number: str | None = Field(default=None, max_length=20)
+    expiration: date | None = None
+    manufacturer: str | None = Field(default=None, max_length=255)
+    warehouse_id: str = Field(default="", max_length=31)
+    vendor_id: int | None = None
+    opening_quantity: int = Field(default=0, ge=0)
+    notes: str | None = Field(default=None, max_length=255)
+
+
+class InventoryLotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    lot_number: str | None
+    expiration: date | None
+    manufacturer: str | None
+    warehouse_id: str
+    vendor_id: int | None
+    on_hand: int
+    destroyed_at: date | None
+
+
+class InventoryLotDestroy(BaseModel):
+    destroyed_at: date = Field(default_factory=date.today)
+    method: str = Field(min_length=1, max_length=255)
+    witness: str = Field(min_length=1, max_length=255)
+    notes: str | None = Field(default=None, max_length=255)
+
+
+class InventoryMovementCreate(BaseModel):
+    transaction_type: str = Field(pattern="^(purchase|return|transfer|adjustment|consumption)$")
+    lot_uuid: str
+    destination_lot_uuid: str | None = None
+    quantity: int
+    occurred_on: date = Field(default_factory=date.today)
+    notes: str = Field(min_length=1, max_length=255)
+
+
+class InventoryDispenseCreate(BaseModel):
+    patient_uuid: str
+    encounter_uuid: str
+    prescription_uuid: str | None = None
+    quantity: int = Field(gt=0)
+    fee: Decimal = Field(default=Decimal("0"), ge=0)
+    warehouse_id: str | None = Field(default=None, max_length=31)
+    occurred_on: date = Field(default_factory=date.today)
+    notes: str | None = Field(default=None, max_length=255)
+
+
+class InventoryTransactionOut(BaseModel):
+    uuid: str
+    product_uuid: str
+    lot_uuid: str | None
+    destination_lot_uuid: str | None
+    patient_uuid: str | None
+    encounter_uuid: str | None
+    transaction_type: str
+    occurred_on: date
+    quantity: int
+    fee: Decimal
+    billed: bool
+    actor_name: str | None
+    notes: str | None
+
+
 class EncounterCreate(BaseModel):
     patient_uuid: str
     appointment_uuid: str | None = None
