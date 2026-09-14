@@ -21,6 +21,7 @@ are all verified. “Partial” never counts as final parity.
 | Prescriptions/eRx | Partial | core prescriptions/pharmacies exist; renewals, controlled substances and eRx integration remain |
 | Immunizations | Partial | CVX administration exists; MVX, registry consent, refusals, inventory and registry exchange remain |
 | Vitals and observations | Partial | capture, BMI and FHIR observations exist; growth charts and abnormal flags remain |
+| Social history | Partial | append-only tobacco, alcohol, recreational-drug, activity, sleep, safety, counseling and narrative versions have lossless import, audited API, React authoring/history and printable-report coverage; coded FHIR observations and production reconciliation remain |
 | Labs and procedures | Partial | multi-line orders, specimens, questions, HL7, Quest/LabCorp and review/sign-off |
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |

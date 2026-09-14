@@ -9,13 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, CarePlan, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, PatientAddress, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, Payer, Prescription, User, VitalSet
+from ..models import AuditEvent, CarePlan, Claim, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, PatientAddress, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, Payer, Prescription, SocialHistory, User, VitalSet
 from ..security import patient_report_user, user_has_permission
 from ..services.patients import patient_by_uuid
 from ..services.patient_report_pdf import render_patient_report_pdf
 
 router=APIRouter(prefix="/api/v1/patients",tags=["patient-reports"])
-SECTION_KEYS=("demographics","addresses","telecommunications","previous-names","related-people","employment","clinical-items","prescriptions","immunizations","vitals","encounters","clinical-forms","care-plans","laboratory","documents","insurance","claims")
+SECTION_KEYS=("demographics","addresses","telecommunications","previous-names","related-people","employment","clinical-items","social-history","prescriptions","immunizations","vitals","encounters","clinical-forms","care-plans","laboratory","documents","insurance","claims")
 
 
 def text(value) -> str:
@@ -56,6 +56,7 @@ def build_patient_report(patient_uuid:str,start:date|None,end:date|None,sections
     related=list(db.scalars(select(PatientRelatedPerson).where(PatientRelatedPerson.patient_id==patient.id,PatientRelatedPerson.active.is_(True)).order_by(PatientRelatedPerson.priority))) if can_demo else []
     employments=list(db.scalars(select(PatientEmployment).where(PatientEmployment.patient_id==patient.id).order_by(PatientEmployment.starts_at.desc()))) if can_demo else []
     items=list(db.scalars(select(ClinicalItem).where(ClinicalItem.patient_id==patient.id).order_by(ClinicalItem.category,ClinicalItem.created_at.desc()))) if can_med else []
+    social_histories=list(db.scalars(select(SocialHistory).where(SocialHistory.patient_id==patient.id,*in_period(SocialHistory.recorded_at,start,end)).order_by(SocialHistory.recorded_at.desc(),SocialHistory.id.desc()))) if can_med else []
     prescriptions=list(db.scalars(select(Prescription).where(Prescription.patient_id==patient.id).order_by(Prescription.prescribed_at.desc()))) if can_med else []
     immunizations=list(db.scalars(select(Immunization).where(Immunization.patient_id==patient.id,*in_period(Immunization.administered_at,start,end)).order_by(Immunization.administered_at.desc()))) if can_med else []
     vitals=list(db.scalars(select(VitalSet).where(VitalSet.patient_id==patient.id,*in_period(VitalSet.observed_at,start,end)).order_by(VitalSet.observed_at.desc()))) if can_med else []
@@ -68,7 +69,7 @@ def build_patient_report(patient_uuid:str,start:date|None,end:date|None,sections
     coverages=db.execute(select(Coverage,Payer).join(Payer).where(Coverage.patient_id==patient.id).order_by(Coverage.priority)).all() if can_bill else []
     claims=list(db.scalars(select(Claim).where(Claim.patient_id==patient.id,*in_period(Claim.created_at,start,end)).order_by(Claim.created_at.desc()))) if can_bill else []
     generated=datetime.now(timezone.utc)
-    evidence={"patient_uuid":patient.uuid,"generated_at":generated,"generated_by":user.uuid,"period":{"start":start,"end":end},"sections":sorted(sections_selected),"section_access":{"demographics":can_demo,"medical":can_med,"documents":can_docs,"billing":can_bill},"counts":{"addresses":len(addresses),"telecoms":len(telecoms),"previous_names":len(names),"related_people":len(related),"employments":len(employments),"clinical_items":len(items),"prescriptions":len(prescriptions),"immunizations":len(immunizations),"vitals":len(vitals),"encounters":len(encounters),"forms":len(forms),"care_plans":len(care_plans),"lab_rows":len(labs),"documents":len(documents),"coverages":len(coverages),"claims":len(claims)}}
+    evidence={"patient_uuid":patient.uuid,"generated_at":generated,"generated_by":user.uuid,"period":{"start":start,"end":end},"sections":sorted(sections_selected),"section_access":{"demographics":can_demo,"medical":can_med,"documents":can_docs,"billing":can_bill},"counts":{"addresses":len(addresses),"telecoms":len(telecoms),"previous_names":len(names),"related_people":len(related),"employments":len(employments),"clinical_items":len(items),"social_histories":len(social_histories),"prescriptions":len(prescriptions),"immunizations":len(immunizations),"vitals":len(vitals),"encounters":len(encounters),"forms":len(forms),"care_plans":len(care_plans),"lab_rows":len(labs),"documents":len(documents),"coverages":len(coverages),"claims":len(claims)}}
     digest=sha256(json.dumps(evidence,sort_keys=True,default=str).encode()).hexdigest()
     restricted="<p>Restricted by section ACL.</p>"
     sections=[
@@ -79,6 +80,7 @@ def build_patient_report(patient_uuid:str,start:date|None,end:date|None,sections
       ("Related people",rows([[f"{x.first_name} {x.last_name}",x.relationship_code,x.role_code,x.phone,x.email] for x in related],["Name","Relationship","Role","Phone","Email"])),
       ("Employment",rows([[x.employer_name,x.occupation_code,x.industry_code,x.starts_at,x.ends_at] for x in employments],["Employer","Occupation","Industry","From","Until"])),
       ("Problems, allergies, and medications",rows([[x.category,x.title,x.code_system,x.code,x.status,x.reaction or x.dosage] for x in items],["Category","Description","Code system","Code","Status","Details"])),
+      ("Social history",rows([[x.recorded_at,x.tobacco,x.alcohol,x.recreational_drugs,x.exercise_patterns,x.sleep_patterns,x.additional_history] for x in social_histories],["Recorded","Tobacco","Alcohol","Recreational drugs","Exercise","Sleep","Additional history"])),
       ("Prescriptions",rows([[x.prescribed_at,x.drug_name,x.rxnorm_code,x.dosage_instructions,x.quantity,x.refills,x.status] for x in prescriptions],["Prescribed","Drug","RxNorm","Instructions","Quantity","Refills","Status"])),
       ("Immunizations",rows([[x.administered_at,x.vaccine_name,x.cvx_code,x.lot_number,x.status] for x in immunizations],["Administered","Vaccine","CVX","Lot","Status"])),
       ("Vital signs",rows([[x.observed_at,x.systolic,x.diastolic,x.heart_rate,x.oxygen_saturation,x.bmi] for x in vitals],["Observed","Systolic","Diastolic","Pulse","SpO2","BMI"])),
@@ -90,7 +92,7 @@ def build_patient_report(patient_uuid:str,start:date|None,end:date|None,sections
       ("Insurance",rows([[coverage.priority,payer.name,coverage.plan_name,coverage.policy_number,coverage.starts_on,coverage.ends_on] for coverage,payer in coverages],["Priority","Payer","Plan","Policy","Starts","Ends"])),
       ("Claims",rows([[x.created_at,x.status,x.total,x.submitted_at] for x in claims],["Created","Status","Total","Submitted"])),
     ]
-    for indexes,allowed in (((1,2,3,4,5),can_demo),((6,7,8,9,10,11,12,13),can_med),((14,),can_docs),((15,16),can_bill)):
+    for indexes,allowed in (((1,2,3,4,5),can_demo),((6,7,8,9,10,11,12,13,14),can_med),((15,),can_docs),((16,17),can_bill)):
         if not allowed:
             for index in indexes:sections[index]=(sections[index][0],restricted)
     section_html="".join(f"<section><h2>{title}</h2>{content}</section>" for key,(title,content) in zip(SECTION_KEYS,sections) if key in sections_selected)

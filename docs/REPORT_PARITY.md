@@ -73,11 +73,11 @@ coverage effective on that encounter date, or under `-- No Insurance --`.
 Copay-coded and zero-value lines are excluded, encounter counts remain visits,
 and each patient contributes once to the patient distribution denominator.
 
-`clinical_reports` remains pending after source-level review. Its legacy query
-requires lossless social-history versions plus procedure-order metadata,
-result provenance, detailed prescription fields and patient-provider facility
-assignments that are not yet retained by the normalized import. Those data
-contracts must land before the multi-dimensional React report can claim parity.
+`clinical_reports` remains pending after source-level review. Lossless,
+versioned social history is now available; procedure-order metadata, result
+provenance, detailed prescription fields and patient-provider facility
+assignments still require normalized import contracts before the
+multi-dimensional React report can claim parity.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

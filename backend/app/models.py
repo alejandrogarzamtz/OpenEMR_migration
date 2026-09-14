@@ -870,6 +870,30 @@ class ClinicalRuleLog(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class SocialHistory(Base):
+    """Append-only social-history version with complete legacy source retention."""
+
+    __tablename__ = "social_histories"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_history_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(default=0, index=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    coffee: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tobacco: Mapped[str | None] = mapped_column(Text, nullable=True)
+    alcohol: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sleep_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exercise_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seatbelt_use: Mapped[str | None] = mapped_column(Text, nullable=True)
+    counseling: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hazardous_activities: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recreational_drugs: Mapped[str | None] = mapped_column(Text, nullable=True)
+    additional_history: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class LabOrder(Base):
     __tablename__ = "lab_orders"
     id: Mapped[int] = mapped_column(primary_key=True)

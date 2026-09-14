@@ -1,8 +1,9 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from sqlalchemy import select
 from app.db import SessionLocal
-from app.import_legacy import clean, event_datetime, import_clinical_rule_log, json_value, legacy_consent_decision, parse_legacy_person_name, stable_legacy_row_keys, valid_dob
-from app.models import ClinicalRuleLog
+from app.import_legacy import clean, event_datetime, import_clinical_rule_log, import_social_history, json_value, legacy_consent_decision, parse_legacy_person_name, stable_legacy_row_keys, valid_dob
+from app.models import ClinicalRuleLog, SocialHistory
 
 
 def test_legacy_value_normalization():
@@ -45,5 +46,17 @@ def test_cdr_import_is_lossless_for_unresolved_references_and_idempotent():
         assert item.occurred_at is None and item.patient_id is None and item.actor_id is None and item.facility_id is None
         assert item.legacy_patient_id==929991 and item.legacy_user_id==929992 and item.legacy_facility_id==929993
         assert item.value=="invalid { json" and item.new_value==""
+        assert item.legacy_payload==row
+        db.rollback()
+
+
+def test_social_history_import_retains_all_source_fields_and_unresolved_patient():
+    row={"id":940001,"pid":949999,"date":None,"coffee":"2 cups","tobacco":"|never|","alcohol":"","sleep_patterns":None,"exercise_patterns":"daily","seatbelt_use":"yes","counseling":None,"hazardous_activities":"none","recreational_drugs":"|neverrecreational_drugs|","additional_history":"source narrative","custom_field":"not discarded"}
+    with SessionLocal() as db:
+        assert import_social_history(row,db)=="inserted";db.flush()
+        assert import_social_history(row,db)=="existing"
+        item=db.scalar(select(SocialHistory).where(SocialHistory.legacy_history_id==940001))
+        assert item and item.patient_id is None and item.legacy_patient_id==949999 and item.recorded_at is None
+        assert item.tobacco=="|never|" and item.alcohol=="" and item.additional_history=="source narrative"
         assert item.legacy_payload==row
         db.rollback()

@@ -17,7 +17,7 @@ event containing the selected period, section counts and an evidence SHA-256
 also returned as `X-Report-SHA256` and printed in the report.
 
 Optional ISO dates limit time-based encounters, forms, laboratory orders,
-immunizations, vital signs and claims:
+immunizations, social-history versions, vital signs and claims:
 
 ```text
 /api/v1/patients/{uuid}/report.html?start=2026-01-01&end=2026-12-31
@@ -25,7 +25,7 @@ immunizations, vital signs and claims:
 
 The optional `sections` parameter accepts a comma-separated subset of:
 `demographics`, `addresses`, `telecommunications`, `previous-names`,
-`related-people`, `employment`, `clinical-items`, `prescriptions`,
+`related-people`, `employment`, `clinical-items`, `social-history`, `prescriptions`,
 `immunizations`, `vitals`, `encounters`, `clinical-forms`, `care-plans`, `laboratory`,
 `documents`, `insurance`, and `claims`. Unknown names and empty selections are
 rejected rather than silently producing an ambiguous report.

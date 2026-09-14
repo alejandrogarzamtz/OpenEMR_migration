@@ -1011,6 +1011,46 @@ class ClinicalItemOut(ClinicalItemCreate):
     created_at: datetime
 
 
+class SocialHistoryCreate(BaseModel):
+    recorded_at: datetime | None = None
+    coffee: str | None = Field(default=None,max_length=10000)
+    tobacco: str | None = Field(default=None,max_length=10000)
+    alcohol: str | None = Field(default=None,max_length=10000)
+    sleep_patterns: str | None = Field(default=None,max_length=10000)
+    exercise_patterns: str | None = Field(default=None,max_length=10000)
+    seatbelt_use: str | None = Field(default=None,max_length=10000)
+    counseling: str | None = Field(default=None,max_length=10000)
+    hazardous_activities: str | None = Field(default=None,max_length=10000)
+    recreational_drugs: str | None = Field(default=None,max_length=10000)
+    additional_history: str | None = Field(default=None,max_length=50000)
+
+    @model_validator(mode="after")
+    def require_content(self):
+        fields=self.model_dump(exclude={"recorded_at"})
+        if not any(value and value.strip() for value in fields.values()):
+            raise ValueError("At least one social-history field is required")
+        return self
+
+
+class SocialHistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    legacy_history_id: int | None = None
+    legacy_patient_id: int
+    recorded_at: datetime | None = None
+    coffee: str | None = None
+    tobacco: str | None = None
+    alcohol: str | None = None
+    sleep_patterns: str | None = None
+    exercise_patterns: str | None = None
+    seatbelt_use: str | None = None
+    counseling: str | None = None
+    hazardous_activities: str | None = None
+    recreational_drugs: str | None = None
+    additional_history: str | None = None
+    source_payload: dict | None = None
+
+
 class ClinicalSummary(BaseModel):
     patient: PatientOut
     problems: list[ClinicalItemOut]
