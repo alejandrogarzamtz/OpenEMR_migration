@@ -4,11 +4,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 from ..services.patient_duplicates import duplicate_candidates
+from ..services.patient_merges import merge_patients, merge_preview
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
@@ -272,12 +273,12 @@ def list_patients(
         )
     items = db.scalars(
         select(Patient)
-        .where(*filters)
+        .where(Patient.merged_at.is_(None), *filters)
         .order_by(Patient.last_name, Patient.first_name)
         .limit(limit)
         .offset(offset)
     ).all()
-    total = db.scalar(select(func.count()).select_from(Patient).where(*filters)) or 0
+    total = db.scalar(select(func.count()).select_from(Patient).where(Patient.merged_at.is_(None), *filters)) or 0
     db.add(AuditEvent(actor_id=user.id, action="search", resource_type="patient"))
     db.commit()
     return PatientPage(items=list(items), total=total, limit=limit, offset=offset)
@@ -289,7 +290,7 @@ def create_patient(
     db: Session = Depends(get_db),
     user: User = Depends(patient_demographics_write_user),
 ) -> Patient:
-    same_birth_date = db.scalars(select(Patient).where(Patient.date_of_birth == body.date_of_birth)).all()
+    same_birth_date = db.scalars(select(Patient).where(Patient.date_of_birth == body.date_of_birth, Patient.merged_at.is_(None))).all()
     possible_duplicates = duplicate_candidates(same_birth_date, body, minimum_score=85)
     if possible_duplicates and not body.duplicate_override_reason:
         raise HTTPException(status_code=409, detail={
@@ -323,12 +324,54 @@ def list_duplicate_candidates(
     user: User = Depends(patient_demographics_user),
 ) -> list[PatientDuplicateCandidate]:
     patient = patient_by_uuid(db, patient_uuid)
-    same_birth_date = db.scalars(select(Patient).where(Patient.date_of_birth == patient.date_of_birth)).all()
+    same_birth_date = db.scalars(select(Patient).where(Patient.date_of_birth == patient.date_of_birth, Patient.merged_at.is_(None))).all()
     matches = duplicate_candidates(same_birth_date, patient, exclude_id=patient.id, minimum_score=minimum_score)
     result = [PatientDuplicateCandidate(patient=item, score=score, matched_fields=fields) for item, score, fields in matches]
     db.add(AuditEvent(actor_id=user.id, action="duplicate-search", resource_type="patient", resource_id=patient.uuid, detail=f"minimum_score={minimum_score}; matches={len(result)}"))
     db.commit()
     return result
+
+
+def merge_pair(db: Session, source_uuid: str, target_uuid: str, *, lock: bool = False) -> tuple[Patient, Patient]:
+    query = select(Patient).where(Patient.uuid.in_([source_uuid, target_uuid])).order_by(Patient.id)
+    if lock: query = query.with_for_update()
+    rows = {patient.uuid: patient for patient in db.scalars(query)}
+    source, target = rows.get(source_uuid), rows.get(target_uuid)
+    if not source or not target: raise HTTPException(status_code=404, detail="Source or target patient not found")
+    if source.id == target.id: raise HTTPException(status_code=409, detail="A patient cannot be merged into itself")
+    if source.merged_at or target.merged_at: raise HTTPException(status_code=409, detail="Source and target must both be active canonical charts")
+    return source, target
+
+
+@router.get("/{source_uuid}/merge-preview/{target_uuid}", response_model=PatientMergePreview)
+def preview_patient_merge(source_uuid: str, target_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    source, target = merge_pair(db, source_uuid, target_uuid)
+    result = merge_preview(db, source, target)
+    db.add(AuditEvent(actor_id=user.id, action="merge-preview", resource_type="patient", resource_id=source.uuid, detail=f"target={target.uuid}; score={result['duplicate_score']}")); db.commit()
+    return result
+
+
+@router.get("/{patient_uuid}/merges", response_model=list[PatientMergeOut])
+def patient_merge_history(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    requested = db.scalar(select(Patient).where(Patient.uuid == patient_uuid))
+    if not requested: raise HTTPException(status_code=404, detail="Patient not found")
+    canonical = patient_by_uuid(db, patient_uuid)
+    lineage_ids, frontier = {canonical.id}, {canonical.id}
+    while frontier:
+        children = set(db.scalars(select(Patient.id).where(Patient.merged_into_id.in_(frontier)))) - lineage_ids
+        lineage_ids.update(children); frontier = children
+    items = list(db.scalars(select(PatientMerge).where(or_(PatientMerge.source_patient_id.in_(lineage_ids), PatientMerge.target_patient_id.in_(lineage_ids))).order_by(PatientMerge.created_at.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_merge", resource_id=canonical.uuid, detail=f"records={len(items)}")); db.commit()
+    return items
+
+
+@router.post("/{source_uuid}/merge", response_model=PatientMergeOut)
+def merge_patient(source_uuid: str, body: PatientMergeRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    source, target = merge_pair(db, source_uuid, body.target_patient_uuid, lock=True)
+    merge = merge_patients(db, source, target, user, body.reason)
+    db.add(AuditEvent(actor_id=user.id, action="merge", resource_type="patient", resource_id=source.uuid, detail=f"target={target.uuid}; merge={merge.uuid}; reason={body.reason}"))
+    db.commit(); db.refresh(merge)
+    return merge
 
 
 @router.get("/{patient_uuid}", response_model=PatientOut)
@@ -391,7 +434,7 @@ def replace_patient(
     user: User = Depends(patient_demographics_write_user),
 ) -> Patient:
     patient = patient_by_uuid(db, patient_uuid)
-    changes = body.model_dump()
+    changes = body.model_dump(exclude={"duplicate_override_reason"})
     for field, value in changes.items():
         setattr(patient, field, value)
     db.add(

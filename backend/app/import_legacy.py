@@ -60,6 +60,15 @@ def valid_dob(value):
     return value if isinstance(value, date) and value.year > 1800 else date(1900, 1, 1)
 
 
+def patient_for_legacy(target: Session, legacy_pid) -> Patient | None:
+    patient = target.scalar(select(Patient).where(Patient.legacy_pid == legacy_pid))
+    seen = set()
+    while patient and patient.merged_into_id is not None:
+        if patient.id in seen: raise RuntimeError("Invalid patient merge chain")
+        seen.add(patient.id); patient = target.get(Patient, patient.merged_into_id)
+    return patient
+
+
 def json_value(value):
     if isinstance(value, (date, datetime)): return value.isoformat()
     if hasattr(value, "as_tuple"): return str(value)
@@ -131,7 +140,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         patient_rows = list(legacy.execute(text("SELECT * FROM patient_data ORDER BY pid")).mappings())
         for row in patient_rows:
             stats["patients"]["source"] += 1
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            patient = patient_for_legacy(target, row["pid"])
             if patient: stats["patients"]["existing"] += 1; continue
             target.add(Patient(
                 legacy_pid=row["pid"],
@@ -166,7 +175,7 @@ def run(source_url: str, commit: bool = False) -> dict:
             stats["patients"]["inserted"] += 1
         target.flush()
         for row in patient_rows:
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            patient = patient_for_legacy(target, row["pid"])
             guardian_fields = ("guardiansname", "guardianrelationship", "guardiansex", "guardianaddress", "guardiancity", "guardianstate", "guardianpostalcode", "guardiancountry", "guardianphone", "guardianworkphone", "guardianemail")
             guardian_payload = {field: json_value(row.get(field)) for field in guardian_fields}
             if any(clean(row.get(field)) for field in guardian_fields):
@@ -196,7 +205,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                     target.add(PatientRelatedPerson(patient_id=patient.id, first_name=first, last_name=last, relationship_code="mother", role_code="family", active=True, notes="Imported from patient_data.mothersname; authority was not inferred.", legacy_source="patient_data.mother", legacy_payload={"mothersname": mother_name})); stats["patient_related_people"]["inserted"] += 1
         target.flush()
         for row in patient_rows:
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            patient = patient_for_legacy(target, row["pid"])
             for legacy_field, purpose in LEGACY_CONSENT_PURPOSES.items():
                 stats["patient_consents"]["source"] += 1
                 if not patient:
@@ -239,7 +248,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         target.flush()
         patient_columns = {column["name"] for column in inspect(source).get_columns("patient_data")}
         definitions = list(target.scalars(select(PatientCustomFieldDefinition).where(PatientCustomFieldDefinition.legacy_form_id == "DEM")))
-        patients_by_legacy = {patient.legacy_pid: patient for patient in target.scalars(select(Patient).where(Patient.legacy_pid.is_not(None)))}
+        patients_by_legacy = {patient.legacy_pid: patient_for_legacy(target, patient.legacy_pid) for patient in target.scalars(select(Patient).where(Patient.legacy_pid.is_not(None)))}
         for row in patient_rows:
             patient = patients_by_legacy.get(row["pid"])
             for definition in definitions:
@@ -259,7 +268,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 stats["patient_employments"]["source"] += 1
                 if target.scalar(select(PatientEmployment.id).where(PatientEmployment.legacy_employer_id == row["id"])):
                     stats["patient_employments"]["existing"] += 1; continue
-                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+                patient = patient_for_legacy(target, row["pid"])
                 employer_name = clean(row["name"])
                 if not patient or not employer_name:
                     stats["patient_employments"]["rejected"] += 1; continue
@@ -311,7 +320,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                     existing_appointment.facility_id = target.scalar(select(Facility.id).where(Facility.legacy_facility_id == row["pc_facility"]))
                 stats["appointments"]["existing"] += 1
                 continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pc_pid"]))
+            patient = patient_for_legacy(target, row["pc_pid"])
             if not patient or not row["pc_eventDate"]:
                 stats["appointments"]["rejected"] += 1
                 continue
@@ -344,7 +353,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in items.mappings():
             stats["clinical_items"]["source"] += 1
             if target.scalar(select(ClinicalItem.id).where(ClinicalItem.legacy_list_id == row["id"])): stats["clinical_items"]["existing"] += 1; continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"])); title = clean(row["title"])
+            patient = patient_for_legacy(target, row["pid"]); title = clean(row["title"])
             if not patient or not title: continue
             diagnosis = clean(row["diagnosis"]); system, code = (diagnosis.split(":", 1) if diagnosis and ":" in diagnosis else (None, diagnosis))
             target.add(ClinicalItem(legacy_list_id=row["id"], patient_id=patient.id, category=TYPE_MAP[row["type"]], title=title, code_system=system, code=code, status="active" if row["activity"] else "inactive", onset_date=row["begdate"].date() if row["begdate"] else None, end_date=row["enddate"].date() if row["enddate"] else None, note=clean(row["comments"]), reaction=clean(row["reaction"]), severity=clean(row["severity_al"])))
@@ -353,7 +362,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in encounters.mappings():
             stats["encounters"]["source"] += 1
             if target.scalar(select(Encounter.id).where(Encounter.legacy_encounter_id == row["encounter"])): stats["encounters"]["existing"] += 1; continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            patient = patient_for_legacy(target, row["pid"])
             if not patient or not row["date"]: continue
             target.add(Encounter(legacy_encounter_id=row["encounter"], patient_id=patient.id, occurred_at=row["date"], type=clean(row["class_code"]) or "AMB", chief_complaint=clean(row["reason"])))
             stats["encounters"]["inserted"] += 1
@@ -364,7 +373,7 @@ def run(source_url: str, commit: bool = False) -> dict:
             if target.scalar(select(PatientFlowEpisode.id).where(PatientFlowEpisode.legacy_tracker_id == row["id"])):
                 stats["patient_flow_episodes"]["existing"] += 1
                 continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+            patient = patient_for_legacy(target, row["pid"])
             appointment = target.scalar(select(Appointment).where(Appointment.legacy_event_id == row["eid"])) if row["eid"] else None
             encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"])) if row["encounter"] else None
             if not patient:
@@ -409,7 +418,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in orders.mappings():
             stats["lab_orders"]["source"] += 1
             if target.scalar(select(LabOrder.id).where(LabOrder.legacy_order_id == row["procedure_order_id"])): stats["lab_orders"]["existing"] += 1; continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["patient_id"]))
+            patient = patient_for_legacy(target, row["patient_id"])
             encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter_id"])) if row["encounter_id"] else None
             if not patient or not row["date_ordered"] or not clean(row["procedure_name"]): stats["lab_orders"]["rejected"] += 1; continue
             target.add(LabOrder(legacy_order_id=row["procedure_order_id"], patient_id=patient.id, encounter_id=encounter.id if encounter else None, ordered_at=row["date_ordered"], code=clean(row["procedure_code"]) or "unknown", name=clean(row["procedure_name"]), priority=clean(row["order_priority"]) or "routine", status=clean(row["order_status"]) or "pending", instructions=clean(row["patient_instructions"])))
@@ -427,7 +436,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in documents.mappings():
             stats["documents"]["source"] += 1
             if target.scalar(select(Document.id).where(Document.legacy_document_id == row["id"])): stats["documents"]["existing"] += 1; continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["foreign_id"])); content = row["document_data"]
+            patient = patient_for_legacy(target, row["foreign_id"]); content = row["document_data"]
             if not patient or not content: stats["documents"]["rejected"] += 1; continue
             payload = content.encode() if isinstance(content, str) else bytes(content)
             target.add(Document(legacy_document_id=row["id"], patient_id=patient.id, name=clean(row["name"]) or f"document-{row['id']}", mime_type=clean(row["mimetype"]) or "application/octet-stream", content=payload, sha256=hashlib.sha256(payload).hexdigest(), uploaded_at=row["date"] or datetime.now(timezone.utc)))
@@ -444,7 +453,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in coverages.mappings():
             stats["coverages"]["source"] += 1
             if target.scalar(select(Coverage.id).where(Coverage.legacy_insurance_id == row["id"])): stats["coverages"]["existing"] += 1; continue
-            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"])); payer=target.scalar(select(Payer).where(Payer.legacy_payer_id==int(row["provider"]))) if str(row["provider"] or "").isdigit() else None
+            patient=patient_for_legacy(target,row["pid"]); payer=target.scalar(select(Payer).where(Payer.legacy_payer_id==int(row["provider"]))) if str(row["provider"] or "").isdigit() else None
             subscriber=" ".join(filter(None,(clean(row["subscriber_fname"]),clean(row["subscriber_lname"]))))
             if not patient or not payer or not clean(row["policy_number"]) or not subscriber: stats["coverages"]["rejected"] += 1; continue
             target.add(Coverage(legacy_insurance_id=row["id"],patient_id=patient.id,payer_id=payer.id,priority=clean(row["type"]) or "primary",plan_name=clean(row["plan_name"]),policy_number=clean(row["policy_number"]),group_number=clean(row["group_number"]),subscriber_name=subscriber,relationship=clean(row["subscriber_relationship"]) or "self",starts_on=row["date"],ends_on=row["date_end"]))
@@ -454,7 +463,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in charges.mappings():
             stats["charges"]["source"] += 1
             if target.scalar(select(Charge.id).where(Charge.legacy_billing_id==row["id"])): stats["charges"]["existing"] += 1; continue
-            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
+            patient=patient_for_legacy(target,row["pid"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
             if not patient or not encounter or not row["activity"] or not clean(row["code"]) or not row["fee"]: stats["charges"]["rejected"] += 1; continue
             target.add(Charge(legacy_billing_id=row["id"],patient_id=patient.id,encounter_id=encounter.id,code_system=clean(row["code_type"]) or "CPT",code=clean(row["code"]),description=clean(row["code_text"]) or clean(row["code"]),units=row["units"] or 1,unit_price=row["fee"]))
             stats["charges"]["inserted"] += 1
@@ -463,7 +472,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in claims.mappings():
             stats["claims"]["source"] += 1; key=f"{row['patient_id']}:{row['encounter_id']}:{row['version']}"
             if target.scalar(select(Claim.id).where(Claim.legacy_claim_key==key)): stats["claims"]["existing"] += 1; continue
-            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])); coverage=target.scalar(select(Coverage).where(Coverage.patient_id==patient.id,Coverage.payer_id==target.scalar(select(Payer.id).where(Payer.legacy_payer_id==row["payer_id"])))) if patient and row["payer_id"] else None
+            patient=patient_for_legacy(target,row["patient_id"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])); coverage=target.scalar(select(Coverage).where(Coverage.patient_id==patient.id,Coverage.payer_id==target.scalar(select(Payer.id).where(Payer.legacy_payer_id==row["payer_id"])))) if patient and row["payer_id"] else None
             claim_charges=list(target.scalars(select(Charge).where(Charge.patient_id==patient.id,Charge.encounter_id==encounter.id,Charge.claim_id.is_(None)))) if patient and encounter else []
             if not patient or not encounter or not claim_charges: stats["claims"]["rejected"] += 1; continue
             total=sum((x.unit_price*x.units for x in claim_charges),0); claim=Claim(legacy_claim_key=key,patient_id=patient.id,encounter_id=encounter.id,coverage_id=coverage.id if coverage else None,status="submitted" if row["bill_time"] else "draft",total=total,submitted_at=row["bill_time"]); target.add(claim); target.flush()
@@ -473,7 +482,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in immunizations.mappings():
             stats["immunizations"]["source"]+=1
             if target.scalar(select(Immunization.id).where(Immunization.legacy_immunization_id==row["id"])): stats["immunizations"]["existing"]+=1; continue
-            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])) if row["encounter_id"] else None; cvx=clean(row["cvx_code"])
+            patient=patient_for_legacy(target,row["patient_id"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])) if row["encounter_id"] else None; cvx=clean(row["cvx_code"])
             if not patient or not row["administered_date"] or not cvx: stats["immunizations"]["rejected"]+=1; continue
             dose=" ".join(filter(None,(str(row["amount_administered"]) if row["amount_administered"] else None,clean(row["amount_administered_unit"])))) or None
             target.add(Immunization(legacy_immunization_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,administered_at=row["administered_date"],cvx_code=cvx,vaccine_name=f"CVX {cvx}",manufacturer=clean(row["manufacturer"]),lot_number=clean(row["lot_number"]),route=clean(row["route"]),site=clean(row["administration_site"]),dose=dose,status=clean(row["completion_status"]) or "completed",refusal_reason=clean(row["refusal_reason"]),note=clean(row["note"])))
@@ -482,7 +491,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in vitals.mappings():
             stats["vitals"]["source"]+=1
             if target.scalar(select(VitalSet.id).where(VitalSet.legacy_vitals_id==row["id"])): stats["vitals"]["existing"]+=1; continue
-            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"]))
+            patient=patient_for_legacy(target,row["pid"])
             if not patient or not row["date"]: stats["vitals"]["rejected"]+=1; continue
             target.add(VitalSet(legacy_vitals_id=row["id"],patient_id=patient.id,observed_at=row["date"],systolic=row["bps"] or None,diastolic=row["bpd"] or None,weight_kg=row["weight"] or None,height_cm=row["height"] or None,temperature_c=row["temperature"] or None,heart_rate=row["pulse"] or None,respiratory_rate=row["respiration"] or None,oxygen_saturation=row["oxygen_saturation"] or None,bmi=row["BMI"] or None,note=clean(row["note"])))
             stats["vitals"]["inserted"]+=1
@@ -497,7 +506,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in prescriptions.mappings():
             stats["prescriptions"]["source"]+=1
             if target.scalar(select(Prescription.id).where(Prescription.legacy_prescription_id==row["id"])): stats["prescriptions"]["existing"]+=1; continue
-            patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["patient_id"])); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; pharmacy=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["pharmacy_id"])) if row["pharmacy_id"] else None
+            patient=patient_for_legacy(target,row["patient_id"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; pharmacy=target.scalar(select(Pharmacy).where(Pharmacy.legacy_pharmacy_id==row["pharmacy_id"])) if row["pharmacy_id"] else None
             if not patient or not clean(row["drug"]): stats["prescriptions"]["rejected"]+=1; continue
             target.add(Prescription(legacy_prescription_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,pharmacy_id=pharmacy.id if pharmacy else None,prescribed_at=row["date_added"] or datetime.now(timezone.utc),start_date=row["start_date"],end_date=row["end_date"],drug_name=clean(row["drug"]),rxnorm_code=clean(row["rxnorm_drugcode"]),dosage_instructions=clean(row["drug_dosage_instructions"]) or clean(row["dosage"]) or "As directed",quantity=clean(row["quantity"]),refills=row["refills"] or 0,substitutions_allowed=bool(row["substitute"]),indication=clean(row["indication"]),status="active" if row["active"] else "stopped")); stats["prescriptions"]["inserted"]+=1
         products = legacy.execute(text("SELECT * FROM drugs ORDER BY drug_id"))
@@ -520,7 +529,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in transactions.mappings():
             stats["inventory_transactions"]["source"] += 1
             if target.scalar(select(InventoryTransaction.id).where(InventoryTransaction.legacy_sale_id == row["sale_id"])): stats["inventory_transactions"]["existing"] += 1; continue
-            product=target.scalar(select(InventoryProduct).where(InventoryProduct.legacy_drug_id==row["drug_id"])); lot=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["inventory_id"])) if row["inventory_id"] else None; destination=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["xfer_inventory_id"])) if row["xfer_inventory_id"] else None; patient=target.scalar(select(Patient).where(Patient.legacy_pid==row["pid"])) if row["pid"] else None; encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; prescription=target.scalar(select(Prescription).where(Prescription.legacy_prescription_id==row["prescription_id"])) if row["prescription_id"] else None
+            product=target.scalar(select(InventoryProduct).where(InventoryProduct.legacy_drug_id==row["drug_id"])); lot=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["inventory_id"])) if row["inventory_id"] else None; destination=target.scalar(select(InventoryLot).where(InventoryLot.legacy_inventory_id==row["xfer_inventory_id"])) if row["xfer_inventory_id"] else None; patient=patient_for_legacy(target,row["pid"]) if row["pid"] else None; encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"])) if row["encounter"] else None; prescription=target.scalar(select(Prescription).where(Prescription.legacy_prescription_id==row["prescription_id"])) if row["prescription_id"] else None
             if not product: stats["inventory_transactions"]["rejected"] += 1; continue
             target.add(InventoryTransaction(legacy_sale_id=row["sale_id"], product_id=product.id, lot_id=lot.id if lot else None, destination_lot_id=destination.id if destination else None, patient_id=patient.id if patient else None, encounter_id=encounter.id if encounter else None, prescription_id=prescription.id if prescription else None, transaction_type=transaction_types.get(row["trans_type"], f"legacy-{row['trans_type']}"), occurred_on=row["sale_date"], quantity=row["quantity"], fee=row["fee"], billed=bool(row["billed"]), actor_name=clean(row["user"]), notes=clean(row["notes"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_transactions"]["inserted"] += 1
         # OpenEMR's `forms` registry points to both core and installed/custom form tables.
@@ -530,7 +539,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         for row in forms.mappings():
             stats["clinical_forms"]["source"] += 1; legacy_key = f"forms:{row['id']}"
             if target.scalar(select(ClinicalForm.id).where(ClinicalForm.legacy_form_key == legacy_key)): stats["clinical_forms"]["existing"] += 1; continue
-            patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"])); encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"]))
+            patient = patient_for_legacy(target, row["pid"]); encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"]))
             formdir = clean(row["formdir"]) or "custom"; table_name = f"form_{formdir}"
             if not patient or not encounter or row["deleted"] or table_name not in legacy_tables: stats["clinical_forms"]["rejected"] += 1; continue
             columns = {item["name"] for item in inspect(source).get_columns(table_name)}
@@ -550,7 +559,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 stats["portal_accounts"]["source"] += 1
                 if target.scalar(select(PortalAccount.id).where(PortalAccount.legacy_access_id == row["id"])):
                     stats["portal_accounts"]["existing"] += 1; continue
-                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
+                patient = patient_for_legacy(target, row["pid"])
                 username = clean(row.get("portal_username")) or clean(row.get("portal_login_username"))
                 if not patient or not username or target.scalar(select(PortalAccount.id).where(PortalAccount.username == username)):
                     stats["portal_accounts"]["rejected"] += 1; continue
@@ -566,7 +575,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 legacy_key = f"pnotes:{row['id']}"
                 if target.scalar(select(MessageThread.id).where(MessageThread.legacy_thread_key == legacy_key)):
                     stats["message_threads"]["existing"] += 1; stats["secure_messages"]["existing"] += 1; continue
-                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row.get("pid")))
+                patient = patient_for_legacy(target, row.get("pid"))
                 body = clean(row.get("body"))
                 if not patient or not body:
                     stats["message_threads"]["rejected"] += 1; stats["secure_messages"]["rejected"] += 1; continue
@@ -583,7 +592,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 if target.scalar(select(MessageThread.id).where(MessageThread.legacy_thread_key == legacy_key)):
                     stats["message_threads"]["existing"] += 1; stats["secure_messages"]["existing"] += 1; continue
                 owner = row.get("owner")
-                patient = target.scalar(select(Patient).where(Patient.legacy_pid == int(owner))) if str(owner or "").isdigit() else None
+                patient = patient_for_legacy(target, int(owner)) if str(owner or "").isdigit() else None
                 body = clean(row.get("body"))
                 if not patient or not body:
                     stats["message_threads"]["rejected"] += 1; stats["secure_messages"]["rejected"] += 1; continue
@@ -614,7 +623,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 stats["clinical_tasks"]["source"] += 1
                 if target.scalar(select(ClinicalTask.id).where(ClinicalTask.legacy_task_id == row["ID"])):
                     stats["clinical_tasks"]["existing"] += 1; continue
-                patient = target.scalar(select(Patient).where(Patient.legacy_pid == row.get("PATIENT_ID")))
+                patient = patient_for_legacy(target, row.get("PATIENT_ID"))
                 encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row.get("ENC_ID"))) if row.get("ENC_ID") else None
                 if not patient:
                     stats["clinical_tasks"]["rejected"] += 1; continue

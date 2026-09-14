@@ -51,7 +51,28 @@ class Patient(Base):
     deceased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deceased_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    merged_into_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    merged_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    merge_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PatientMerge(Base):
+    __tablename__ = "patient_merges"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    source_patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), unique=True, index=True)
+    target_patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    source_uuid: Mapped[str] = mapped_column(String(36), index=True)
+    target_uuid: Mapped[str] = mapped_column(String(36), index=True)
+    reason: Mapped[str] = mapped_column(String(500))
+    duplicate_score: Mapped[int] = mapped_column(default=0)
+    matched_fields: Mapped[list[str]] = mapped_column(JSON, default=list)
+    moved_counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    resolved_conflicts: Mapped[list] = mapped_column(JSON, default=list)
+    merged_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class PatientAddress(Base):

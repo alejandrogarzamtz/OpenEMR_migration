@@ -71,6 +71,17 @@ staff member reviews the candidates and records an override reason. Candidate
 scores are an investigation aid only: the system never merges clinical charts
 automatically, and every search or override is audited.
 
+An authorized user may request a merge preview that enumerates every dependent
+record and any uniqueness conflict before choosing the retained chart. The
+merge requires a reason and an exact typed copy of the retained UUID, locks
+both patient rows, moves dependent clinical and financial records in one
+transaction, retains the retired UUID as an alias, and writes immutable merge
+evidence. When both charts have portal identities, the retired identity is
+disabled, detached, and its sessions are revoked. Conflicting custom-field
+values are preserved in the merge evidence while the retained chart's value
+wins; no conflict is silently discarded. Subsequent legacy imports resolve
+retired legacy identifiers to the canonical chart.
+
 The `forms` registry is reconciled against the actual `form_*` tables installed
 in the source system. SOAP, ROS, physical-exam and clinic-note forms receive
 normalized types; every other installed form is retained as a custom JSON

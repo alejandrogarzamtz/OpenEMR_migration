@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models import AuditEvent, ClinicalItem, Immunization, LabOrder, LabResult, Patient, Prescription, User, VitalSet
 from .security import clinical_user
+from .services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/fhir", tags=["FHIR R4"])
 
@@ -21,9 +22,10 @@ def patient_resource(patient: Patient) -> dict:
 
 
 def patient_or_404(db: Session, patient_uuid: str) -> Patient:
-    patient = db.scalar(select(Patient).where(Patient.uuid == patient_uuid))
-    if not patient: raise HTTPException(status_code=404, detail={"resourceType": "OperationOutcome", "issue": [{"severity": "error", "code": "not-found"}]})
-    return patient
+    try: return patient_by_uuid(db, patient_uuid)
+    except HTTPException as exc:
+        if exc.status_code == 404: raise HTTPException(status_code=404, detail={"resourceType": "OperationOutcome", "issue": [{"severity": "error", "code": "not-found"}]}) from exc
+        raise
 
 
 def audit(db: Session, user: User, resource_type: str, patient_uuid: str):
@@ -42,7 +44,7 @@ def read_patient(patient_uuid: str, db: Session = Depends(get_db), user: User = 
 
 @router.get("/Patient")
 def search_patients(family: str | None = None, given: str | None = None, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    query = select(Patient)
+    query = select(Patient).where(Patient.merged_at.is_(None))
     if family: query = query.where(Patient.last_name.ilike(f"%{family}%"))
     if given: query = query.where(Patient.first_name.ilike(f"%{given}%"))
     patients = list(db.scalars(query.limit(100))); db.add(AuditEvent(actor_id=user.id, action="fhir-search", resource_type="Patient")); db.commit(); return bundle("Patient", [patient_resource(x) for x in patients])

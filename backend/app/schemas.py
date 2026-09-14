@@ -152,6 +152,40 @@ class PatientDuplicateCandidate(BaseModel):
     matched_fields: list[str]
 
 
+class PatientMergeRequest(BaseModel):
+    target_patient_uuid: str = Field(min_length=36, max_length=36)
+    confirmation: str = Field(min_length=36, max_length=36)
+    reason: str = Field(min_length=10, max_length=500)
+
+    @model_validator(mode="after")
+    def target_is_confirmed(self):
+        if self.confirmation != self.target_patient_uuid:
+            raise ValueError("confirmation must exactly match target_patient_uuid")
+        return self
+
+
+class PatientMergePreview(BaseModel):
+    source: PatientOut
+    target: PatientOut
+    duplicate_score: int
+    matched_fields: list[str]
+    record_counts: dict[str, int]
+    conflicts: list[dict]
+
+
+class PatientMergeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    source_uuid: str
+    target_uuid: str
+    reason: str
+    duplicate_score: int
+    matched_fields: list[str]
+    moved_counts: dict[str, int]
+    resolved_conflicts: list[dict]
+    created_at: datetime
+
+
 class PatientAddressCreate(BaseModel):
     use: str = Field(default="home", pattern="^(home|work|temp|old|billing)$")
     type: str = Field(default="both", pattern="^(postal|physical|both)$")

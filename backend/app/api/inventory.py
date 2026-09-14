@@ -10,6 +10,7 @@ from ..models import AuditEvent, Encounter, InventoryLot, InventoryProduct, Inve
 from ..schemas import InventoryDispenseCreate, InventoryLotCreate, InventoryLotDestroy, InventoryLotOut, InventoryMovementCreate, InventoryProductCreate, InventoryProductOut, InventoryTransactionOut
 from ..security import inventory_dispense_user, inventory_user, inventory_write_user
 from ..services.access import require_warehouse_access, warehouse_scope
+from ..services.patients import patient_by_uuid
 
 router = APIRouter(prefix="/api/v1/inventory", tags=["inventory"])
 
@@ -141,9 +142,7 @@ def move_inventory(product_uuid: str, body: InventoryMovementCreate, db: Session
 @router.post("/products/{product_uuid}/dispense", response_model=list[InventoryTransactionOut], status_code=status.HTTP_201_CREATED)
 def dispense(product_uuid: str, body: InventoryDispenseCreate, db: Session = Depends(get_db), user: User = Depends(inventory_dispense_user)):
     product = product_by_uuid(db, product_uuid, lock=True)
-    patient = db.scalar(select(Patient).where(Patient.uuid == body.patient_uuid))
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    patient = patient_by_uuid(db, body.patient_uuid)
     encounter = db.scalar(select(Encounter).where(Encounter.uuid == body.encounter_uuid, Encounter.patient_id == patient.id))
     if not encounter:
         raise HTTPException(status_code=404, detail="Encounter not found for patient")
