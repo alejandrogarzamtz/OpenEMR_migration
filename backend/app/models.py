@@ -778,6 +778,27 @@ class Document(Base):
     released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class PatientPhoto(Base):
+    __tablename__ = "patient_photos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_document_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    original_name: Mapped[str] = mapped_column(String(255))
+    mime_type: Mapped[str] = mapped_column(String(30))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column()
+    is_primary: Mapped[bool] = mapped_column(default=True, index=True)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    inactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inactivated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    inactivated_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class Payer(Base):
     __tablename__ = "payers"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -5,6 +5,8 @@ Usage:
   python -m app.import_legacy --source ... --commit
 """
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import secrets
@@ -12,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
@@ -36,6 +38,20 @@ TYPED_PATIENT_FIELDS = {
 
 def clean(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def legacy_image(value) -> tuple[bytes, str] | None:
+    if value is None: return None
+    payload = value.encode() if isinstance(value, str) else bytes(value)
+    candidates = [payload]
+    if isinstance(value, str):
+        try: candidates.append(base64.b64decode(value, validate=True))
+        except (binascii.Error, ValueError): pass
+    for candidate in candidates:
+        if candidate.startswith(b"\xff\xd8\xff"): return candidate, "image/jpeg"
+        if candidate.startswith(b"\x89PNG\r\n\x1a\n"): return candidate, "image/png"
+        if candidate.startswith(b"BM"): return candidate, "image/bmp"
+    return None
 
 
 def legacy_consent_decision(purpose: str, value) -> str:
@@ -133,7 +149,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -441,6 +457,16 @@ def run(source_url: str, commit: bool = False) -> dict:
             payload = content.encode() if isinstance(content, str) else bytes(content)
             target.add(Document(legacy_document_id=row["id"], patient_id=patient.id, name=clean(row["name"]) or f"document-{row['id']}", mime_type=clean(row["mimetype"]) or "application/octet-stream", content=payload, sha256=hashlib.sha256(payload).hexdigest(), uploaded_at=row["date"] or datetime.now(timezone.utc)))
             stats["documents"]["inserted"] += 1
+        photo_documents = legacy.execute(text("""SELECT d.id,d.foreign_id,d.name,d.mimetype,d.document_data,d.date,d.url,d.hash FROM documents d JOIN categories_to_documents cd ON cd.document_id=d.id JOIN categories c ON c.id=cd.category_id WHERE d.deleted=0 AND LOWER(c.name)=LOWER('Patient Photograph') ORDER BY d.foreign_id,d.date,d.id"""))
+        for row in photo_documents.mappings():
+            stats["patient_photos"]["source"] += 1
+            if target.scalar(select(PatientPhoto.id).where(PatientPhoto.legacy_document_id == row["id"])): stats["patient_photos"]["existing"] += 1; continue
+            patient = patient_for_legacy(target, row["foreign_id"]); decoded = legacy_image(row["document_data"])
+            if not patient or not decoded: stats["patient_photos"]["rejected"] += 1; continue
+            payload, mime_type = decoded
+            for current in target.scalars(select(PatientPhoto).where(PatientPhoto.patient_id == patient.id, PatientPhoto.is_primary.is_(True))): current.is_primary = False
+            target.add(PatientPhoto(legacy_document_id=row["id"], patient_id=patient.id, original_name=clean(row["name"]) or f"patient-photo-{row['id']}", mime_type=mime_type, content=payload, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload), is_primary=True, created_at=row["date"] or datetime.now(timezone.utc), legacy_payload={"url":clean(row["url"]), "legacy_hash":clean(row["hash"]), "declared_mimetype":clean(row["mimetype"])}))
+            stats["patient_photos"]["inserted"] += 1
         payers = legacy.execute(text("SELECT id,name,cms_id,x12_receiver_id,inactive FROM insurance_companies ORDER BY id"))
         for row in payers.mappings():
             stats["payers"]["source"] += 1

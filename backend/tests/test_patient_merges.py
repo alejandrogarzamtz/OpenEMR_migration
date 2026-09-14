@@ -27,6 +27,8 @@ def test_reviewed_merge_moves_records_preserves_alias_and_disables_duplicate_por
             db.add(User(email="merge-viewer@example.com", password_hash=password_hash.hash("merge-viewer-password"), role="viewer", permissions=["patients:demo:read"])); db.commit()
         address = client.post(f"/api/v1/patients/{source['uuid']}/addresses", headers=staff, json={"line1":"55 Legacy Way"}).json()
         encounter = client.post("/api/v1/encounters", headers=staff, json={"patient_uuid":source["uuid"],"occurred_at":"2026-01-02T10:00:00Z","chief_complaint":"Legacy chart visit"}).json()
+        client.post(f"/api/v1/patients/{target['uuid']}/photos", headers=staff, files={"file":("target.png",b"\x89PNG\r\n\x1a\ntarget","image/png")})
+        client.post(f"/api/v1/patients/{source['uuid']}/photos", headers=staff, files={"file":("source.jpg",b"\xff\xd8\xffsource","image/jpeg")})
 
         preview = client.get(f"/api/v1/patients/{source['uuid']}/merge-preview/{target['uuid']}", headers=staff)
         assert preview.status_code == 200
@@ -46,6 +48,8 @@ def test_reviewed_merge_moves_records_preserves_alias_and_disables_duplicate_por
         assert client.get(f"/api/v1/patients/{source['uuid']}", headers=staff).json()["uuid"] == target["uuid"]
         assert address["uuid"] in {item["uuid"] for item in client.get(f"/api/v1/patients/{target['uuid']}/addresses", headers=staff).json()}
         assert encounter["uuid"] in {item["uuid"] for item in client.get(f"/api/v1/patients/{target['uuid']}/encounters", headers=staff).json()}
+        photos = client.get(f"/api/v1/patients/{target['uuid']}/photos", headers=staff).json()
+        assert len(photos) == 2 and sum(item["is_primary"] for item in photos) == 1
         assert source["uuid"] not in {item["uuid"] for item in client.get("/api/v1/patients", headers=staff).json()["items"]}
         history = client.get(f"/api/v1/patients/{target['uuid']}/merges", headers=staff)
         assert history.status_code == 200 and history.json()[0]["source_uuid"] == source["uuid"]

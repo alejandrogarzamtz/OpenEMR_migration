@@ -1,17 +1,90 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from hashlib import sha256
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientMerge, PatientNameHistory, PatientPhoto, PatientRelatedPerson, PatientTelecom, User
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientMergeOut, PatientMergePreview, PatientMergeRequest, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientPhotoOut, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
 from ..services.patient_duplicates import duplicate_candidates
 from ..services.patient_merges import merge_patients, merge_preview
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
+
+PHOTO_LIMIT = 5 * 1024 * 1024
+
+
+def photo_mime(content: bytes) -> str | None:
+    if content.startswith(b"\xff\xd8\xff"): return "image/jpeg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"): return "image/png"
+    if content.startswith(b"BM"): return "image/bmp"
+    return None
+
+
+def photo_for_patient(db: Session, patient: Patient, photo_uuid: str) -> PatientPhoto:
+    photo = db.scalar(select(PatientPhoto).where(PatientPhoto.uuid == photo_uuid, PatientPhoto.patient_id == patient.id))
+    if not photo: raise HTTPException(status_code=404, detail="Patient photo not found")
+    return photo
+
+
+def lock_patient_photo_collection(db: Session, patient: Patient) -> None:
+    db.scalar(select(Patient.id).where(Patient.id == patient.id).with_for_update())
+
+
+@router.get("/{patient_uuid}/photos", response_model=list[PatientPhotoOut])
+def list_patient_photos(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    photos = list(db.scalars(select(PatientPhoto).where(PatientPhoto.patient_id == patient.id).order_by(PatientPhoto.active.desc(), PatientPhoto.is_primary.desc(), PatientPhoto.created_at.desc(), PatientPhoto.id.desc())))
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_photo", resource_id=patient.uuid, detail=f"records={len(photos)}")); db.commit()
+    return photos
+
+
+@router.post("/{patient_uuid}/photos", response_model=PatientPhotoOut, status_code=status.HTTP_201_CREATED)
+async def upload_patient_photo(patient_uuid: str, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    lock_patient_photo_collection(db, patient)
+    content = await file.read(PHOTO_LIMIT + 1)
+    if len(content) > PHOTO_LIMIT: raise HTTPException(status_code=413, detail="Patient photo exceeds 5 MiB limit")
+    if not content: raise HTTPException(status_code=422, detail="Patient photo is empty")
+    mime_type = photo_mime(content)
+    if not mime_type: raise HTTPException(status_code=415, detail="Patient photo must be JPEG, PNG, or BMP")
+    db.query(PatientPhoto).filter(PatientPhoto.patient_id == patient.id, PatientPhoto.is_primary.is_(True)).update({PatientPhoto.is_primary: False})
+    photo = PatientPhoto(patient_id=patient.id, original_name=(file.filename or "patient-photo")[:255], mime_type=mime_type, content=content, sha256=sha256(content).hexdigest(), size_bytes=len(content), is_primary=True, uploaded_by_id=user.id)
+    db.add(photo); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="patient_photo", resource_id=photo.uuid, detail=f"patient={patient.uuid}; sha256={photo.sha256}; bytes={photo.size_bytes}")); db.commit(); db.refresh(photo)
+    return photo
+
+
+@router.get("/{patient_uuid}/photos/{photo_uuid}/content")
+def read_patient_photo(patient_uuid: str, photo_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
+    patient = patient_by_uuid(db, patient_uuid); photo = photo_for_patient(db, patient, photo_uuid)
+    db.add(AuditEvent(actor_id=user.id, action="read", resource_type="patient_photo_content", resource_id=photo.uuid, detail=f"patient={patient.uuid}")); db.commit()
+    safe_name = photo.original_name.replace('"', "").replace("\r", "").replace("\n", "")
+    return Response(photo.content, media_type=photo.mime_type, headers={"Cache-Control":"private, no-store", "X-Content-Type-Options":"nosniff", "Content-Disposition":f'inline; filename="{safe_name}"', "ETag":photo.sha256})
+
+
+@router.post("/{patient_uuid}/photos/{photo_uuid}/primary", response_model=PatientPhotoOut)
+def make_patient_photo_primary(patient_uuid: str, photo_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid); lock_patient_photo_collection(db, patient); photo = photo_for_patient(db, patient, photo_uuid)
+    if not photo.active: raise HTTPException(status_code=409, detail="Inactive patient photos cannot be primary")
+    db.query(PatientPhoto).filter(PatientPhoto.patient_id == patient.id, PatientPhoto.is_primary.is_(True)).update({PatientPhoto.is_primary: False})
+    photo.is_primary = True; db.add(AuditEvent(actor_id=user.id, action="update", resource_type="patient_photo", resource_id=photo.uuid, detail=f"patient={patient.uuid}; primary=true")); db.commit(); db.refresh(photo)
+    return photo
+
+
+@router.post("/{patient_uuid}/photos/{photo_uuid}/inactivate", response_model=PatientPhotoOut)
+def inactivate_patient_photo(patient_uuid: str, photo_uuid: str, body: InactivationRequest, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
+    patient = patient_by_uuid(db, patient_uuid); lock_patient_photo_collection(db, patient); photo = photo_for_patient(db, patient, photo_uuid)
+    if not photo.active: raise HTTPException(status_code=409, detail="Patient photo is already inactive")
+    was_primary = photo.is_primary; photo.active = False; photo.is_primary = False; photo.inactivated_at = datetime.now(timezone.utc); photo.inactivated_by_id = user.id; photo.inactivated_reason = body.reason
+    if was_primary:
+        replacement = db.scalar(select(PatientPhoto).where(PatientPhoto.patient_id == patient.id, PatientPhoto.active.is_(True), PatientPhoto.id != photo.id).order_by(PatientPhoto.created_at.desc(), PatientPhoto.id.desc()))
+        if replacement: replacement.is_primary = True
+    db.add(AuditEvent(actor_id=user.id, action="inactivate", resource_type="patient_photo", resource_id=photo.uuid, detail=f"patient={patient.uuid}; reason={body.reason}")); db.commit(); db.refresh(photo)
+    return photo
 
 
 def custom_field_out(definition: PatientCustomFieldDefinition, value: PatientCustomFieldValue | None) -> PatientCustomFieldOut:

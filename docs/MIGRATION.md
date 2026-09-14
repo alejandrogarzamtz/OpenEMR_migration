@@ -51,6 +51,12 @@ structured consent/directive decisions and employment history, the
 problem/allergy/medication records in
 `lists`, `form_encounter`, `form_vitals`, `immunizations`, `pharmacies`,
 `prescriptions`, laboratory orders/results, and database-backed documents.
+Image data stored in the legacy `Patient Photograph` category is additionally
+validated by file signature and imported into private, versioned patient-photo
+records. The newest importable version becomes primary; prior versions remain
+available as history. File-system references and encrypted content that cannot
+be read from `document_data` are reported as rejected and require a mounted,
+decrypted source-storage pass rather than being silently omitted.
 File-system document references are counted as rejected until their storage
 volume is mounted. Insurance companies, patient coverages, charges, and claim
 versions are also migrated with their legacy relationships. Legacy identifiers are unique keys, making

@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from ..db import Base
-from ..models import AuthSession, Patient, PatientConsent, PatientCustomFieldValue, PatientMerge, PatientRelatedPerson, PortalAccount, User
+from ..models import AuthSession, Patient, PatientConsent, PatientCustomFieldValue, PatientMerge, PatientPhoto, PatientRelatedPerson, PortalAccount, User
 from .patient_duplicates import duplicate_score
 
 SPECIAL_TABLES = {"patient_custom_field_values", "patient_related_persons", "patient_consents", "portal_accounts"}
@@ -94,6 +94,9 @@ def merge_patients(db: Session, source: Patient, target: Patient, actor: User, r
         if result.rowcount: moved_counts[table.name] = result.rowcount
     if source_portal:
         moved_counts["portal_accounts"] = 1
+
+    active_photos = list(db.scalars(select(PatientPhoto).where(PatientPhoto.patient_id == target.id, PatientPhoto.active.is_(True)).order_by(PatientPhoto.is_primary.desc(), PatientPhoto.created_at.desc(), PatientPhoto.id.desc())))
+    for index, photo in enumerate(active_photos): photo.is_primary = index == 0
 
     now = datetime.now(timezone.utc)
     source.merged_into_id = target.id

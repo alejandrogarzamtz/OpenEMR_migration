@@ -932,6 +932,20 @@ class DocumentOut(BaseModel):
     released_to_patient_at: datetime | None = None
 
 
+class PatientPhotoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str
+    original_name: str
+    mime_type: str
+    sha256: str
+    size_bytes: int
+    is_primary: bool
+    active: bool
+    created_at: datetime
+    inactivated_at: datetime | None = None
+    inactivated_reason: str | None = None
+
+
 class CoverageCreate(BaseModel):
     payer_name: str = Field(min_length=1, max_length=255)
     payer_identifier: str | None = Field(default=None, max_length=25)

@@ -5,6 +5,7 @@ import "./clinical.css";
 import { createApiClient } from "./api/client";
 import { PatientForm } from "./features/patients/PatientForm";
 import { PatientContacts } from "./features/patients/PatientContacts";
+import { PatientPhotos } from "./features/patients/PatientPhotos";
 import { PatientDuplicates } from "./features/patients/PatientDuplicates";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
@@ -154,6 +155,7 @@ function App(){
         {!patients.length&&<div className="empty">No hay pacientes que mostrar.</div>}
       </section>{selected&&<aside className="patient-drawer">
         <button className="close" onClick={()=>setSelected(null)}>×</button><p className="eyebrow">RESUMEN CLÍNICO</p><h2>{selected.patient.first_name} {selected.patient.last_name}</h2><p>{selected.patient.date_of_birth} · {selected.patient.sex}</p>
+        <PatientPhotos api={api} patientUuid={selected.patient.uuid}/>
         <PatientContacts api={api} patientUuid={selected.patient.uuid}/>
         <PatientDuplicates api={api} patientUuid={selected.patient.uuid} onOpen={openPatient}/>
         <Group title="Problemas" items={selected.problems}/><Group title="Alergias" items={selected.allergies}/><Group title="Medicamentos" items={selected.medications}/>

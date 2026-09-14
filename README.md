@@ -86,6 +86,9 @@ end-to-end healthcare workflows:
   guardian/family backfill, field-level legacy reconciliation evidence, and
   audited duplicate-registration review plus explicit, transactional chart
   consolidation with retained aliases and conflict evidence;
+- private patient photographs with content-based image validation, authenticated
+  retrieval, primary-image selection, non-destructive version history, and
+  auditable legacy `Patient Photograph` imports;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history
