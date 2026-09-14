@@ -24,5 +24,4 @@ export type Patient = {
   allow_sms: boolean;
 };
 
-export type PatientInput = Omit<Patient, "uuid" | "portal_allowed">;
-
+export type PatientInput = Omit<Patient, "uuid" | "portal_allowed"> & {duplicate_override_reason?:string};

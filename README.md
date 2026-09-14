@@ -83,7 +83,8 @@ end-to-end healthcare workflows:
 - expanded patient search, normalized addresses and telecoms, related people,
   searchable previous names, structured employment history, versioned and
   revocable consent/directive records, layout-driven advanced demographics,
-  guardian/family backfill, and field-level legacy reconciliation evidence;
+  guardian/family backfill, field-level legacy reconciliation evidence, and
+  audited duplicate-registration review without automatic chart merging;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

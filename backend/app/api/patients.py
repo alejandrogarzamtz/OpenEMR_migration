@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import AuditEvent, Patient, PatientAddress, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientNameHistory, PatientRelatedPerson, PatientTelecom, User
-from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
+from ..schemas import InactivationRequest, PatientAddressCreate, PatientAddressOut, PatientConsentCreate, PatientConsentOut, PatientCreate, PatientCustomFieldOut, PatientCustomFieldValueUpdate, PatientDuplicateCandidate, PatientEmploymentCreate, PatientEmploymentOut, PatientNameHistoryCreate, PatientNameHistoryOut, PatientOut, PatientPage, PatientRelatedPersonCreate, PatientRelatedPersonOut, PatientTelecomCreate, PatientTelecomOut, PatientUpdate
 from ..security import patient_demographics_user, patient_demographics_write_user
 from ..services.patients import patient_by_uuid
+from ..services.patient_duplicates import duplicate_candidates
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
@@ -288,7 +289,16 @@ def create_patient(
     db: Session = Depends(get_db),
     user: User = Depends(patient_demographics_write_user),
 ) -> Patient:
-    patient = Patient(**body.model_dump())
+    same_birth_date = db.scalars(select(Patient).where(Patient.date_of_birth == body.date_of_birth)).all()
+    possible_duplicates = duplicate_candidates(same_birth_date, body, minimum_score=85)
+    if possible_duplicates and not body.duplicate_override_reason:
+        raise HTTPException(status_code=409, detail={
+            "code": "possible_duplicate_patient",
+            "message": "A possible duplicate patient must be reviewed before registration.",
+            "candidates": [{"uuid": item.uuid, "score": score, "matched_fields": fields} for item, score, fields in possible_duplicates],
+        })
+    values = body.model_dump(exclude={"duplicate_override_reason"})
+    patient = Patient(**values)
     db.add(patient)
     db.flush()
     db.add(
@@ -297,11 +307,28 @@ def create_patient(
             action="create",
             resource_type="patient",
             resource_id=patient.uuid,
+            detail=f"duplicate_override={body.duplicate_override_reason}" if body.duplicate_override_reason else None,
         )
     )
     db.commit()
     db.refresh(patient)
     return patient
+
+
+@router.get("/{patient_uuid}/duplicate-candidates", response_model=list[PatientDuplicateCandidate])
+def list_duplicate_candidates(
+    patient_uuid: str,
+    minimum_score: int = Query(65, ge=40, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(patient_demographics_user),
+) -> list[PatientDuplicateCandidate]:
+    patient = patient_by_uuid(db, patient_uuid)
+    same_birth_date = db.scalars(select(Patient).where(Patient.date_of_birth == patient.date_of_birth)).all()
+    matches = duplicate_candidates(same_birth_date, patient, exclude_id=patient.id, minimum_score=minimum_score)
+    result = [PatientDuplicateCandidate(patient=item, score=score, matched_fields=fields) for item, score, fields in matches]
+    db.add(AuditEvent(actor_id=user.id, action="duplicate-search", resource_type="patient", resource_id=patient.uuid, detail=f"minimum_score={minimum_score}; matches={len(result)}"))
+    db.commit()
+    return result
 
 
 @router.get("/{patient_uuid}", response_model=PatientOut)

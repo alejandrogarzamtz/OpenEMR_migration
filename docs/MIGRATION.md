@@ -65,6 +65,12 @@ the same evidence for every original `patient_data` value retained in
 checksum. Cutover requires a reviewed report with no unexplained mismatches;
 the dry run is evidence, not an instruction to overwrite the source system.
 
+Interactive registration compares date of birth, normalized names, email and
+phone against existing charts. Exact demographic matches are blocked until a
+staff member reviews the candidates and records an override reason. Candidate
+scores are an investigation aid only: the system never merges clinical charts
+automatically, and every search or override is audited.
+
 The `forms` registry is reconciled against the actual `form_*` tables installed
 in the source system. SOAP, ROS, physical-exam and clinic-note forms receive
 normalized types; every other installed form is retained as a custom JSON

@@ -2,6 +2,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly detail: string,
+    readonly payload?: unknown,
   ) {
     super(detail);
     this.name = "ApiError";
@@ -36,8 +37,8 @@ export function createApiClient(options: ClientOptions) {
     if (response.status === 401) options.onUnauthorized?.();
     if (!response.ok) {
       const body = await response.json().catch(() => ({ detail: "Request failed" }));
-      const detail = typeof body.detail === "string" ? body.detail : "Request failed";
-      throw new ApiError(response.status, detail);
+      const detail = typeof body.detail === "string" ? body.detail : typeof body.detail?.message === "string" ? body.detail.message : "Request failed";
+      throw new ApiError(response.status, detail, typeof body.detail === "object" ? body.detail : undefined);
     }
     return response;
   }

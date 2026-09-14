@@ -91,6 +91,8 @@ class PatientBase(BaseModel):
 
 
 class PatientCreate(PatientBase):
+    duplicate_override_reason: str | None = Field(default=None, min_length=10, max_length=500)
+
     @model_validator(mode="after")
     def validate_demographics(self):
         if self.date_of_birth > date.today():
@@ -142,6 +144,12 @@ class PatientPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class PatientDuplicateCandidate(BaseModel):
+    patient: PatientOut
+    score: int = Field(ge=0, le=100)
+    matched_fields: list[str]
 
 
 class PatientAddressCreate(BaseModel):

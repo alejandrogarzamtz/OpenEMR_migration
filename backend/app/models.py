@@ -29,7 +29,7 @@ class Patient(Base):
     last_name: Mapped[str] = mapped_column(String(100), index=True)
     preferred_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     suffix: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    date_of_birth: Mapped[date] = mapped_column(Date)
+    date_of_birth: Mapped[date] = mapped_column(Date, index=True)
     sex: Mapped[str] = mapped_column(String(30))
     gender_identity: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sexual_orientation: Mapped[str | None] = mapped_column(String(100), nullable=True)

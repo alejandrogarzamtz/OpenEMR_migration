@@ -22,7 +22,7 @@ export function PatientForm({ onSubmit, onCancel }: Props) {
       address_line_1: optional(data, "address_line_1"), address_line_2: optional(data, "address_line_2"),
       city: optional(data, "city"), state: optional(data, "state"), postal_code: optional(data, "postal_code"),
       country_code: optional(data, "country_code"), allow_email: data.get("allow_email") === "on",
-      allow_sms: data.get("allow_sms") === "on",
+      allow_sms: data.get("allow_sms") === "on", duplicate_override_reason: optional(data, "duplicate_override_reason"),
     });
   }
 
@@ -37,6 +37,6 @@ export function PatientForm({ onSubmit, onCancel }: Props) {
     <label>Ciudad<input name="city" maxLength={100}/></label><label>Estado<input name="state" maxLength={100}/></label>
     <label>Código postal<input name="postal_code" maxLength={30}/></label><label>País (ISO)<input name="country_code" minLength={2} maxLength={2}/></label>
   </div><label><input name="allow_email" type="checkbox"/> Autoriza correo</label><label><input name="allow_sms" type="checkbox"/> Autoriza SMS</label>
+  <label>Justificación de excepción por duplicado<input name="duplicate_override_reason" minLength={10} maxLength={500} placeholder="Completar únicamente después de revisar una alerta de posible duplicado"/></label>
   <div className="form-actions"><button type="button" onClick={onCancel}>Cancelar</button><button>Guardar paciente</button></div></form>;
 }
-
