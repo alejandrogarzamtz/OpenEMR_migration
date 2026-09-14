@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Payer, Practitioner, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
-from .security import appointment_user, clinical_user
+from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, PatientRelatedPerson, Payer, Practitioner, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
+from .security import appointment_user, clinical_user, patient_demographics_user
 from .services.access import facility_scope, require_facility_access
 from .services.patients import patient_by_uuid
 
@@ -43,8 +43,9 @@ def metadata():
     patient_resources.extend([{"type":"Coverage","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]},{"type":"DocumentReference","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"type","type":"token"},{"name":"date","type":"date"}]},{"type":"Binary","interaction":[{"code":"read"}]}])
     patient_resources.extend([{"type":"ServiceRequest","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"},{"name":"code","type":"token"},{"name":"authored","type":"date"}]},{"type":"DiagnosticReport","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"},{"name":"code","type":"token"},{"name":"date","type":"date"}]}])
     patient_resources.extend([{"type":"Questionnaire","interaction":read_search,"searchParam":[{"name":"code","type":"token"},{"name":"title","type":"string"},{"name":"status","type":"token"}]},{"type":"QuestionnaireResponse","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"questionnaire","type":"reference"},{"name":"authored","type":"date"}]}])
+    patient_resources.append({"type":"RelatedPerson","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"name","type":"string"},{"name":"relationship","type":"token"},{"name":"active","type":"token"}]})
     status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
-    directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
+    directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]},{"type":"Person","interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
     resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
     return {"resourceType":"CapabilityStatement","status":"active","date":"2026-09-14","kind":"instance","fhirVersion":"4.0.1","format":["json"],"rest":[{"mode":"server","security":{"cors":True,"service":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/restful-security-service","code":"OAuth"}]}]},"resource":resources}]}
 
@@ -572,3 +573,52 @@ def read_questionnaire_response(resource_uuid:str,db:Session=Depends(get_db),use
     row=db.execute(select(QuestionnaireResponse,QuestionnaireDefinition,Patient.uuid).join(QuestionnaireDefinition,QuestionnaireResponse.questionnaire_id==QuestionnaireDefinition.id).join(Patient,QuestionnaireResponse.patient_id==Patient.id).where(QuestionnaireResponse.uuid==resource_uuid)).first()
     if not row:fhir_not_found("QuestionnaireResponse")
     item,definition,patient_uuid=row;resource=questionnaire_response_resource(db,item,definition,patient_uuid);audit(db,user,"QuestionnaireResponse",item.uuid);return resource
+
+
+def fhir_gender(value: str | None) -> str | None:
+    normalized=(value or "").lower();return normalized if normalized in {"male","female","other","unknown"} else None
+
+
+def related_person_resource(item: PatientRelatedPerson, patient_uuid: str) -> dict:
+    telecom=[{"system":system,"value":value} for system,value in (("phone",item.phone),("email",item.email)) if value]
+    address={key:value for key,value in (("line",[item.address_line1] if item.address_line1 else None),("city",item.city),("state",item.state),("postalCode",item.postal_code),("country",item.country)) if value}
+    extensions=[{"url":"https://openrm.org/fhir/StructureDefinition/related-person-role","valueCode":item.role_code},{"url":"https://openrm.org/fhir/StructureDefinition/primary-contact","valueBoolean":item.is_primary_contact},{"url":"https://openrm.org/fhir/StructureDefinition/emergency-contact","valueBoolean":item.is_emergency_contact},{"url":"https://openrm.org/fhir/StructureDefinition/can-make-medical-decisions","valueBoolean":item.can_make_medical_decisions},{"url":"https://openrm.org/fhir/StructureDefinition/can-receive-medical-information","valueBoolean":item.can_receive_medical_info}]
+    gender=fhir_gender(item.sex)
+    return {"resourceType":"RelatedPerson","id":item.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-relatedperson"]},"active":item.active,"patient":{"reference":f"Patient/{patient_uuid}"},"relationship":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/v3-RoleCode","code":item.relationship_code}],"text":item.relationship_code}],"name":[{"family":item.last_name,"given":[value for value in (item.first_name,item.middle_name) if value]}],"extension":extensions,**({"telecom":telecom} if telecom else {}),**({"gender":gender} if gender else {}),**({"address":[address]} if address else {}),**({"period":{key:value.isoformat() for key,value in (("start",item.starts_at),("end",item.ends_at)) if value}} if item.starts_at or item.ends_at else {})}
+
+
+def person_resource(item: Practitioner) -> dict:
+    telecom=[{"system":system,"value":value} for system,value in (("phone",item.phone),("email",item.email)) if value]
+    return {"resourceType":"Person","id":item.uuid,"active":item.active,"name":[{"family":item.last_name,"given":[value for value in (item.first_name,item.middle_name) if value],**({"prefix":[item.title]} if item.title else {})}],"link":[{"target":{"reference":f"Practitioner/{item.uuid}"},"assurance":"level4"}],**({"identifier":[{"system":"http://hl7.org/fhir/sid/us-npi","value":item.npi}]} if item.npi else {}),**({"telecom":telecom} if telecom else {})}
+
+
+@router.get("/RelatedPerson")
+def search_related_people(patient:str=Query(),name:str|None=None,relationship:str|None=None,active:bool|None=None,db:Session=Depends(get_db),user:User=Depends(patient_demographics_user)):
+    owner=patient_or_404(db,patient_reference(patient));query=select(PatientRelatedPerson).where(PatientRelatedPerson.patient_id==owner.id)
+    if name:query=query.where(or_(PatientRelatedPerson.first_name.ilike(f"%{name}%"),PatientRelatedPerson.last_name.ilike(f"%{name}%")))
+    if relationship:query=query.where(PatientRelatedPerson.relationship_code==relationship.rsplit("|",1)[-1])
+    if active is not None:query=query.where(PatientRelatedPerson.active.is_(active))
+    rows=list(db.scalars(query.order_by(PatientRelatedPerson.priority,PatientRelatedPerson.last_name)));audit(db,user,"RelatedPerson",owner.uuid,search=True);return bundle("RelatedPerson",[related_person_resource(item,owner.uuid) for item in rows])
+
+
+@router.get("/RelatedPerson/{resource_uuid}")
+def read_related_person(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(patient_demographics_user)):
+    row=db.execute(select(PatientRelatedPerson,Patient.uuid).join(Patient,PatientRelatedPerson.patient_id==Patient.id).where(PatientRelatedPerson.uuid==resource_uuid)).first()
+    if not row:fhir_not_found("RelatedPerson")
+    item,patient_uuid=row;resource=related_person_resource(item,patient_uuid);audit(db,user,"RelatedPerson",item.uuid);return resource
+
+
+@router.get("/Person")
+def search_people(name:str|None=None,identifier:str|None=None,active:bool|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    query=select(Practitioner)
+    if name:query=query.where(or_(Practitioner.first_name.ilike(f"%{name}%"),Practitioner.last_name.ilike(f"%{name}%")))
+    if identifier:query=query.where(Practitioner.npi==identifier.rsplit("|",1)[-1])
+    if active is not None:query=query.where(Practitioner.active.is_(active))
+    rows=list(db.scalars(query.order_by(Practitioner.last_name,Practitioner.first_name).limit(100)));audit(db,user,"Person",search=True);return bundle("Person",[person_resource(item) for item in rows])
+
+
+@router.get("/Person/{resource_uuid}")
+def read_person(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    item=db.scalar(select(Practitioner).where(Practitioner.uuid==resource_uuid))
+    if not item:fhir_not_found("Person")
+    audit(db,user,"Person",item.uuid);return person_resource(item)

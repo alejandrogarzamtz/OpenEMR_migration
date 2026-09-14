@@ -56,6 +56,15 @@ extensions because R4 QuestionnaireResponse has no native aggregate-score
 element. Searches support definition code/title/status and response patient,
 questionnaire canonical, and authored date.
 
+RelatedPerson exposes normalized family and care contacts with patient,
+relationship, name, contact points, address, gender and active period. OpenRM's
+distinct contact role, primary/emergency flags, medical-decision authority and
+permission to receive clinical information remain explicit named extensions;
+they are not conflated with portal authorization. Searches require a patient
+compartment and the demographics permission. Person represents an identity from
+the practitioner directory and links to the corresponding resolvable
+Practitioner resource; it supports bounded name, NPI and active-state searches.
+
 The development JWT is used as a bearer token. Production rollout must replace
 it with SMART on FHIR authorization, asymmetric token signing, scopes, launch
 context, and conformance/Inferno validation before connecting third parties.

@@ -130,7 +130,7 @@ end-to-end healthcare workflows:
   care teams, appointments, encounters, clinical and payer directories,
   coverage, document references and binary retrieval, observations, medications,
   immunizations, laboratory service requests, diagnostic reports and scored
-  patient questionnaires;
+  patient questionnaires, plus related-person and clinical-identity resources;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 
