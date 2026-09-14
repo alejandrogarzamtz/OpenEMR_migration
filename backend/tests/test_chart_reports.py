@@ -32,8 +32,15 @@ def test_printable_chart_report_is_patient_scoped_escaped_audited_and_permission
         assert response.headers["x-report-sha256"] and "ReportOne" in response.text and "ReportTwo" not in response.text
         assert "Risk &lt;script&gt;alert(1)&lt;/script&gt;" in response.text and "Risk <script>" not in response.text
         assert all(section in response.text for section in ("Demographics","Problems, allergies, and medications","Encounters","Laboratory and procedures","Documents","Insurance","Claims"))
+        selected=client.get(f"/api/v1/patients/{patient['uuid']}/report.html?sections=demographics,clinical-items",headers=report_headers)
+        assert selected.status_code==200 and "Demographics" in selected.text and "Problems, allergies, and medications" in selected.text and "Documents" not in selected.text
+        assert client.get(f"/api/v1/patients/{patient['uuid']}/report.html?sections=unknown",headers=report_headers).status_code==422
+        assert client.get(f"/api/v1/patients/{patient['uuid']}/report.html?sections=",headers=report_headers).status_code==422
+        pdf=client.get(f"/api/v1/patients/{patient['uuid']}/report.pdf?sections=demographics,clinical-items",headers=report_headers)
+        assert pdf.status_code==200 and pdf.headers["content-type"].startswith("application/pdf") and pdf.content.startswith(b"%PDF-") and len(pdf.content)>1000
+        assert pdf.headers["content-disposition"].endswith('.pdf"') and pdf.headers["cache-control"]=="private, no-store"
         with SessionLocal() as db:
             audit=db.scalar(select(AuditEvent).where(AuditEvent.action=="export",AuditEvent.resource_type=="patient_report",AuditEvent.resource_id==patient["uuid"]).order_by(AuditEvent.id.desc()))
-            assert audit and response.headers["x-report-sha256"] in audit.detail
+            assert audit and pdf.headers["x-report-sha256"] in audit.detail and "format=pdf" in audit.detail
         other_response=client.get(f"/api/v1/patients/{other['uuid']}/report.html",headers=report_headers)
         assert "ReportTwo" in other_response.text and "ReportOne" not in other_response.text

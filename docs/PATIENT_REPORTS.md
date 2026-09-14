@@ -1,9 +1,11 @@
 # Printable patient reports
 
-OpenRM provides an authenticated comprehensive patient report at
-`GET /api/v1/patients/{patient_uuid}/report.html`. It follows the principal
+OpenRM provides authenticated comprehensive patient reports at
+`GET /api/v1/patients/{patient_uuid}/report.html` and
+`GET /api/v1/patients/{patient_uuid}/report.pdf`. They follow the principal
 sections of OpenEMR's Patient Report while rendering only data already migrated
-into typed target models.
+into typed target models. The HTML response supports browser printing and the
+PDF response is generated server-side as a downloadable document.
 
 Access requires the OpenEMR-compatible `patients/pat_rep` read grant. Section
 content is additionally limited by `patients/demo`, `patients/med`,
@@ -21,8 +23,15 @@ immunizations, vital signs and claims:
 /api/v1/patients/{uuid}/report.html?start=2026-01-01&end=2026-12-31
 ```
 
-The React chart opens the authenticated response as a short-lived local blob
-and invokes the browser print dialog. Browsers can save the result as PDF
-without exposing bearer credentials in a URL. Direct server-side PDF output,
-configurable section selection and site-specific report extension hooks remain
+The optional `sections` parameter accepts a comma-separated subset of:
+`demographics`, `addresses`, `telecommunications`, `previous-names`,
+`related-people`, `employment`, `clinical-items`, `prescriptions`,
+`immunizations`, `vitals`, `encounters`, `clinical-forms`, `laboratory`,
+`documents`, `insurance`, and `claims`. Unknown names and empty selections are
+rejected rather than silently producing an ambiguous report.
+
+The React chart lets users select a date range and report sections, opens HTML
+as a short-lived authenticated local blob for printing, and downloads direct
+server-generated PDF output without exposing bearer credentials in a URL.
+Site-specific report extension hooks and production-source acceptance remain
 explicit parity work.

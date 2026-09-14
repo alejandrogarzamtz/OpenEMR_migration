@@ -92,7 +92,7 @@ end-to-end healthcare workflows:
 - password-reauthenticated clinical-form and encounter signatures with explicit
   attestations, locked records, amendment history, chained SHA-256 integrity
   evidence, and an append-only PostgreSQL audit boundary;
-- an ACL-protected printable patient report covering demographics, contacts,
+- ACL-protected configurable HTML/PDF patient reports covering demographics, contacts,
   clinical history, encounters, forms, laboratory results, document metadata,
   insurance and claims, with private delivery and audited evidence hashes;
 - resource-aware appointment creation, filtering, conflict detection, status
