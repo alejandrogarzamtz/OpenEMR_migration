@@ -1042,6 +1042,29 @@ class CarePlan(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class CarePlanOutcome(Base):
+    """Append-only progress or outcome evidence for a goal/intervention."""
+
+    __tablename__ = "care_plan_outcomes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    care_plan_id: Mapped[int] = mapped_column(ForeignKey("care_plans.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(20), index=True)
+    plan_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    achievement_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    measure_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    measure_system: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    measure_display: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    value_numeric: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    value_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default="staff")
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class CareTeam(Base):
     __tablename__ = "care_teams"
     id: Mapped[int] = mapped_column(primary_key=True)

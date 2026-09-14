@@ -13,6 +13,13 @@ scoped, reads and mutations are audited, and records attached to an
 electronically locked encounter cannot be changed. The React chart provides
 creation, status transitions, longitudinal display, and inactivation.
 
+Each plan also has an append-only progress and outcome timeline. Events can
+record plan and FHIR goal-achievement status, a narrative, or a coded numeric
+measure with unit. Creating a plan and changing its lifecycle automatically add
+status events; explicit progress/outcome events may update the current plan
+status but can never rewrite earlier evidence. Outcome timestamps cannot predate
+the plan, patient ownership is enforced, and signed encounters reject additions.
+
 Legacy import projects every `form_care_plan` row into the relational model and
 also retains the complete source payload. Because the legacy table permits
 multiple rows under the same form ID and has no row primary key, import keys are
@@ -21,6 +28,11 @@ preserves identical duplicate rows while keeping repeated imports idempotent.
 The original generic form payload remains available for independent source
 reconciliation.
 
-Care-team participants, patient preferences, goal/intervention outcome history,
-FHIR CarePlan/Goal resources, and production-source reconciliation remain
+The legacy schema contains only the current `plan_status`, from which its FHIR
+Goal service derived achievement status. Import therefore creates one source
+event containing that exact status and the same deterministic row payload. It
+labels the event as an initial legacy snapshot and does not claim that separate
+historical outcomes existed.
+
+FHIR CarePlan/Goal resources and production-source reconciliation remain
 explicit parity work.

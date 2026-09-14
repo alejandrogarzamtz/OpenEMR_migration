@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, CarePlan, CareTeam, CareTeamMember, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -171,7 +171,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -626,12 +626,18 @@ def run(source_url: str, commit: bool = False) -> dict:
         if "form_care_plan" in legacy_tables:
             source_rows=list(legacy.execute(text("SELECT * FROM form_care_plan")).mappings())
             for row,payload,row_key in stable_legacy_row_keys(source_rows):
-                stats["care_plans"]["source"]+=1
-                if target.scalar(select(CarePlan.id).where(CarePlan.legacy_form_id==row["id"],CarePlan.legacy_row_key==row_key)):stats["care_plans"]["existing"]+=1;continue
+                stats["care_plans"]["source"]+=1;stats["care_plan_outcomes"]["source"]+=1
+                plan=target.scalar(select(CarePlan).where(CarePlan.legacy_form_id==row["id"],CarePlan.legacy_row_key==row_key))
+                if plan:stats["care_plans"]["existing"]+=1
                 patient=patient_for_legacy(target,row["pid"]);encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
-                if not patient or not encounter:stats["care_plans"]["rejected"]+=1;continue
-                recorded=legacy_datetime(row["date"],encounter.occurred_at);raw_status=clean(row["plan_status"]) or "draft"
-                target.add(CarePlan(legacy_form_id=row["id"],legacy_row_key=row_key,patient_id=patient.id,encounter_id=encounter.id,recorded_at=recorded,code=clean(row["code"]),code_text=clean(row["codetext"]),description=clean(row["description"]) or "",external_id=clean(row["external_id"]),plan_type=clean(row["care_plan_type"]),note_related_to=clean(row["note_related_to"]),ends_at=legacy_datetime(row["date_end"]),reason_code=clean(row["reason_code"]),reason_description=clean(row["reason_description"]),reason_recorded_at=legacy_datetime(row["reason_date_low"]),reason_ends_at=legacy_datetime(row["reason_date_high"]),reason_status=clean(row["reason_status"]),status=raw_status[:32],target_date=legacy_datetime(row["proposed_date"]),engagement_category=clean(row["plan_engagement_category"]),active=bool(row["activity"]),legacy_payload=payload));stats["care_plans"]["inserted"]+=1
+                if not plan and (not patient or not encounter):stats["care_plans"]["rejected"]+=1;stats["care_plan_outcomes"]["rejected"]+=1;continue
+                recorded=plan.recorded_at if plan else legacy_datetime(row["date"],encounter.occurred_at);raw_status=clean(row["plan_status"]) or "draft"
+                if not plan:
+                    plan=CarePlan(legacy_form_id=row["id"],legacy_row_key=row_key,patient_id=patient.id,encounter_id=encounter.id,recorded_at=recorded,code=clean(row["code"]),code_text=clean(row["codetext"]),description=clean(row["description"]) or "",external_id=clean(row["external_id"]),plan_type=clean(row["care_plan_type"]),note_related_to=clean(row["note_related_to"]),ends_at=legacy_datetime(row["date_end"]),reason_code=clean(row["reason_code"]),reason_description=clean(row["reason_description"]),reason_recorded_at=legacy_datetime(row["reason_date_low"]),reason_ends_at=legacy_datetime(row["reason_date_high"]),reason_status=clean(row["reason_status"]),status=raw_status[:32],target_date=legacy_datetime(row["proposed_date"]),engagement_category=clean(row["plan_engagement_category"]),active=bool(row["activity"]),legacy_payload=payload);target.add(plan);target.flush();stats["care_plans"]["inserted"]+=1
+                outcome=target.scalar(select(CarePlanOutcome.id).where(CarePlanOutcome.care_plan_id==plan.id,CarePlanOutcome.source=="legacy"))
+                if outcome:stats["care_plan_outcomes"]["existing"]+=1;continue
+                achievement={"active":"in-progress","on-hold":"sustaining","completed":"achieved","cancelled":"not-achieved","canceled":"not-achieved"}.get(raw_status.lower())
+                target.add(CarePlanOutcome(care_plan_id=plan.id,event_type="status",plan_status=raw_status[:32],achievement_status=achievement,note="Initial status preserved from form_care_plan; no separate legacy outcome was asserted.",recorded_at=recorded,source="legacy",legacy_payload=payload));stats["care_plan_outcomes"]["inserted"]+=1
             target.flush()
         # OpenEMR's `forms` registry points to both core and installed/custom form tables.
         # Reflecting only tables that actually exist preserves every registered form payload.

@@ -25,9 +25,17 @@ def test_longitudinal_care_plan_lifecycle_is_scoped_validated_audited_and_locked
         update={key:value for key,value in plan.items() if key not in {"uuid","encounter_uuid","active","created_at","updated_at"}};update["description"]="Walk for fifteen minutes daily";update["status"]="on-hold"
         changed=client.put(f"{path}/{plan['uuid']}",headers=headers,json=update)
         assert changed.status_code==200 and changed.json()["description"].startswith("Walk for fifteen")
+        outcomes=f"{path}/{plan['uuid']}/outcomes"
+        initial=client.get(outcomes,headers=headers);assert initial.status_code==200 and len(initial.json())==2 and initial.json()[0]["achievement_status"]=="sustaining"
+        assert client.get(f"/api/v1/patients/{second['uuid']}/care-plans/{plan['uuid']}/outcomes",headers=headers).status_code==404
+        assert client.post(outcomes,headers=headers,json={"event_type":"progress","recorded_at":"2026-09-15T12:00:00Z","value_numeric":"12","measure_code":"419656003","measure_system":"http://snomed.info/sct","measure_display":"Distance walked","note":"Missing unit"}).status_code==422
+        progress=client.post(outcomes,headers=headers,json={"event_type":"progress","recorded_at":"2026-09-15T12:00:00Z","achievement_status":"improving","value_numeric":"12","measure_code":"419656003","measure_system":"http://snomed.info/sct","measure_display":"Distance walked","value_unit":"minutes","note":"Tolerating exercise"})
+        assert progress.status_code==201 and progress.json()["source"]=="staff"
         signature=client.post(f"/api/v1/patients/{first['uuid']}/encounters/{encounter['uuid']}/sign",headers=headers,json={"password":"change-me-now","lock":True,"attestation":"I attest that this encounter is accurate and complete."})
         assert signature.status_code==201
+        assert client.post(outcomes,headers=headers,json={"event_type":"outcome","recorded_at":"2026-09-16T12:00:00Z","achievement_status":"achieved"}).status_code==423
         assert client.delete(f"{path}/{plan['uuid']}?reason=entered%20in%20error",headers=headers).status_code==423
         with SessionLocal() as db:
             events=list(db.scalars(select(AuditEvent).where(AuditEvent.resource_type=="care_plan",AuditEvent.resource_id==plan["uuid"])))
             assert {event.action for event in events} >= {"create","update"}
+            outcome_actions=set(db.scalars(select(AuditEvent.action).where(AuditEvent.resource_type=="care_plan_outcome")));assert outcome_actions >= {"create","search"}

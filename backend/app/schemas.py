@@ -1110,7 +1110,7 @@ class CarePlanBase(BaseModel):
     reason_recorded_at: datetime | None = None
     reason_ends_at: datetime | None = None
     reason_status: str | None = Field(default=None, max_length=31)
-    status: str = Field(default="draft", pattern="^(draft|active|on-hold|completed|cancelled|entered-in-error)$")
+    status: str = Field(default="draft", pattern="^(draft|active|on-hold|revoked|completed|cancelled|entered-in-error|unknown)$")
     target_date: datetime | None = None
     engagement_category: str | None = Field(default=None, max_length=100)
 
@@ -1150,6 +1150,39 @@ class CarePlanOut(CarePlanBase):
     active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class CarePlanOutcomeCreate(BaseModel):
+    event_type: str = Field(pattern="^(status|progress|outcome)$")
+    plan_status: str | None = Field(default=None, pattern="^(draft|active|on-hold|revoked|completed|cancelled|entered-in-error|unknown)$")
+    achievement_status: str | None = Field(default=None, pattern="^(in-progress|improving|worsening|no-change|achieved|sustaining|not-achieved|no-progress|not-attainable)$")
+    measure_code: str | None = Field(default=None, max_length=100)
+    measure_system: str | None = Field(default=None, max_length=255)
+    measure_display: str | None = Field(default=None, max_length=255)
+    value_numeric: Decimal | None = None
+    value_unit: str | None = Field(default=None, max_length=50)
+    note: str | None = Field(default=None, max_length=20_000)
+    recorded_at: datetime
+
+    @field_validator("recorded_at")
+    @classmethod
+    def timezone_required(cls, value: datetime):
+        if value.tzinfo is None or value.utcoffset() is None: raise ValueError("outcome dates must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def valid_outcome(self):
+        if not any((self.plan_status,self.achievement_status,self.value_numeric is not None,(self.note or "").strip())): raise ValueError("an outcome must record status, measurement, or note")
+        measurement=(self.measure_code,self.measure_system,self.measure_display,self.value_unit)
+        if self.value_numeric is not None and not all(measurement): raise ValueError("numeric outcomes require measure code, system, display, and unit")
+        if self.value_numeric is None and any(measurement): raise ValueError("measure metadata requires value_numeric")
+        return self
+
+
+class CarePlanOutcomeOut(CarePlanOutcomeCreate):
+    uuid: str
+    source: str
+    created_at: datetime
 
 
 CARE_TEAM_STATUS = "^(proposed|active|suspended|inactive|entered-in-error)$"

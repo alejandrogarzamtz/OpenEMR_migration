@@ -93,12 +93,13 @@ end-to-end healthcare workflows:
   attestations, locked records, amendment history, chained SHA-256 integrity
   evidence, and an append-only PostgreSQL audit boundary;
 - relational longitudinal care plans with coded reasons, targets, lifecycle
-- patient care teams with practitioner, facility and external-contact participants
-- longitudinal treatment-intervention and care-experience preferences with typed values, coded answer sets, and immutable amendment history
+  controls, encounter locking, append-only progress/outcome history, audited
+  React workflows, and idempotent legacy row reconciliation;
+- patient care teams with practitioner, facility and external-contact participants;
+- longitudinal treatment-intervention and care-experience preferences with typed
+  values, coded answer sets, and immutable amendment history;
 - patient-scoped clinical-form evidence links to documents and procedure results,
-  covered by signature integrity and preserved from legacy clinical notes
-  controls, encounter locking, audited React workflows, and idempotent legacy
-  row reconciliation;
+  covered by signature integrity and preserved from legacy clinical notes;
 - ACL-protected configurable HTML/PDF patient reports covering demographics, contacts,
   clinical history, encounters, forms, laboratory results, document metadata,
   insurance and claims, with private delivery and audited evidence hashes;
