@@ -28,7 +28,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `external_data` | MIGRATED — patient-scoped external encounters and procedures with dates, diagnosis/code text, provider/facility provenance, source identifiers, filters, totals and CSV |
 | `front_receipts_report` | PENDING |
 | `immunization_report` | MIGRATED |
-| `insurance_allocation_report` | PENDING |
+| `insurance_allocation_report` | MIGRATED — date- and facility-scoped primary-insurance distribution with non-copay charges, visits, unique-patient attribution, percentages, totals and CSV |
 | `inventory_activity` | MIGRATED |
 | `inventory_list` | MIGRATED |
 | `inventory_transactions` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 26 migrated, 22 pending/embedded**.
+Current accounting: **48 cataloged, 27 migrated, 21 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -67,6 +67,17 @@ behavior will be verified with the parent billing-report builder.
 or malformed historical JSON, so a report never rewrites clinical evidence.
 Unresolved legacy references remain queryable by their original IDs. Modern
 facility grants constrain both normalized and legacy facility identities.
+
+`insurance_allocation_report` groups each charged encounter under the primary
+coverage effective on that encounter date, or under `-- No Insurance --`.
+Copay-coded and zero-value lines are excluded, encounter counts remain visits,
+and each patient contributes once to the patient distribution denominator.
+
+`clinical_reports` remains pending after source-level review. Its legacy query
+requires lossless social-history versions plus procedure-order metadata,
+result provenance, detailed prescription fields and patient-provider facility
+assignments that are not yet retained by the normalized import. Those data
+contracts must land before the multi-dimensional React report can claim parity.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

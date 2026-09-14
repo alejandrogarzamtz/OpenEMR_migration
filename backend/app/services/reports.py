@@ -6,13 +6,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalRuleLog, CommunicationDelivery, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Payer, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -132,6 +132,46 @@ def inventory_activity(db: Session, user: User, params: dict) -> tuple[list[str]
     rows=sorted(grouped.values(),key=lambda row:(row["product"],row["warehouse"]))
     totals={column:sum(row[column] for row in rows) for column in columns[3:]}
     return columns,rows,totals
+
+
+def insurance_allocation(db: Session, user: User, params: dict) -> tuple[list[str],list[dict],dict]:
+    start,end=bounds(params.get("date_from"),params.get("date_to"))
+    encounter_query=select(Encounter,Appointment).outerjoin(Appointment,Appointment.id==Encounter.appointment_id)
+    scope=facility_scope(db,user)
+    if scope is not None:
+        legacy_ids=list(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope),Facility.legacy_facility_id.is_not(None))))
+        encounter_query=encounter_query.where(or_(Appointment.facility_id.in_(scope),Appointment.legacy_facility_id.in_(legacy_ids)))
+    if params.get("_facility_id"):
+        encounter_query=encounter_query.where(or_(Appointment.facility_id==params["_facility_id"],Appointment.legacy_facility_id==params.get("_legacy_facility_id")))
+    if start:encounter_query=encounter_query.where(Encounter.occurred_at>=start)
+    if end:encounter_query=encounter_query.where(Encounter.occurred_at<end)
+    encounters=[encounter for encounter,_ in db.execute(encounter_query.order_by(Encounter.patient_id,Encounter.id))]
+    columns=["insurance","charges","visits","patients","patient_percent"]
+    if not encounters:return columns,[],{"charges":"0.00","visits":0,"patients":0}
+    encounter_ids=[item.id for item in encounters]
+    charge_rows=list(db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),func.upper(Charge.code_system)!="COPAY",Charge.unit_price!=0)))
+    charges_by_encounter={item.id:Decimal("0") for item in encounters}
+    for charge in charge_rows:charges_by_encounter[charge.encounter_id]+=charge.unit_price*charge.units
+    patient_ids={item.patient_id for item in encounters if charges_by_encounter[item.id]}
+    coverage_rows=db.execute(select(Coverage,Payer).join(Payer,Payer.id==Coverage.payer_id).where(Coverage.patient_id.in_(patient_ids),Coverage.priority=="primary")).all() if patient_ids else []
+    coverages={patient_id:[] for patient_id in patient_ids}
+    for coverage,payer in coverage_rows:coverages[coverage.patient_id].append((coverage,payer))
+    grouped={};seen_patients=set()
+    for encounter in encounters:
+        amount=charges_by_encounter[encounter.id]
+        if not amount:continue
+        on=encounter.occurred_at.date()
+        eligible=[pair for pair in coverages.get(encounter.patient_id,[]) if pair[0].starts_on is None or pair[0].starts_on<=on]
+        eligible.sort(key=lambda pair:(pair[0].starts_on or date.min,pair[0].id),reverse=True)
+        insurance=eligible[0][1].name if eligible else "-- No Insurance --"
+        row=grouped.setdefault(insurance,{"insurance":insurance,"charges":Decimal("0"),"visits":0,"patients":0})
+        row["charges"]+=amount;row["visits"]+=1
+        if encounter.patient_id not in seen_patients:row["patients"]+=1;seen_patients.add(encounter.patient_id)
+    patient_count=len(seen_patients)
+    rows=[]
+    for insurance,row in sorted(grouped.items()):
+        rows.append({**row,"charges":f'{row["charges"]:.2f}',"patient_percent":f'{row["patients"]*100/patient_count:.1f}' if patient_count else "0.0"})
+    return columns,rows,{"charges":f'{sum((row["charges"] for row in grouped.values()),Decimal("0")):.2f}',"visits":sum(row["visits"] for row in grouped.values()),"patients":patient_count}
 
 
 def audit_integrity_report(db: Session, params: dict) -> tuple[list[str],list[dict],dict]:
@@ -261,6 +301,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
         for item,patient,actor,facility in db.execute(query.order_by(ClinicalRuleLog.occurred_at.desc(),ClinicalRuleLog.id.desc())):
             rows.append({"log_uuid":item.uuid,"date":value(item.occurred_at),"patient_pid":item.legacy_patient_id,"patient_uuid":patient.uuid if patient else None,"user_id":item.legacy_user_id,"actor":actor.email if actor else None,"facility_id":item.legacy_facility_id,"facility":facility.name if facility else None,"category":item.category,"category_title":titles.get(item.category,item.category),"value":item.value,"new_value":item.new_value})
         return columns,rows,{"logs":len(rows),"passive_alerts":sum(row["category"]=="clinical_reminder_widget" for row in rows),"active_alerts":sum(row["category"]=="active_reminder_popup" for row in rows),"allergy_warnings":sum(row["category"]=="allergy_alert" for row in rows),"changed_evaluations":sum(row["new_value"] is not None for row in rows)}
+    if key == "insurance_allocation_report":return insurance_allocation(db,user,params)
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "chart_location_activity":
         patient_id=params.get("_patient_id")
