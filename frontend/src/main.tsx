@@ -3,9 +3,10 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import "./clinical.css";
 import { createApiClient } from "./api/client";
+import { PatientForm } from "./features/patients/PatientForm";
+import type { Patient, PatientInput } from "./features/patients/types";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-type Patient = { uuid:string; first_name:string; last_name:string; date_of_birth:string; sex:string; email?:string };
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
 type LabOrder = { uuid:string; ordered_at:string; code:string; name:string; status:string };
 type ClinicalDocument = { uuid:string; name:string; mime_type:string; uploaded_at:string };
@@ -39,9 +40,15 @@ function App(){
   const [query,setQuery]=useState("");
   const [selected,setSelected]=useState<Summary|null>(null);
   const [error,setError]=useState("");
+  const [creatingPatient,setCreatingPatient]=useState(false);
 
   const api=createApiClient({baseUrl:API,getToken:()=>token,onUnauthorized:()=>{localStorage.removeItem("token");setToken("");}});
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
+  async function createPatient(patient:PatientInput){
+    setError("");
+    try{await api("/api/v1/patients",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patient)});setCreatingPatient(false);await loadPatients("");}
+    catch(reason){setError(reason instanceof Error?reason.message:"No se pudo guardar el paciente");}
+  }
   async function openPatient(patient:Patient){
     setError("");
     const [summary,labOrders,documents,coverages,charges,claims,immunizations,vitals,prescriptions,clinicalForms]=await Promise.all([api(`/api/v1/patients/${patient.uuid}/summary`),api(`/api/v1/patients/${patient.uuid}/lab-orders`),api(`/api/v1/patients/${patient.uuid}/documents`),api(`/api/v1/patients/${patient.uuid}/coverages`),api(`/api/v1/patients/${patient.uuid}/charges`),api(`/api/v1/patients/${patient.uuid}/claims`),api(`/api/v1/patients/${patient.uuid}/immunizations`),api(`/api/v1/patients/${patient.uuid}/vitals`),api(`/api/v1/patients/${patient.uuid}/prescriptions`),api(`/api/v1/patients/${patient.uuid}/clinical-forms`)]);
@@ -97,8 +104,9 @@ function App(){
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
     <aside><div className="brand">OE</div><nav><a className="active">Pacientes</a><a>Agenda</a><a>Encuentros</a><a>Reportes</a></nav><button className="logout" onClick={()=>{localStorage.removeItem("token");setToken("");}}>Salir</button></aside>
-    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>Pacientes</h1></div></header>
+    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>Pacientes</h1></div><button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button></header>
       {error&&<p className="error">{error}</p>}
+      {creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}
       <div className={selected?"workspace detail-open":"workspace"}><section className="card">
         <div className="toolbar"><input aria-label="Buscar pacientes" placeholder="Buscar por nombre o correo" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==="Enter"&&void loadPatients()}/><span>{patients.length} resultados</span></div>
         <table><thead><tr><th>Paciente</th><th>Fecha de nacimiento</th><th>Sexo</th><th>Correo</th></tr></thead><tbody>{patients.map(patient=><tr className="patient-row" key={patient.uuid} onClick={()=>void openPatient(patient)}><td><strong>{patient.last_name}, {patient.first_name}</strong><small>{patient.uuid.slice(0,8)}</small></td><td>{patient.date_of_birth}</td><td>{patient.sex}</td><td>{patient.email??"—"}</td></tr>)}</tbody></table>

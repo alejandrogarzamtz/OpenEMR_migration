@@ -92,6 +92,88 @@ def test_auth_required():
         assert client.get("/api/v1/patients").status_code == 403
 
 
+def test_extended_patient_demographics_and_consent_validation():
+    with TestClient(app) as client:
+        token = client.post(
+            "/api/v1/auth/token",
+            json={"email": "admin@example.com", "password": "change-me-now"},
+        ).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post(
+            "/api/v1/patients",
+            headers=headers,
+            json={
+                "first_name": "Alex",
+                "middle_name": "Q",
+                "last_name": "Rivera",
+                "preferred_name": "Lex",
+                "date_of_birth": "1992-06-10",
+                "sex": "female",
+                "gender_identity": "nonbinary",
+                "pronouns": "they/them",
+                "language": "es",
+                "email": "alex@example.com",
+                "phone": "+528112345678",
+                "address_line_1": "100 Salud",
+                "city": "Monterrey",
+                "state": "NL",
+                "postal_code": "64000",
+                "country_code": "mx",
+                "allow_email": True,
+                "allow_sms": True,
+            },
+        )
+        assert created.status_code == 201
+        assert created.json()["country_code"] == "MX"
+        updated = client.patch(
+            f"/api/v1/patients/{created.json()['uuid']}",
+            headers=headers,
+            json={"preferred_name": "Ale", "portal_allowed": True},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["preferred_name"] == "Ale"
+        assert updated.json()["portal_allowed"] is True
+        replaced = client.put(
+            f"/api/v1/patients/{created.json()['uuid']}",
+            headers=headers,
+            json={
+                "first_name": "Alexandra",
+                "last_name": "Rivera",
+                "date_of_birth": "1992-06-10",
+                "sex": "female",
+                "language": "es",
+                "country_code": "mx",
+            },
+        )
+        assert replaced.status_code == 200
+        assert replaced.json()["first_name"] == "Alexandra"
+        assert replaced.json()["preferred_name"] is None
+
+        invalid_consent = client.post(
+            "/api/v1/patients",
+            headers=headers,
+            json={
+                "first_name": "No",
+                "last_name": "Email",
+                "date_of_birth": "2000-01-01",
+                "sex": "unknown",
+                "allow_email": True,
+            },
+        )
+        assert invalid_consent.status_code == 422
+        future_birth = client.post(
+            "/api/v1/patients",
+            headers=headers,
+            json={
+                "first_name": "Future",
+                "last_name": "Patient",
+                "date_of_birth": "2999-01-01",
+                "sex": "unknown",
+            },
+        )
+        assert future_birth.status_code == 422
+
+
 def test_explicit_permission_and_inactive_account_enforcement():
     with TestClient(app) as client:
         with SessionLocal() as db:

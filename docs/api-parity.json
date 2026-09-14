@@ -1,0 +1,22 @@
+{
+  "GET /api/patient": {
+    "replacement": "GET /api/v1/patients",
+    "test": "backend/tests/test_api.py::test_patient_flow",
+    "status": "MIGRATED"
+  },
+  "POST /api/patient": {
+    "replacement": "POST /api/v1/patients",
+    "test": "backend/tests/test_api.py::test_extended_patient_demographics_and_consent_validation",
+    "status": "MIGRATED"
+  },
+  "PUT /api/patient/:puuid": {
+    "replacement": "PUT /api/v1/patients/{patient_uuid}",
+    "test": "backend/tests/test_api.py::test_extended_patient_demographics_and_consent_validation",
+    "status": "MIGRATED"
+  },
+  "GET /api/patient/:puuid": {
+    "replacement": "GET /api/v1/patients/{patient_uuid}",
+    "test": "backend/tests/test_api.py::test_patient_flow",
+    "status": "MIGRATED"
+  }
+}

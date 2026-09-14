@@ -37,12 +37,41 @@ def run(source_url: str, commit: bool = False) -> dict:
     names = ("patients", "clinical_items", "encounters", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "clinical_forms")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
-        patients = legacy.execute(text("SELECT pid,fname,lname,DOB,sex,email,phone_cell,phone_home FROM patient_data ORDER BY pid"))
+        patients = legacy.execute(text("SELECT * FROM patient_data ORDER BY pid"))
         for row in patients.mappings():
             stats["patients"]["source"] += 1
             patient = target.scalar(select(Patient).where(Patient.legacy_pid == row["pid"]))
             if patient: stats["patients"]["existing"] += 1; continue
-            target.add(Patient(legacy_pid=row["pid"], first_name=clean(row["fname"]) or "Unknown", last_name=clean(row["lname"]) or "Unknown", date_of_birth=valid_dob(row["DOB"]), sex=clean(row["sex"]) or "unknown", email=clean(row["email"]), phone=clean(row["phone_cell"]) or clean(row["phone_home"])))
+            target.add(Patient(
+                legacy_pid=row["pid"],
+                first_name=clean(row["fname"]) or "Unknown",
+                middle_name=clean(row["mname"]),
+                last_name=clean(row["lname"]) or "Unknown",
+                preferred_name=clean(row["preferred_name"]),
+                suffix=clean(row["suffix"]),
+                date_of_birth=valid_dob(row["DOB"]),
+                sex=clean(row["sex"]) or "unknown",
+                gender_identity=clean(row["gender_identity"]),
+                sexual_orientation=clean(row["sexual_orientation"]),
+                pronouns=clean(row["pronoun"]),
+                language=clean(row["language"]),
+                race=clean(row["race"]),
+                ethnicity=clean(row["ethnicity"]),
+                email=clean(row["email"]),
+                phone=clean(row["phone_cell"]) or clean(row["phone_home"]),
+                address_line_1=clean(row["street"]),
+                address_line_2=clean(row["street_line_2"]),
+                city=clean(row["city"]),
+                state=clean(row["state"]),
+                postal_code=clean(row["postal_code"]),
+                country_code=clean(row["country_code"]),
+                portal_allowed=clean(row["allow_patient_portal"]) not in {None, "NO", "0"},
+                allow_email=clean(row["hipaa_allowemail"]) == "YES",
+                allow_sms=clean(row["hipaa_allowsms"]) == "YES",
+                deceased_at=row["deceased_date"],
+                deceased_reason=clean(row["deceased_reason"]),
+                legacy_payload={key: json_value(value) for key, value in row.items()},
+            ))
             stats["patients"]["inserted"] += 1
         target.flush()
         items = legacy.execute(text("SELECT id,pid,type,title,begdate,enddate,diagnosis,activity,comments,reaction,severity_al FROM lists WHERE type IN ('medical_problem','allergy','medication') ORDER BY id"))

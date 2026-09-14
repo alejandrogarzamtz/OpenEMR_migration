@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class Token(BaseModel):
@@ -13,16 +13,74 @@ class Login(BaseModel):
     password: str
 
 
-class PatientCreate(BaseModel):
+class PatientBase(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
+    middle_name: str | None = Field(default=None, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
+    preferred_name: str | None = Field(default=None, max_length=100)
+    suffix: str | None = Field(default=None, max_length=50)
     date_of_birth: date
     sex: str = Field(min_length=1, max_length=30)
+    gender_identity: str | None = Field(default=None, max_length=100)
+    sexual_orientation: str | None = Field(default=None, max_length=100)
+    pronouns: str | None = Field(default=None, max_length=100)
+    language: str | None = Field(default=None, max_length=100)
+    race: str | None = Field(default=None, max_length=100)
+    ethnicity: str | None = Field(default=None, max_length=100)
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=50)
+    address_line_1: str | None = Field(default=None, max_length=255)
+    address_line_2: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=30)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    portal_allowed: bool = False
+    allow_email: bool = False
+    allow_sms: bool = False
 
 
-class PatientOut(PatientCreate):
+class PatientCreate(PatientBase):
+    @model_validator(mode="after")
+    def validate_demographics(self):
+        if self.date_of_birth > date.today():
+            raise ValueError("date_of_birth cannot be in the future")
+        if self.allow_email and not self.email:
+            raise ValueError("email is required when allow_email is enabled")
+        if self.allow_sms and not self.phone:
+            raise ValueError("phone is required when allow_sms is enabled")
+        if self.country_code:
+            self.country_code = self.country_code.upper()
+        return self
+
+
+class PatientUpdate(BaseModel):
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    middle_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    preferred_name: str | None = Field(default=None, max_length=100)
+    suffix: str | None = Field(default=None, max_length=50)
+    sex: str | None = Field(default=None, min_length=1, max_length=30)
+    gender_identity: str | None = Field(default=None, max_length=100)
+    sexual_orientation: str | None = Field(default=None, max_length=100)
+    pronouns: str | None = Field(default=None, max_length=100)
+    language: str | None = Field(default=None, max_length=100)
+    race: str | None = Field(default=None, max_length=100)
+    ethnicity: str | None = Field(default=None, max_length=100)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=50)
+    address_line_1: str | None = Field(default=None, max_length=255)
+    address_line_2: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=30)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    portal_allowed: bool | None = None
+    allow_email: bool | None = None
+    allow_sms: bool | None = None
+
+
+class PatientOut(PatientBase):
     model_config = ConfigDict(from_attributes=True)
     uuid: str
     legacy_pid: int | None

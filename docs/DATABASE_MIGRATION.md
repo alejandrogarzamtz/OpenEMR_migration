@@ -21,7 +21,7 @@ mapping and not authorization to discard legacy columns.
 | Legacy tables | Target model | Transformation / compatibility risk |
 |---|---|---|
 | `users`, `users_secure`, `gacl_*` | User and policy models | Preserve usernames, account state, hash algorithm metadata and complete ACL graph; never flatten ACL to one role |
-| `patient_data`, `person*`, `contact*`, `addresses`, `phone_numbers`, `employer_data` | Patient/contact models | Current model drops most demographics and relationships; lossless staging required |
+| `patient_data`, `person*`, `contact*`, `addresses`, `phone_numbers`, `employer_data` | Patient/contact models | Core identity, address, language, race/ethnicity, gender, consent and portal fields are typed; the complete `patient_data` row is retained in `legacy_payload`. Person/contact relationships remain pending |
 | `openemr_postcalendar_events`, `patient_tracker*` | Appointment/flow models | Preserve recurrence, facility/provider/resource/status and timestamps |
 | `form_encounter`, `forms`, `form_*`, LBF tables | Encounter/form models | Polymorphic form registry and signatures require typed plus lossless payload storage |
 | `lists`, `immunizations`, `prescriptions`, `form_vitals` | Clinical models | Maintain codes, dates, verification/status, encounter links and provenance |
@@ -36,4 +36,3 @@ mapping and not authorization to discard legacy columns.
 Every remaining source table and field is presently **unmapped, not obsolete**.
 The generated schema manifest used by the zero-omission audit will be versioned
 with the migration as table-level adapters are completed.
-
