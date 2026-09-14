@@ -584,6 +584,8 @@ class ReportRunCreate(BaseModel):
     only_with_failures: bool = False
     only_manually_blocked: bool = False
     only_auto_blocked: bool = False
+    code_type_id: int | None = Field(default=None, ge=1)
+    include_uncategorized: bool = False
 
     @model_validator(mode="after")
     def validate_range(self):

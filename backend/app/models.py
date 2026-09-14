@@ -947,6 +947,25 @@ class Charge(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
 
 
+class ServiceCode(Base):
+    __tablename__="service_codes"
+    __table_args__=(UniqueConstraint("code_type_id","code","modifier",name="uq_service_code_identity"),)
+    id: Mapped[int]=mapped_column(primary_key=True)
+    uuid: Mapped[str]=mapped_column(String(36),unique=True,default=lambda:str(uuid4()),index=True)
+    legacy_code_id: Mapped[int | None]=mapped_column(unique=True,nullable=True)
+    code_type_id: Mapped[int]=mapped_column(index=True)
+    code: Mapped[str]=mapped_column(String(20),index=True)
+    modifier: Mapped[str]=mapped_column(String(12),default="")
+    units: Mapped[int]=mapped_column(default=0)
+    description: Mapped[str]=mapped_column(Text)
+    category_code: Mapped[str | None]=mapped_column(String(31),nullable=True,index=True)
+    category_title: Mapped[str | None]=mapped_column(String(255),nullable=True)
+    related_codes: Mapped[str | None]=mapped_column(Text,nullable=True)
+    prices: Mapped[list[dict]]=mapped_column(JSON,default=list)
+    active: Mapped[bool]=mapped_column(default=True,index=True)
+    legacy_payload: Mapped[dict | None]=mapped_column(JSON,nullable=True)
+
+
 class ClaimPayment(Base):
     __tablename__ = "claim_payments"
     id: Mapped[int] = mapped_column(primary_key=True)

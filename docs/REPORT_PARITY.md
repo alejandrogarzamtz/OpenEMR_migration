@@ -52,11 +52,11 @@ snapshot, totals and CSV export. All entries remain visible through
 | `report_results` | PENDING |
 | `rwt_2026_report` | PENDING |
 | `sales_by_item` | MIGRATED |
-| `services_by_category` | PENDING |
+| `services_by_category` | MIGRATED — active service catalog, superbill categories, code-type/category filters, modifiers, units, related codes and multi-level prices |
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 20 migrated, 28 pending**.
+Current accounting: **48 cataloged, 21 migrated, 27 pending**.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,
