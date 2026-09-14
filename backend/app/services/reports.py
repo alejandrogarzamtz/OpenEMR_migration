@@ -11,7 +11,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -77,10 +77,64 @@ def selected_facility(query, params: dict):
     return query
 
 
+def inventory_effects(item: InventoryTransaction) -> list[tuple[int, int]]:
+    quantity=abs(item.quantity)
+    if item.transaction_type=="transfer":
+        effects=[(item.lot_id,-quantity)] if item.lot_id else []
+        if item.destination_lot_id: effects.append((item.destination_lot_id,quantity))
+        return effects
+    if not item.lot_id: return []
+    if item.transaction_type=="purchase": return [(item.lot_id,quantity)]
+    if item.transaction_type=="adjustment": return [(item.lot_id,item.quantity)]
+    return [(item.lot_id,-quantity)]
+
+
+def inventory_activity(db: Session, user: User, params: dict) -> tuple[list[str],list[dict],dict]:
+    date_from=params.get("date_from") or date.min
+    date_to=params.get("date_to") or date.max
+    lot_query=select(InventoryLot,InventoryProduct).join(InventoryProduct,InventoryProduct.id==InventoryLot.product_id)
+    scope=warehouse_scope(db,user)
+    if scope is not None: lot_query=lot_query.where(InventoryLot.warehouse_id.in_(scope))
+    if params.get("warehouse_code"): lot_query=lot_query.where(InventoryLot.warehouse_id==params["warehouse_code"])
+    lot_rows=db.execute(lot_query).all()
+    lot_by_id={lot.id:(lot,product) for lot,product in lot_rows}
+    if not lot_by_id:
+        columns=["product","ndc","warehouse","starting_inventory","sales","distributions","purchases","transfers","adjustments","ending_inventory"]
+        return columns,[],{"starting_inventory":0,"sales":0,"distributions":0,"purchases":0,"transfers":0,"adjustments":0,"ending_inventory":0}
+    transactions=list(db.scalars(select(InventoryTransaction).where(or_(InventoryTransaction.lot_id.in_(lot_by_id),InventoryTransaction.destination_lot_id.in_(lot_by_id)))))
+    effects_by_lot={lot_id:[] for lot_id in lot_by_id}
+    for transaction in transactions:
+        for lot_id,effect in inventory_effects(transaction):
+            if lot_id in effects_by_lot: effects_by_lot[lot_id].append((transaction,effect))
+    grouped={}
+    for lot_id,(lot,product) in lot_by_id.items():
+        effects=effects_by_lot[lot_id]
+        baseline=lot.on_hand-sum(effect for _,effect in effects)
+        starting=baseline+sum(effect for item,effect in effects if item.occurred_on<date_from)
+        if lot.destroyed_at and lot.destroyed_at<date_from: starting=0
+        ending=baseline+sum(effect for item,effect in effects if item.occurred_on<=date_to)
+        if lot.destroyed_at and lot.destroyed_at<=date_to: ending=0
+        key=(product.id,lot.warehouse_id)
+        row=grouped.setdefault(key,{"product":product.name,"ndc":product.ndc_number,"warehouse":lot.warehouse_id,"starting_inventory":0,"sales":0,"distributions":0,"purchases":0,"transfers":0,"adjustments":0,"ending_inventory":0})
+        row["starting_inventory"]+=starting;row["ending_inventory"]+=ending
+        for item,effect in effects:
+            if not date_from<=item.occurred_on<=date_to: continue
+            category={"dispense":"sales","consumption":"distributions","return":"distributions","purchase":"purchases","transfer":"transfers","adjustment":"adjustments"}.get(item.transaction_type,"adjustments")
+            row[category]+=effect
+        if lot.destroyed_at and date_from<=lot.destroyed_at<=date_to:
+            before_destroy=baseline+sum(effect for item,effect in effects if item.occurred_on<=lot.destroyed_at)
+            row["adjustments"]-=before_destroy
+    columns=["product","ndc","warehouse","starting_inventory","sales","distributions","purchases","transfers","adjustments","ending_inventory"]
+    rows=sorted(grouped.values(),key=lambda row:(row["product"],row["warehouse"]))
+    totals={column:sum(row[column] for row in rows) for column in columns[3:]}
+    return columns,rows,totals
+
+
 def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[list[str],list[dict],dict]:
     if key not in REPORT_PATHS: raise HTTPException(status_code=404,detail="Report not found")
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
+    if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "patient_list":
         columns=["patient_uuid","last_name","first_name","date_of_birth","sex","email"]
         result=db.execute(select(Patient.uuid,Patient.last_name,Patient.first_name,Patient.date_of_birth,Patient.sex,Patient.email).order_by(Patient.last_name,Patient.first_name)).all()

@@ -29,7 +29,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `front_receipts_report` | PENDING |
 | `immunization_report` | MIGRATED |
 | `insurance_allocation_report` | PENDING |
-| `inventory_activity` | PENDING |
+| `inventory_activity` | MIGRATED |
 | `inventory_list` | MIGRATED |
 | `inventory_transactions` | MIGRATED |
 | `ip_tracker` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 14 migrated, 34 pending**.
+Current accounting: **48 cataloged, 15 migrated, 33 pending**.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,
@@ -73,3 +73,10 @@ state and stable identifiers, and excludes `entered-in-error` records as the
 legacy registry report did. The reproducible CSV report is migrated; registry
 submission and HL7 VXU generation remain integration work and are not implied
 by this status.
+
+`inventory_activity` reconstructs beginning and ending balances from each
+lot's current balance and immutable movement ledger, then groups sales,
+distributions/consumption, purchases, both sides of transfers, adjustments and
+in-period destruction by product and warehouse. Every detail row enforces
+`ending = starting + activity`; warehouse filters and user warehouse scopes
+are applied before aggregation.
