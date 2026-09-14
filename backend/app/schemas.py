@@ -856,6 +856,8 @@ class EncounterOut(BaseModel):
     status: str
     chief_complaint: str | None
     clinical_note: str | None
+    locked: bool = False
+    signature_count: int = 0
 
 
 class ClinicalItemCreate(BaseModel):
@@ -1115,6 +1117,7 @@ class ClinicalSignatureCreate(BaseModel):
 
 class ClinicalSignatureOut(BaseModel):
     uuid: str
+    target_type: str
     signer_name: str
     signer_role: str | None
     signed_at: datetime

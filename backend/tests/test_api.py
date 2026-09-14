@@ -82,6 +82,14 @@ def test_patient_flow():
         assert len(signatures)==2 and all(item["integrity_valid"] for item in signatures)
         form=client.get(f"/api/v1/patients/{patient_id}/clinical-forms?form_type=soap", headers=headers).json()[0]
         assert form["content"]["assessment"] == "Migraine" and form["locked"] and form["signature_count"]==2
+        encounter_signature=client.post(f"/api/v1/patients/{patient_id}/encounters/{encounter.json()['uuid']}/sign",headers=headers,json={"password":"change-me-now","lock":True,"attestation":"I attest that this encounter is accurate and complete."})
+        assert encounter_signature.status_code==201 and encounter_signature.json()["target_type"]=="encounter"
+        encounter_signatures=client.get(f"/api/v1/patients/{patient_id}/encounters/{encounter.json()['uuid']}/signatures",headers=headers).json()
+        assert len(encounter_signatures)==1 and encounter_signatures[0]["integrity_valid"]
+        blocked_form=client.post(f"/api/v1/patients/{patient_id}/clinical-forms",headers=headers,json={"encounter_uuid":encounter.json()["uuid"],"form_type":"custom","title":"Late form","content":{"note":"must not be added"}})
+        assert blocked_form.status_code==423
+        encounter_view=client.get(f"/api/v1/patients/{patient_id}/encounters",headers=headers).json()[0]
+        assert encounter_view["locked"] and encounter_view["signature_count"]==1
         definitions = client.get("/api/v1/questionnaires", headers=headers).json()
         phq9 = next(item for item in definitions if item["code"] == "PHQ-9")
         answers = {f"q{x}": 1 for x in range(1, 10)}
