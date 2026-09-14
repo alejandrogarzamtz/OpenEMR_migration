@@ -166,6 +166,7 @@ def require_permission(section: str, value: str, mode: str = "read") -> Callable
 # dependencies so authorization cannot be accidentally delegated to the UI.
 patient_demographics_user = require_permission("patients", "demo")
 patient_demographics_write_user = require_permission("patients", "demo", "write")
+patient_report_user = require_permission("patients", "pat_rep")
 clinical_user = require_permission("patients", "med")
 appointment_user = require_permission("patients", "appt")
 appointment_write_user = require_permission("patients", "appt", "write")

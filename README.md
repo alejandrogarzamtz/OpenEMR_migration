@@ -92,6 +92,9 @@ end-to-end healthcare workflows:
 - password-reauthenticated clinical-form and encounter signatures with explicit
   attestations, locked records, amendment history, chained SHA-256 integrity
   evidence, and an append-only PostgreSQL audit boundary;
+- an ACL-protected printable patient report covering demographics, contacts,
+  clinical history, encounters, forms, laboratory results, document metadata,
+  insurance and claims, with private delivery and audited evidence hashes;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history
@@ -285,6 +288,8 @@ Start with these documents:
   REST, portal, and FHIR route with replacement and test status;
 - [Report Parity Ledger](docs/REPORT_PARITY.md) — every discovered legacy report
   and its individual migration status;
+- [Printable Patient Reports](docs/PATIENT_REPORTS.md) — report scope, access,
+  privacy controls and remaining parity work;
 - [Database Migration](docs/DATABASE_MIGRATION.md) — preservation, mapping,
   reconciliation, and cutover rules;
 - [Authentication](docs/AUTHENTICATION.md) — staff/portal identity separation,
