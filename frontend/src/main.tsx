@@ -4,6 +4,7 @@ import "./styles.css";
 import "./clinical.css";
 import { createApiClient } from "./api/client";
 import { PatientForm } from "./features/patients/PatientForm";
+import { PatientContacts } from "./features/patients/PatientContacts";
 import type { Patient, PatientInput } from "./features/patients/types";
 import { AppointmentBoard } from "./features/appointments/AppointmentBoard";
 import { PatientFlowBoard } from "./features/patient-flow/PatientFlowBoard";
@@ -152,6 +153,7 @@ function App(){
         {!patients.length&&<div className="empty">No hay pacientes que mostrar.</div>}
       </section>{selected&&<aside className="patient-drawer">
         <button className="close" onClick={()=>setSelected(null)}>×</button><p className="eyebrow">RESUMEN CLÍNICO</p><h2>{selected.patient.first_name} {selected.patient.last_name}</h2><p>{selected.patient.date_of_birth} · {selected.patient.sex}</p>
+        <PatientContacts api={api} patientUuid={selected.patient.uuid}/>
         <Group title="Problemas" items={selected.problems}/><Group title="Alergias" items={selected.allergies}/><Group title="Medicamentos" items={selected.medications}/>
         <section className="summary-group"><h3>Inmunizaciones<span>{selected.immunizations.length}</span></h3>{selected.immunizations.map(item=><article key={item.uuid}><strong>{item.vaccine_name}</strong><small>CVX {item.cvx_code} · {new Date(item.administered_at).toLocaleDateString()}</small></article>)}</section>
         <section className="summary-group"><h3>Signos vitales<span>{selected.vitals.length}</span></h3>{selected.vitals.slice(0,3).map(item=><article key={item.uuid}><strong>{item.systolic&&item.diastolic?`${item.systolic}/${item.diastolic} mmHg`:"Registro de vitales"}</strong><small>FC {item.heart_rate??"—"} · SpO₂ {item.oxygen_saturation??"—"}% · BMI {item.bmi??"—"}</small></article>)}</section>
