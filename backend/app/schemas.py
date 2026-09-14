@@ -338,8 +338,17 @@ class PortalToken(Token):
     force_password_reset: bool
 
 
+class PortalLoginResult(BaseModel):
+    access_token: str | None = None
+    token_type: str = "bearer"
+    force_password_reset: bool = False
+    mfa_required: bool = False
+    challenge_token: str | None = None
+
+
 class PortalPasswordChange(BaseModel):
     new_password: str = Field(min_length=12, max_length=255)
+    current_password: str | None = Field(default=None, min_length=8, max_length=255)
 
 
 class PortalAccountCreate(BaseModel):

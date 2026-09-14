@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     refresh_token_days: int = Field(default=7, ge=1, le=90)
     password_reset_minutes: int = Field(default=30, ge=5, le=1440)
+    password_reset_request_cooldown_seconds: int = Field(default=60, ge=10, le=3600)
     mfa_challenge_minutes: int = Field(default=5, ge=1, le=30)
     mfa_encryption_key: SecretStr | None = None
     secure_cookies: bool = False

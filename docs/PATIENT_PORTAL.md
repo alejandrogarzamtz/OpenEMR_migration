@@ -4,6 +4,11 @@ OpenRM treats portal identity and clinical-record publication as separate
 security boundaries. A valid patient session proves who is making the request;
 it does not make every record for that patient automatically visible.
 
+Portal identities support one-time, non-enumerating email recovery and optional
+encrypted TOTP MFA with one-use recovery codes. Both use portal-only tables and
+routes, and successful recovery revokes every existing portal session. See
+[Authentication](AUTHENTICATION.md) for the complete lifecycle.
+
 ## Publication contract
 
 - Appointments are read-only and selected by the authenticated portal
@@ -50,8 +55,8 @@ its portal route unavailable; it does not delete data or change release state.
 
 ## Current limitations
 
-Live payment-processor adapters, portal password recovery, portal MFA,
-authorized representatives and proxy access, patient-entered questionnaires, configurable delayed-result
+Live payment-processor adapters, authorized representatives and proxy access,
+patient-entered questionnaires, configurable delayed-result
 release, bulk document archives, and notification preferences remain parity
 work. The portal must not be described as a complete OpenEMR replacement until
 those workflows and their organization-specific policies are verified.

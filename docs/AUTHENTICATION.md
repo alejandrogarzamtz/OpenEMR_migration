@@ -80,3 +80,21 @@ invalidation, logout, reset non-enumeration, single use, password replacement,
 global session revocation, and the equivalent portal refresh/logout lifecycle.
 MFA tests additionally cover encrypted storage, enrollment confirmation, TOTP
 challenge, one-use recovery codes, replay rejection and authenticated disable.
+
+## Patient portal recovery and MFA
+
+Portal recovery and MFA use dedicated tables and foreign keys; they cannot be
+consumed by workforce endpoints or tokens. `/api/v1/portal/auth/password-reset/request`
+always returns the same accepted response. A reset is issued only when exactly
+one active, portal-enabled patient account matches the email address. A short
+cooldown prevents repeated requests from continually invalidating a legitimate
+link. Tokens are stored as SHA-256 digests, expire, work once, and revoke every
+active portal session when consumed. Password recovery preserves active MFA.
+
+Patients enroll TOTP through `/api/v1/portal/mfa/*` after re-entering their
+password. Seeds use the same authenticated encryption boundary as workforce
+TOTP but are stored in portal-specific registrations. Confirmation revokes
+other sessions and returns ten one-use recovery codes. Login creates no portal
+session until a bounded five-attempt MFA challenge succeeds. Reusing an accepted
+TOTP time step or recovery code is rejected. Disabling MFA requires both the
+current password and a valid second-factor code and revokes other sessions.

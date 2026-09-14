@@ -94,7 +94,9 @@ end-to-end healthcare workflows:
   checksums and authenticated CSV exports for migrated report families;
 - separate staff and patient identities, secure patient-bound message threads,
   forced replacement of temporary portal passwords, lockout protection,
-  clinical tasks, consent-aware generic email notices, and a durable outbox;
+  non-enumerating one-time portal recovery, encrypted patient TOTP MFA with
+  one-use recovery codes, clinical tasks, consent-aware generic email notices,
+  and a durable outbox;
 - an isolated patient portal for owned appointments and explicitly released
   final laboratory results, documents, and signed visit forms, with revocation
   controls and identity-linked access auditing;
@@ -193,6 +195,11 @@ environment setting. Live email delivery additionally requires a configured
 provider; the internal outbox remains available without one for local
 development and integration testing. See [Patient Portal](docs/PATIENT_PORTAL.md)
 for the release and isolation contract.
+
+Patients can recover access through a non-enumerating email flow at
+`/portal/reset-password` and enable authenticator-app MFA from the signed-in
+portal. Reset links are hashed, expire, work once, and revoke existing portal
+sessions; recovery does not silently remove an enrolled second factor.
 
 Online payments are disabled by default. OpenRM stores payment-intent state and
 processor references, but never card numbers, security codes, or payment-method

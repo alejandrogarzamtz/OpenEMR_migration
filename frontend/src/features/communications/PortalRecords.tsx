@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiRequest } from "../../api/client";
+import { PortalSecurity } from "./PortalSecurity";
 
 type Appointment = {uuid:string;starts_at:string;status:string;title?:string;provider_name?:string;location?:string};
 type Result = {uuid:string;order_name:string;name:string;value:string;unit?:string;reference_range?:string;observed_at:string};
@@ -19,5 +20,5 @@ export function PortalRecords({api}:{api:ApiRequest}) {
     <section className="card"><h2>Documents</h2>{documents.length?documents.map(item=><article key={item.uuid}><button className="text-button" onClick={()=>void download(item)}>{item.name}</button><small>{item.mime_type} · {new Date(item.uploaded_at).toLocaleDateString()}</small></article>):<p>No documents have been released.</p>}</section>
     <section className="card"><h2>Visit forms</h2>{forms.length?forms.map(item=><article key={item.uuid}><strong>{item.title}</strong><p>{Object.entries(item.content).map(([key,value])=>`${key}: ${String(value)}`).join(" · ")}</p><small>{item.form_type} · signed {new Date(item.signed_at).toLocaleDateString()}</small></article>):<p>No signed forms have been released.</p>}</section>
     <section className="card portal-billing"><h2>Billing</h2>{statement?<><p className="billing-balance"><strong>{statement.currency} {statement.balance}</strong><small>Current released balance</small></p>{statement.claims.map(claim=><article key={claim.uuid}><strong>{statement.currency} {claim.balance} due</strong><p>Charges {claim.total} · paid {claim.paid}</p><small>{new Date(claim.created_at).toLocaleDateString()} · {claim.status}</small></article>)}{!statement.claims.length&&<p>No statements have been released.</p>}{!statement.payments_available&&statement.balance!=="0.00"&&<p className="portal-notice">Online payments are not configured. Contact the practice for payment options.</p>}</>:<p>Billing information is unavailable.</p>}{paymentIntents.map(intent=><article key={intent.uuid}><strong>Payment {intent.status}</strong><p>{intent.currency} {intent.amount}</p><small>{intent.failure_code||new Date(intent.created_at).toLocaleString()}</small></article>)}</section>
-  </div></section>;
+  </div><PortalSecurity api={api}/></section>;
 }

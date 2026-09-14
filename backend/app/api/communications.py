@@ -1,21 +1,27 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..config import settings
+from ..mfa import decrypt_secret, encrypt_secret, generate_secret, matching_step, provisioning_uri, recovery_codes, recovery_digest
 from ..models import (
     AuditEvent,
     AuthSession,
     ClinicalTask,
     CommunicationDelivery,
     Encounter,
+    IdentityAuditEvent,
     MessageThread,
     Patient,
     PortalAccount,
+    PortalMfaChallenge,
+    PortalMfaRegistration,
+    PortalPasswordResetToken,
     SecureMessage,
     User,
 )
@@ -29,9 +35,19 @@ from ..schemas import (
     PortalAccountCreate,
     PortalAccountOut,
     PortalLogin,
+    PortalLoginResult,
     PortalPasswordChange,
     PortalToken,
     SecureMessageOut,
+    MfaChallengeComplete,
+    MfaCode,
+    MfaDisable,
+    MfaEnrollmentOut,
+    MfaEnrollmentStart,
+    MfaRecoveryCodesOut,
+    MfaStatusOut,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     Token,
 )
 from ..security import (
@@ -62,6 +78,31 @@ def aware(value: datetime) -> datetime:
 
 def set_portal_cookie(response: Response, value: str) -> None:
     response.set_cookie(PORTAL_COOKIE, value, max_age=settings.refresh_token_days * 86400, httponly=True, secure=settings.secure_cookies, samesite="strict", path="/api/v1/portal")
+
+
+def portal_audit(db: Session, account: PortalAccount, action: str, resource_type: str, resource_id: str | None = None) -> None:
+    db.add(IdentityAuditEvent(identity_kind="portal", portal_account_id=account.id, patient_id=account.patient_id, action=action, resource_type=resource_type, resource_id=resource_id))
+
+
+def issue_portal_session(account: PortalAccount, request: Request, response: Response, db: Session) -> PortalToken:
+    account.last_login_at = now_utc()
+    session, refresh_token = create_session(db, "portal", portal_account_id=account.id, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
+    portal_audit(db, account, "login", "auth_session", session.uuid)
+    db.commit()
+    set_portal_cookie(response, refresh_token)
+    return PortalToken(access_token=create_portal_token(account, session), force_password_reset=account.force_password_reset)
+
+
+def consume_portal_mfa_code(registration: PortalMfaRegistration, code: str) -> bool:
+    step = matching_step(decrypt_secret(registration.encrypted_secret), code)
+    if step is not None and (registration.last_used_step is None or step > registration.last_used_step):
+        registration.last_used_step = step
+        return True
+    digest = recovery_digest(code)
+    if digest in registration.recovery_code_hashes:
+        registration.recovery_code_hashes = [item for item in registration.recovery_code_hashes if item != digest]
+        return True
+    return False
 
 
 def account_out(account: PortalAccount, patient: Patient) -> PortalAccountOut:
@@ -178,8 +219,8 @@ def get_portal_account(patient_uuid: str, db: Session = Depends(get_db), user: U
     return account_out(account, patient)
 
 
-@router.post("/portal/auth/token", response_model=PortalToken)
-def portal_login(body: PortalLogin, request: Request, response: Response, db: Session = Depends(get_db)) -> PortalToken:
+@router.post("/portal/auth/token", response_model=PortalLoginResult)
+def portal_login(body: PortalLogin, request: Request, response: Response, db: Session = Depends(get_db)) -> PortalLoginResult:
     account = db.scalar(select(PortalAccount).where(PortalAccount.username == body.username))
     current = now_utc()
     locked_until = account.locked_until if account else None
@@ -196,11 +237,72 @@ def portal_login(body: PortalLogin, request: Request, response: Response, db: Se
         raise HTTPException(status_code=401, detail="Invalid portal credentials")
     account.failed_attempts = 0
     account.locked_until = None
-    account.last_login_at = current
-    session, refresh_token = create_session(db, "portal", portal_account_id=account.id, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
+    registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == account.id, PortalMfaRegistration.active.is_(True)))
+    if registration:
+        challenge_token = secrets.token_urlsafe(48)
+        db.add(PortalMfaChallenge(portal_account_id=account.id, token_hash=token_digest(challenge_token), expires_at=current + timedelta(minutes=settings.mfa_challenge_minutes)))
+        portal_audit(db, account, "mfa-challenge", "portal_account", account.uuid)
+        db.commit()
+        return PortalLoginResult(mfa_required=True, challenge_token=challenge_token, force_password_reset=account.force_password_reset)
+    token = issue_portal_session(account, request, response, db)
+    return PortalLoginResult(access_token=token.access_token, force_password_reset=token.force_password_reset)
+
+
+@router.post("/portal/auth/mfa/challenge", response_model=PortalToken)
+def complete_portal_mfa_challenge(body: MfaChallengeComplete, request: Request, response: Response, db: Session = Depends(get_db)):
+    challenge = db.scalar(select(PortalMfaChallenge).where(PortalMfaChallenge.token_hash == token_digest(body.challenge_token)))
+    current = now_utc()
+    if not challenge or challenge.consumed_at is not None or aware(challenge.expires_at) <= current or challenge.attempts >= 5:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
+    registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == challenge.portal_account_id, PortalMfaRegistration.active.is_(True)))
+    account = db.get(PortalAccount, challenge.portal_account_id)
+    challenge.attempts += 1
+    if not registration or not account or not account.active or not consume_portal_mfa_code(registration, body.code):
+        if challenge.attempts >= 5:
+            challenge.consumed_at = current
+        if account:
+            portal_audit(db, account, "mfa-failure", "mfa_challenge", challenge.uuid)
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
+    challenge.consumed_at = current
+    portal_audit(db, account, "mfa-success", "mfa_challenge", challenge.uuid)
+    return issue_portal_session(account, request, response, db)
+
+
+@router.post("/portal/auth/password-reset/request", status_code=status.HTTP_202_ACCEPTED)
+def request_portal_password_reset(body: PasswordResetRequest, db: Session = Depends(get_db)):
+    rows = db.execute(select(PortalAccount, Patient).join(Patient, Patient.id == PortalAccount.patient_id).where(func.lower(Patient.email) == str(body.email).lower(), Patient.portal_allowed.is_(True), PortalAccount.active.is_(True))).all()
+    if len(rows) == 1:
+        account, patient = rows[0]
+        current = now_utc()
+        recent = db.scalar(select(PortalPasswordResetToken).where(PortalPasswordResetToken.portal_account_id == account.id).order_by(PortalPasswordResetToken.created_at.desc()).limit(1))
+        if recent and aware(recent.created_at) > current - timedelta(seconds=settings.password_reset_request_cooldown_seconds):
+            return {"detail": "If the portal account exists, password reset instructions have been queued."}
+        for item in db.scalars(select(PortalPasswordResetToken).where(PortalPasswordResetToken.portal_account_id == account.id, PortalPasswordResetToken.used_at.is_(None))):
+            item.used_at = current
+        raw_token = secrets.token_urlsafe(48)
+        db.add(PortalPasswordResetToken(portal_account_id=account.id, token_hash=token_digest(raw_token), expires_at=current + timedelta(minutes=settings.password_reset_minutes)))
+        db.add(CommunicationDelivery(patient_id=patient.id, channel="email", recipient=patient.email, subject="OpenRM patient portal password reset", body=f"Use this one-time link to reset your portal password: {settings.public_web_url.rstrip('/')}/portal/reset-password?token={raw_token}", template_name="portal-password-reset"))
+        portal_audit(db, account, "password-reset-request", "portal_account", account.uuid)
+        db.commit()
+    return {"detail": "If the portal account exists, password reset instructions have been queued."}
+
+
+@router.post("/portal/auth/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+def confirm_portal_password_reset(body: PasswordResetConfirm, db: Session = Depends(get_db)):
+    reset = db.scalar(select(PortalPasswordResetToken).where(PortalPasswordResetToken.token_hash == token_digest(body.token)))
+    current = now_utc()
+    if not reset or reset.used_at is not None or aware(reset.expires_at) <= current:
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset token")
+    account = db.get(PortalAccount, reset.portal_account_id)
+    if not account or not account.active:
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset token")
+    account.password_hash = password_hash.hash(body.new_password); account.force_password_reset = False; account.failed_attempts = 0; account.locked_until = None
+    reset.used_at = current
+    for session in db.scalars(select(AuthSession).where(AuthSession.portal_account_id == account.id, AuthSession.revoked_at.is_(None))):
+        session.revoked_at = current; session.revoke_reason = "password-reset"
+    portal_audit(db, account, "password-reset", "portal_account", account.uuid)
     db.commit()
-    set_portal_cookie(response, refresh_token)
-    return PortalToken(access_token=create_portal_token(account, session), force_password_reset=account.force_password_reset)
 
 
 @router.post("/portal/auth/refresh", response_model=PortalToken)
@@ -234,12 +336,69 @@ def portal_logout(response: Response, session: AuthSession = Depends(current_por
 
 
 @router.post("/portal/password", status_code=status.HTTP_204_NO_CONTENT)
-def change_portal_password(body: PortalPasswordChange, account: PortalAccount = Depends(current_portal_account), db: Session = Depends(get_db)):
+def change_portal_password(body: PortalPasswordChange, account: PortalAccount = Depends(current_portal_account), session: AuthSession = Depends(current_portal_session), db: Session = Depends(get_db)):
+    if not account.force_password_reset and (not body.current_password or not password_hash.verify(body.current_password, account.password_hash)):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
     account.password_hash = password_hash.hash(body.new_password)
     account.force_password_reset = False
     account.failed_attempts = 0
     account.locked_until = None
+    current = now_utc()
+    for other in db.scalars(select(AuthSession).where(AuthSession.portal_account_id == account.id, AuthSession.id != session.id, AuthSession.revoked_at.is_(None))):
+        other.revoked_at = current; other.revoke_reason = "password-change"
+    portal_audit(db, account, "password-change", "portal_account", account.uuid)
     db.commit()
+
+
+@router.get("/portal/mfa", response_model=MfaStatusOut)
+def portal_mfa_status(account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
+    registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == account.id, PortalMfaRegistration.active.is_(True)))
+    return MfaStatusOut(enabled=bool(registration), method=registration.method if registration else None, confirmed_at=registration.confirmed_at if registration else None, recovery_codes_remaining=len(registration.recovery_code_hashes) if registration else 0)
+
+
+@router.post("/portal/mfa/enroll", response_model=MfaEnrollmentOut)
+def start_portal_mfa_enrollment(body: MfaEnrollmentStart, account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
+    if not password_hash.verify(body.password, account.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == account.id))
+    if registration and registration.active:
+        raise HTTPException(status_code=409, detail="MFA is already enabled")
+    secret = generate_secret()
+    if registration:
+        registration.encrypted_secret = encrypt_secret(secret); registration.recovery_code_hashes = []; registration.last_used_step = None
+    else:
+        registration = PortalMfaRegistration(portal_account_id=account.id, encrypted_secret=encrypt_secret(secret)); db.add(registration)
+    portal_audit(db, account, "mfa-enrollment-start", "portal_account", account.uuid); db.commit()
+    return MfaEnrollmentOut(secret=secret, provisioning_uri=provisioning_uri(secret, account.username))
+
+
+@router.post("/portal/mfa/confirm", response_model=MfaRecoveryCodesOut)
+def confirm_portal_mfa_enrollment(body: MfaCode, session: AuthSession = Depends(current_portal_session), account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
+    registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == account.id, PortalMfaRegistration.active.is_(False)))
+    if not registration:
+        raise HTTPException(status_code=409, detail="No pending MFA enrollment")
+    step = matching_step(decrypt_secret(registration.encrypted_secret), body.code)
+    if step is None:
+        raise HTTPException(status_code=400, detail="Invalid authenticator code")
+    codes = recovery_codes(); registration.active = True; registration.confirmed_at = now_utc(); registration.last_used_step = step; registration.recovery_code_hashes = [recovery_digest(code) for code in codes]
+    current = now_utc()
+    for other in db.scalars(select(AuthSession).where(AuthSession.portal_account_id == account.id, AuthSession.id != session.id, AuthSession.revoked_at.is_(None))):
+        other.revoked_at = current; other.revoke_reason = "mfa-enabled"
+    portal_audit(db, account, "mfa-enabled", "portal_account", account.uuid); db.commit()
+    return MfaRecoveryCodesOut(recovery_codes=codes)
+
+
+@router.delete("/portal/mfa", status_code=status.HTTP_204_NO_CONTENT)
+def disable_portal_mfa(body: MfaDisable, session: AuthSession = Depends(current_portal_session), account: PortalAccount = Depends(portal_ready_account), db: Session = Depends(get_db)):
+    if not password_hash.verify(body.password, account.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    registration = db.scalar(select(PortalMfaRegistration).where(PortalMfaRegistration.portal_account_id == account.id, PortalMfaRegistration.active.is_(True)))
+    if not registration or not consume_portal_mfa_code(registration, body.code):
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+    db.delete(registration); current = now_utc()
+    for other in db.scalars(select(AuthSession).where(AuthSession.portal_account_id == account.id, AuthSession.id != session.id, AuthSession.revoked_at.is_(None))):
+        other.revoked_at = current; other.revoke_reason = "mfa-disabled"
+    portal_audit(db, account, "mfa-disabled", "portal_account", account.uuid); db.commit()
 
 
 @router.get("/portal/me")

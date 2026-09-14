@@ -1,0 +1,7 @@
+import { FormEvent, useState } from "react";
+
+export function PortalPasswordRecovery({baseUrl}:{baseUrl:string}){
+  const token=new URLSearchParams(window.location.search).get("token"); const [message,setMessage]=useState(""); const [error,setError]=useState("");
+  async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setError("");const form=new FormData(event.currentTarget);const path=token?"confirm":"request";const body=token?{token,new_password:form.get("password")}:{email:form.get("email")};const response=await fetch(`${baseUrl}/api/v1/portal/auth/password-reset/${path}`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(!response.ok){const data=await response.json().catch(()=>null);setError(data?.detail??"The request could not be completed");return;}setMessage(token?"Your password has been changed. You can now sign in.":"If the portal account exists, reset instructions have been queued.");}
+  return <main className="login"><form onSubmit={submit}><p className="eyebrow">OPENRM PATIENT PORTAL</p><h1>{token?"Choose a new password":"Recover portal access"}</h1>{token?<label>New password<input name="password" type="password" minLength={12} required/></label>:<label>Email<input name="email" type="email" required/></label>}{message&&<p className="success">{message}</p>}{error&&<p className="error">{error}</p>}<button>{token?"Save password":"Send instructions"}</button><a className="auth-link" href="/portal">Return to sign in</a></form></main>;
+}
