@@ -95,6 +95,9 @@ end-to-end healthcare workflows:
 - separate staff and patient identities, secure patient-bound message threads,
   forced replacement of temporary portal passwords, lockout protection,
   clinical tasks, consent-aware generic email notices, and a durable outbox;
+- an isolated patient portal for owned appointments and explicitly released
+  final laboratory results, documents, and signed visit forms, with revocation
+  controls and identity-linked access auditing;
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
@@ -178,9 +181,16 @@ use.
 
 Patient portal accounts are created by authorized staff for patients whose
 portal access has been enabled. Temporary passwords must be replaced before a
-patient can read or send protected messages. Live email delivery additionally
-requires a configured provider; the internal outbox remains available without
-one for local development and integration testing.
+patient can access protected information. Appointments are restricted to the
+authenticated patient. Clinical results, documents, and visit forms remain
+private until authorized staff explicitly release them; only final or corrected
+results and signed forms are eligible. Staff can revoke access immediately, and
+portal record reads and downloads are recorded against the portal identity.
+Each record area can be disabled with the corresponding `PORTAL_*_ENABLED`
+environment setting. Live email delivery additionally requires a configured
+provider; the internal outbox remains available without one for local
+development and integration testing. See [Patient Portal](docs/PATIENT_PORTAL.md)
+for the release and isolation contract.
 
 Stop services without deleting the database volume:
 
@@ -251,6 +261,8 @@ Start with these documents:
   reconciliation, and cutover rules;
 - [Authentication](docs/AUTHENTICATION.md) — staff/portal identity separation,
   token lifecycle, revocation, recovery, and production controls;
+- [Patient Portal](docs/PATIENT_PORTAL.md) — record publication, patient
+  isolation, auditing, and deployment controls;
 - [Integrations](docs/INTEGRATIONS.md) — external systems, configuration,
   verification strategy, and credential-dependent blockers;
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged

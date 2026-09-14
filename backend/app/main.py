@@ -22,6 +22,7 @@ from .api.inventory import router as inventory_router
 from .api.administration import router as administration_router
 from .api.reports import router as reports_router
 from .api.communications import router as communications_router
+from .api.portal import router as portal_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
 
@@ -36,6 +37,7 @@ app.include_router(inventory_router)
 app.include_router(administration_router)
 app.include_router(reports_router)
 app.include_router(communications_router)
+app.include_router(portal_router)
 app.include_router(fhir_router)
 
 

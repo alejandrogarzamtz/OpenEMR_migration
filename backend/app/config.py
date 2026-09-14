@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     mfa_challenge_minutes: int = Field(default=5, ge=1, le=30)
     mfa_encryption_key: SecretStr | None = None
     secure_cookies: bool = False
+    portal_appointments_enabled: bool = True
+    portal_results_enabled: bool = True
+    portal_documents_enabled: bool = True
+    portal_forms_enabled: bool = True
     public_web_url: str = "http://localhost:5173"
     jwt_issuer: str = "openemr-next"
     jwt_audience: str = "openemr-next-api"

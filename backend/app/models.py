@@ -65,6 +65,23 @@ class AuditEvent(Base):
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class IdentityAuditEvent(Base):
+    """Audit trail for both workforce and patient-portal identities."""
+
+    __tablename__ = "identity_audit_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    identity_kind: Mapped[str] = mapped_column(String(20), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    portal_account_id: Mapped[int | None] = mapped_column(ForeignKey("portal_accounts.id"), nullable=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(50))
+    resource_type: Mapped[str] = mapped_column(String(50))
+    resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class Facility(Base):
     __tablename__ = "facilities"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -488,6 +505,8 @@ class LabResult(Base):
     reference_range: Mapped[str | None] = mapped_column(String(255), nullable=True)
     interpretation: Mapped[str | None] = mapped_column(String(31), nullable=True)
     status: Mapped[str] = mapped_column(String(31), default="final")
+    released_to_patient_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class Document(Base):
@@ -502,6 +521,8 @@ class Document(Base):
     content: Mapped[bytes] = mapped_column(LargeBinary)
     sha256: Mapped[str] = mapped_column(String(64))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    released_to_patient_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class Payer(Base):
@@ -660,6 +681,8 @@ class ClinicalForm(Base):
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     signed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    released_to_patient_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class QuestionnaireDefinition(Base):

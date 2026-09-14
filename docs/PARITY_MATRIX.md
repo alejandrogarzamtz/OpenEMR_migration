@@ -32,7 +32,7 @@ are all verified. “Partial” never counts as final parity.
 | Claims and X12 | Partial | 837 generation, partners, clearinghouse transport, rejections and rebilling |
 | Payments and EOB/ERA | Partial | 835 import, adjustments, patient ledger, deposits and reconciliation |
 | Patient statements | Missing | statement generation, aging, collections and payment plans |
-| Portal | Partial | separate patient auth, forced temporary-password replacement, lockout and isolated secure messaging are implemented; appointments, results, forms, documents, payments, MFA and recovery remain |
+| Portal | Partial | separate patient auth, forced temporary-password replacement, lockout, isolated messaging, owned appointments, and explicitly released final results/documents/signed forms with access auditing are implemented; payments, proxy access, MFA and recovery remain |
 | Internal messaging | Partial | patient-bound secure threads, staff replies, clinical tasks and notification outbox exist; staff-to-staff groups, preferences, SMS and Direct remain |
 | Reports | Partial | all 48 legacy surfaces are cataloged and 11 report families have reproducible runs; 37 implementations remain |
 | Quality measures | Missing | CQM/AMC calculation, exports, dashboards and result history |

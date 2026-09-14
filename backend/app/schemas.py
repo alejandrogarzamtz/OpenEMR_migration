@@ -621,6 +621,7 @@ class LabResultCreate(BaseModel):
 class LabResultOut(LabResultCreate):
     model_config = ConfigDict(from_attributes=True)
     uuid: str
+    released_to_patient_at: datetime | None = None
 
 
 class LabOrderDetail(LabOrderOut):
@@ -634,6 +635,7 @@ class DocumentOut(BaseModel):
     mime_type: str
     sha256: str
     uploaded_at: datetime
+    released_to_patient_at: datetime | None = None
 
 
 class CoverageCreate(BaseModel):
@@ -767,6 +769,33 @@ class ClinicalFormOut(ClinicalFormCreate):
     status: str
     authored_at: datetime
     signed_at: datetime | None
+    released_to_patient_at: datetime | None = None
+
+
+class PortalLabResultOut(BaseModel):
+    uuid: str
+    order_uuid: str
+    order_name: str
+    observed_at: datetime
+    code: str
+    name: str
+    value: str
+    unit: str | None
+    reference_range: str | None
+    interpretation: str | None
+    status: str
+    released_to_patient_at: datetime
+
+
+class PortalClinicalFormOut(BaseModel):
+    uuid: str
+    encounter_uuid: str
+    form_type: str
+    title: str
+    content: dict
+    authored_at: datetime
+    signed_at: datetime
+    released_to_patient_at: datetime
 
 
 class QuestionnaireDefinitionOut(BaseModel):
