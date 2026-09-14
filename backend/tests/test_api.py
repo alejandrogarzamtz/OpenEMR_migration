@@ -71,11 +71,17 @@ def test_patient_flow():
         soap = client.post(f"/api/v1/patients/{patient_id}/clinical-forms", headers=headers, json={"encounter_uuid": encounter.json()["uuid"], "form_type": "soap", "title": "SOAP note", "content": {"subjective": "Headache improving", "objective": "Neurologic exam normal", "assessment": "Migraine", "plan": "Continue treatment"}})
         assert soap.status_code == 201
         assert soap.json()["status"] == "draft"
-        signed = client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers)
-        assert signed.status_code == 200
-        assert signed.json()["status"] == "signed"
-        assert client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers).status_code == 409
-        assert client.get(f"/api/v1/patients/{patient_id}/clinical-forms?form_type=soap", headers=headers).json()[0]["content"]["assessment"] == "Migraine"
+        assert client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers, json={"password":"wrong-password","lock":True}).status_code == 401
+        signed = client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers, json={"password":"change-me-now","lock":True,"attestation":"I attest that this note is accurate and complete."})
+        assert signed.status_code == 201 and signed.json()["is_lock"] is True and signed.json()["integrity_valid"] is True
+        assert client.put(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}",headers=headers,json={"title":"Changed","content":{"assessment":"tampered"}}).status_code == 423
+        assert client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign", headers=headers,json={"password":"change-me-now","lock":True}).status_code == 409
+        amendment=client.post(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/sign",headers=headers,json={"password":"change-me-now","lock":False,"amendment":"Reviewed after final laboratory result."})
+        assert amendment.status_code==201 and amendment.json()["previous_signature_hash"]==signed.json()["signature_hash"]
+        signatures=client.get(f"/api/v1/patients/{patient_id}/clinical-forms/{soap.json()['uuid']}/signatures",headers=headers).json()
+        assert len(signatures)==2 and all(item["integrity_valid"] for item in signatures)
+        form=client.get(f"/api/v1/patients/{patient_id}/clinical-forms?form_type=soap", headers=headers).json()[0]
+        assert form["content"]["assessment"] == "Migraine" and form["locked"] and form["signature_count"]==2
         definitions = client.get("/api/v1/questionnaires", headers=headers).json()
         phq9 = next(item for item in definitions if item["code"] == "PHQ-9")
         answers = {f"q{x}": 1 for x in range(1, 10)}

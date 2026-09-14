@@ -1101,11 +1101,40 @@ class ClinicalFormCreate(BaseModel):
     content: dict
 
 
+class ClinicalFormUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    content: dict
+
+
+class ClinicalSignatureCreate(BaseModel):
+    password: str = Field(min_length=1, max_length=1024)
+    lock: bool = True
+    attestation: str = Field(default="I attest that this clinical record is accurate and complete.", min_length=10, max_length=1000)
+    amendment: str | None = Field(default=None, max_length=4000)
+
+
+class ClinicalSignatureOut(BaseModel):
+    uuid: str
+    signer_name: str
+    signer_role: str | None
+    signed_at: datetime
+    auth_method: str
+    is_lock: bool
+    attestation: str
+    amendment: str | None
+    content_hash: str
+    previous_signature_hash: str | None
+    signature_hash: str
+    integrity_valid: bool
+
+
 class ClinicalFormOut(ClinicalFormCreate):
     uuid: str
     status: str
     authored_at: datetime
     signed_at: datetime | None
+    locked: bool = False
+    signature_count: int = 0
     released_to_patient_at: datetime | None = None
 
 

@@ -982,6 +982,31 @@ class ClinicalForm(Base):
     released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class ClinicalSignature(Base):
+    """Append-only evidence for a form signature or amendment."""
+
+    __tablename__ = "clinical_signatures"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_signature_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    form_id: Mapped[int] = mapped_column(ForeignKey("clinical_forms.id"), index=True)
+    encounter_id: Mapped[int] = mapped_column(ForeignKey("encounters.id"), index=True)
+    signer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    signer_name: Mapped[str] = mapped_column(String(255))
+    signer_role: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    signed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    auth_method: Mapped[str] = mapped_column(String(30), default="password")
+    is_lock: Mapped[bool] = mapped_column(default=True, index=True)
+    attestation: Mapped[str] = mapped_column(Text)
+    amendment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    previous_signature_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    signature_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    legacy_content_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_signature_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class QuestionnaireDefinition(Base):
     __tablename__ = "questionnaire_definitions"
     id: Mapped[int] = mapped_column(primary_key=True)

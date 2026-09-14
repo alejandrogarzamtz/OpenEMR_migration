@@ -49,7 +49,7 @@ def test_portal_records_require_release_and_are_patient_isolated():
         encounter = client.post("/api/v1/encounters", headers=staff, json={"patient_uuid": first["uuid"], "occurred_at": "2026-09-15T13:00:00Z", "type": "office"}).json()
         form = client.post(f"/api/v1/patients/{first['uuid']}/clinical-forms", headers=staff, json={"encounter_uuid": encounter["uuid"], "form_type": "soap", "title": "Visit summary", "content": {"plan": "Hydrate"}}).json()
         assert client.post(f"/api/v1/patients/{first['uuid']}/clinical-forms/{form['uuid']}/release", headers=staff).status_code == 409
-        client.post(f"/api/v1/patients/{first['uuid']}/clinical-forms/{form['uuid']}/sign", headers=staff)
+        client.post(f"/api/v1/patients/{first['uuid']}/clinical-forms/{form['uuid']}/sign", headers=staff, json={"password":"change-me-now","lock":True})
         assert client.post(f"/api/v1/patients/{first['uuid']}/clinical-forms/{form['uuid']}/release", headers=staff).status_code == 200
         assert client.get("/api/v1/portal/forms", headers=first_portal).json()[0]["content"] == {"plan": "Hydrate"}
         assert client.get("/api/v1/portal/forms", headers=second_portal).json() == []

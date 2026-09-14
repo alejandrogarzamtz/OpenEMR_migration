@@ -334,7 +334,9 @@ def release_form(patient_uuid: str, form_uuid: str, db: Session = Depends(get_db
     item.released_to_patient_at = datetime.now(timezone.utc); item.released_by_id = user.id
     encounter = db.get(Encounter, item.encounter_id)
     staff_audit(db, user, patient.id, "release", "clinical_form", item.uuid); db.commit(); db.refresh(item)
-    return ClinicalFormOut(encounter_uuid=encounter.uuid, **{key: getattr(item, key) for key in ClinicalFormOut.model_fields if key != "encounter_uuid"})
+    from ..services.clinical_signatures import form_signatures
+    signatures = form_signatures(db, item.id)
+    return ClinicalFormOut(encounter_uuid=encounter.uuid, locked=any(signature.is_lock for signature in signatures), signature_count=len(signatures), **{key:getattr(item,key) for key in ("uuid","form_type","title","content","status","authored_at","signed_at","released_to_patient_at")})
 
 
 @router.delete("/patients/{patient_uuid}/clinical-forms/{form_uuid}/release", status_code=status.HTTP_204_NO_CONTENT)

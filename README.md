@@ -89,6 +89,9 @@ end-to-end healthcare workflows:
 - private patient photographs with content-based image validation, authenticated
   retrieval, primary-image selection, non-destructive version history, and
   auditable legacy `Patient Photograph` imports;
+- password-reauthenticated clinical-form signatures with explicit attestations,
+  locked records, amendment history, chained SHA-256 integrity evidence, and an
+  append-only PostgreSQL audit boundary;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

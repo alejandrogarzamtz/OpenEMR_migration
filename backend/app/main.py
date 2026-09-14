@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
 from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
-from .schemas import AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
+from .schemas import AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalFormUpdate, ClinicalItemCreate, ClinicalItemOut, ClinicalSignatureCreate, ClinicalSignatureOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
 from .security import (
     clinical_user,
 )
@@ -25,6 +25,8 @@ from .api.communications import router as communications_router
 from .api.portal import router as portal_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
+from .services.clinical_signatures import create_signature, form_locked, form_signatures, verify_signature_chain
+from .security import password_hash
 
 
 app = FastAPI(title="OpenEMR Next API", version="0.1.0", lifespan=lifespan)
@@ -340,23 +342,52 @@ def create_clinical_form(patient_uuid: str, body: ClinicalFormCreate, db: Sessio
     return ClinicalFormOut(encounter_uuid=encounter.uuid, **{k: getattr(item, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")})
 
 
+def clinical_form_out(item: ClinicalForm, encounter_uuid: str, db: Session) -> ClinicalFormOut:
+    signatures = form_signatures(db, item.id)
+    return ClinicalFormOut(encounter_uuid=encounter_uuid, locked=any(signature.is_lock for signature in signatures), signature_count=len(signatures), **{k:getattr(item,k) for k in ("uuid","form_type","title","content","status","authored_at","signed_at","released_to_patient_at")})
+
+
 @app.get("/api/v1/patients/{patient_uuid}/clinical-forms", response_model=list[ClinicalFormOut])
 def list_clinical_forms(patient_uuid: str, encounter_uuid: str | None = None, form_type: str | None = None, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     patient = patient_by_uuid(db, patient_uuid); query = select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.patient_id == patient.id)
     if encounter_uuid: query = query.where(Encounter.uuid == encounter_uuid)
     if form_type: query = query.where(ClinicalForm.form_type == form_type)
     rows = db.execute(query.order_by(ClinicalForm.authored_at.desc())).all(); db.add(AuditEvent(actor_id=user.id, action="search", resource_type="clinical_form", resource_id=patient.uuid)); db.commit()
-    return [ClinicalFormOut(encounter_uuid=e, **{k: getattr(x, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")}) for x, e in rows]
+    return [clinical_form_out(x, e, db) for x, e in rows]
 
 
-@app.post("/api/v1/patients/{patient_uuid}/clinical-forms/{form_uuid}/sign", response_model=ClinicalFormOut)
-def sign_clinical_form(patient_uuid: str, form_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
-    patient = patient_by_uuid(db, patient_uuid); row = db.execute(select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.uuid == form_uuid, ClinicalForm.patient_id == patient.id)).first()
+@app.put("/api/v1/patients/{patient_uuid}/clinical-forms/{form_uuid}", response_model=ClinicalFormOut)
+def update_clinical_form(patient_uuid: str, form_uuid: str, body: ClinicalFormUpdate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid)
+    row = db.execute(select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.uuid == form_uuid, ClinicalForm.patient_id == patient.id).with_for_update()).first()
     if not row: raise HTTPException(status_code=404, detail="Clinical form not found")
     item, encounter_uuid = row
-    if item.status == "signed": raise HTTPException(status_code=409, detail="Clinical form is already signed")
-    item.status = "signed"; item.signed_at = datetime.now(timezone.utc); item.signed_by_id = user.id; db.add(AuditEvent(actor_id=user.id, action="sign", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
-    return ClinicalFormOut(encounter_uuid=encounter_uuid, **{k: getattr(item, k) for k in ("uuid", "form_type", "title", "content", "status", "authored_at", "signed_at")})
+    if form_locked(db, item.id): raise HTTPException(status_code=423, detail="Clinical form is electronically signed and locked")
+    item.title = body.title; item.content = body.content
+    db.add(AuditEvent(actor_id=user.id, action="update", resource_type="clinical_form", resource_id=item.uuid)); db.commit(); db.refresh(item)
+    return clinical_form_out(item, encounter_uuid, db)
+
+
+@app.post("/api/v1/patients/{patient_uuid}/clinical-forms/{form_uuid}/sign", response_model=ClinicalSignatureOut, status_code=201)
+def sign_clinical_form(patient_uuid: str, form_uuid: str, body: ClinicalSignatureCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); row = db.execute(select(ClinicalForm, Encounter.uuid).join(Encounter).where(ClinicalForm.uuid == form_uuid, ClinicalForm.patient_id == patient.id).with_for_update()).first()
+    if not row: raise HTTPException(status_code=404, detail="Clinical form not found")
+    item, encounter_uuid = row
+    if not password_hash.verify(body.password, user.password_hash): raise HTTPException(status_code=401, detail="Signature reauthentication failed")
+    if form_locked(db, item.id) and not body.amendment: raise HTTPException(status_code=409, detail="A locked form requires an amendment note for another signature")
+    signature = create_signature(db, item, user, lock=body.lock, attestation=body.attestation, amendment=body.amendment)
+    item.status = "signed"; item.signed_at = signature.signed_at; item.signed_by_id = user.id
+    db.add(AuditEvent(actor_id=user.id, action="sign", resource_type="clinical_form", resource_id=item.uuid, detail=f"signature={signature.uuid}; lock={body.lock}; content_hash={signature.content_hash}")); db.commit(); db.refresh(signature)
+    return ClinicalSignatureOut(**{key:getattr(signature,key) for key in ("uuid","signer_name","signer_role","signed_at","auth_method","is_lock","attestation","amendment","content_hash","previous_signature_hash","signature_hash")}, integrity_valid=True)
+
+
+@app.get("/api/v1/patients/{patient_uuid}/clinical-forms/{form_uuid}/signatures", response_model=list[ClinicalSignatureOut])
+def list_clinical_signatures(patient_uuid: str, form_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+    patient = patient_by_uuid(db, patient_uuid); item = db.scalar(select(ClinicalForm).where(ClinicalForm.uuid == form_uuid, ClinicalForm.patient_id == patient.id))
+    if not item: raise HTTPException(status_code=404, detail="Clinical form not found")
+    signatures = form_signatures(db, item.id); validity = verify_signature_chain(item, signatures)
+    db.add(AuditEvent(actor_id=user.id, action="verify", resource_type="clinical_signature", resource_id=item.uuid, detail=f"records={len(signatures)}; valid={all(validity)}")); db.commit()
+    return [ClinicalSignatureOut(**{key:getattr(signature,key) for key in ("uuid","signer_name","signer_role","signed_at","auth_method","is_lock","attestation","amendment","content_hash","previous_signature_hash","signature_hash")}, integrity_valid=valid) for signature,valid in zip(signatures,validity)]
 
 
 @app.get("/api/v1/questionnaires", response_model=list[QuestionnaireDefinitionOut])

@@ -93,3 +93,10 @@ in the source system. SOAP, ROS, physical-exam and clinic-note forms receive
 normalized types; every other installed form is retained as a custom JSON
 payload so module-specific clinical data is not silently discarded. Deleted,
 orphaned, or missing-table registrations are reported as rejected.
+
+Legacy `esign_signatures` rows targeting individual entries in the `forms`
+registry are imported after their clinical forms. Original content/signature
+hashes and the complete source row are retained, while a modern SHA-256 chain
+provides verifiable target-side integrity. Signatures targeting an entire
+`form_encounter` are counted as rejected until the encounter-wide signing
+adapter lands; they are never silently treated as individual-form signatures.

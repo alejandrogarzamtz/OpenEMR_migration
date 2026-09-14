@@ -14,8 +14,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
+from .models import Appointment, Charge, Claim, ClinicalForm, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, Prescription, SecureMessage, VitalSet, Warehouse
 from .security import password_hash
+from .services.clinical_signatures import clinical_form_hash, signature_hash
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
@@ -149,7 +150,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "appointments", "clinical_items", "encounters", "patient_flow_episodes", "patient_flow_events", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "clinical_forms", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -576,6 +577,21 @@ def run(source_url: str, commit: bool = False) -> dict:
             if formdir == "soap": content = {key: json_value(payload_rows[0].get(key)) for key in ("subjective", "objective", "assessment", "plan")}
             target.add(ClinicalForm(legacy_form_key=legacy_key, patient_id=patient.id, encounter_id=encounter.id, form_type=known_types.get(formdir, "custom"), title=clean(row["form_name"]) or formdir.replace("_", " ").title(), content=content, status="signed" if row["authorized"] else "draft", authored_at=row["date"] or encounter.occurred_at))
             stats["clinical_forms"]["inserted"] += 1
+        target.flush()
+        if "esign_signatures" in legacy_tables:
+            legacy_signatures = legacy.execute(text("""SELECT e.id,e.tid,e.`table`,e.uid,e.datetime,e.is_lock,e.amendment,e.hash,e.signature_hash,u.fname,u.lname,u.title FROM esign_signatures e LEFT JOIN users u ON u.id=e.uid ORDER BY e.tid,e.datetime,e.id"""))
+            for row in legacy_signatures.mappings():
+                stats["clinical_signatures"]["source"] += 1
+                if target.scalar(select(ClinicalSignature.id).where(ClinicalSignature.legacy_signature_id == row["id"])): stats["clinical_signatures"]["existing"] += 1; continue
+                form = target.scalar(select(ClinicalForm).where(ClinicalForm.legacy_form_key == f"forms:{row['tid']}")) if row["table"] == "forms" else None
+                if not form: stats["clinical_signatures"]["rejected"] += 1; continue
+                previous = target.scalar(select(ClinicalSignature.signature_hash).where(ClinicalSignature.form_id == form.id).order_by(ClinicalSignature.signed_at.desc(),ClinicalSignature.id.desc()).limit(1))
+                signer_name = " ".join(filter(None,(clean(row["fname"]),clean(row["lname"])))) or f"Legacy user {row['uid']}"
+                signed_at = row["datetime"] or form.authored_at; attestation = "Imported OpenEMR electronic signature evidence."
+                evidence = {"form_uuid":form.uuid,"encounter_id":form.encounter_id,"signer_id":None,"signer_name":signer_name,"signer_role":clean(row["title"]),"signed_at":signed_at,"auth_method":"legacy-import","is_lock":bool(row["is_lock"]),"attestation":attestation,"amendment":clean(row["amendment"]),"content_hash":clinical_form_hash(form),"previous_signature_hash":previous}
+                target.add(ClinicalSignature(legacy_signature_id=row["id"],form_id=form.id,encounter_id=form.encounter_id,signer_name=signer_name,signer_role=clean(row["title"]),signed_at=signed_at,auth_method="legacy-import",is_lock=bool(row["is_lock"]),attestation=attestation,amendment=clean(row["amendment"]),content_hash=evidence["content_hash"],previous_signature_hash=previous,signature_hash=signature_hash(evidence),legacy_content_hash=clean(row["hash"]),legacy_signature_hash=clean(row["signature_hash"]),legacy_payload={key:json_value(value) for key,value in row.items()}))
+                stats["clinical_signatures"]["inserted"] += 1
+                target.flush()
 
         # Portal password verifiers belong to the legacy authentication system and
         # are deliberately not accepted as modern credentials. Every imported
