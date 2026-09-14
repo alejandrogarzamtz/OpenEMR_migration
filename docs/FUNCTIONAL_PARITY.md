@@ -1,0 +1,33 @@
+# Functional parity control document
+
+This is the binding migration ledger. `VERIFIED` means API, React workflow,
+authorization, data reconciliation and automated tests have all passed. A
+domain row represents the feature family and is expanded into child rows as the
+second-pass scanner discovers independently testable behavior.
+
+The exact legacy REST child-route ledger is generated at
+[`LEGACY_API_INVENTORY.md`](LEGACY_API_INVENTORY.md); the machine-readable
+schema/form/report/service/command ledger is `legacy-surface.json`. A domain
+cannot become `VERIFIED` while any corresponding child route remains open.
+
+| ID | Module / feature | Legacy source and behavior | Data / rules / roles | New API / service / model | React surface | Tests | Status / verification / notes |
+|---|---|---|---|---|---|---|---|
+| IAM-001 | Authentication, sessions, users, MFA, recovery | `interface/login`, `src/Auth`, OAuth2 and portal auth | `users*`, `api_*`, MFA/trusted-user tables; account state and ACL | `/api/v1/auth/*`; identity and session services | Login, recovery, security profile | unit, policy and flow | IN PROGRESS — basic password/JWT only; legacy hash upgrade, MFA and session parity pending |
+| ACL-001 | Roles, groups, permissions and record access | `gacl/`, ACL checks throughout routes/pages | `gacl_*`, facility and patient-compartment constraints | policy engine and dependencies | permission-aware navigation/admin | deny/allow matrix | IN PROGRESS — coarse role check is insufficient |
+| PAT-001 | Demographics, contacts, search, merge and chart | patient services and `interface/patient_file` | `patient_data`, person/contact/address/telecom, related persons; duplicate and consent rules | `/api/v1/patients*`; patient repository | Patient search/editor/chart | API, import and E2E | IN PROGRESS — minimal demographics only |
+| SCH-001 | Calendar, appointments, holidays, reminders and flow board | `interface/main/calendar`, tracker and appointment services | `openemr_postcalendar_*`, `patient_tracker*`; recurrence/status/resource rules | scheduling service and REST resources | Calendar, wait list, flow board | recurrence and E2E | IN PROGRESS — simple appointment create/list only |
+| ENC-001 | Encounters, lifecycle, forms, notes and signatures | `interface/forms`, `forms`, encounter services | `form_encounter`, `forms`, 35 form families; locks/signatures/amendments | encounter/form services | Encounter workspace and specialized editors | contract and workflows | IN PROGRESS — generic clinical slice does not cover legacy forms |
+| CLI-001 | Problems, allergies, medications, surgery, vitals, immunization, care plans | lists and clinical/FHIR services | `lists`, `form_vitals`, `immunizations`, clinical plan tables; coding/lifecycle rules | clinical domain APIs | Longitudinal chart modules | rule and FHIR parity | IN PROGRESS — selected normalized records only |
+| ORD-001 | Prescriptions, labs, procedures, imaging and results | prescription/procedure/diagnostic services and forms | prescriptions, procedure order/result/report tables; signing/status/specimen rules | order/result services | Ordering and result review | lifecycle/integration | IN PROGRESS — simple Rx/lab records only |
+| DOC-001 | Documents, templates, upload/download and legal signing | document services and `interface/patient_file/encounter` | `documents`, categories, legal master/detail; safe storage/version/signature rules | document metadata/blob service | Document center/viewer/signing | malware/path/access tests | IN PROGRESS — inline blob upload lacks legacy categories/versioning |
+| FIN-001 | Insurance, eligibility, fee sheets, claims, X12, payments and statements | billing pages/services/reports | insurance, billing, claims, ar*, payments; exact monetary/state rules | financial services and REST APIs | Billing workspace | reconciliation fixtures | IN PROGRESS — elementary coverage/claim/payment only |
+| INV-001 | Drugs, inventory, dispensing and sales | `interface/drugs`, inventory reports | `drugs`, `drug_inventory`, `drug_sales`; lot/warehouse/stock rules | inventory service | Inventory UI | transactional stock tests | NOT STARTED |
+| COM-001 | Portal, messages, tasks, email, Direct and notifications | `portal/`, message/email/notification services | portal users, messages, email queue, direct logs; consent and recipient policy | portal/communication APIs | Patient portal and inbox | isolation/delivery flows | NOT STARTED |
+| REP-001 | Clinical, operational, financial, audit and quality reports | `interface/reports` and report/CQM services | cross-domain read models; filters, locale and totals | report jobs/download endpoints | Report catalog/viewer | golden files | NOT STARTED |
+| INT-001 | Standard API, FHIR, SMART/OAuth, C-CDA/CCR/EHI, webhooks | three REST maps, `oauth2`, `ccdaservice`, `ccr` | tokens/scopes, patient compartments, export jobs; standards conformance | versioned compatibility APIs | API client administration | conformance/contract | IN PROGRESS — narrow FHIR surface only |
+| ADM-001 | Facilities, providers, codes, templates, preferences, globals and modules | administration UI, services and module hooks | facility/users/codes/list_options/globals/module tables; admin-only policy | admin/config services | Administration console | policy/config migration | NOT STARTED |
+| OPS-001 | Audit, background jobs, imports, upgrades, localization and maintenance | audit pages, commands, background services, translations | `audit_*`, `background_services`, lang tables; tamper evidence/idempotency | job runner, audit and import services | Operations/audit screens | replay/tamper/job tests | IN PROGRESS — basic audit/import only |
+
+No row may remain `NOT STARTED` or `IN PROGRESS` at completion. External
+credentials alone may yield `BLOCKED`; internal engineering work is not a
+blocker. No feature is currently intentionally removed.

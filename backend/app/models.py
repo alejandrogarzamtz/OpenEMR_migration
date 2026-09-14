@@ -9,9 +9,14 @@ from .db import Base
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_user_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    username: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(30), default="clinician")
+    active: Mapped[bool] = mapped_column(default=True)
+    permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
 class Patient(Base):

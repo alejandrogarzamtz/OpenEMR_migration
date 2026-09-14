@@ -1,7 +1,8 @@
-import os
-os.environ["DATABASE_URL"] = "sqlite://"
 from fastapi.testclient import TestClient
 from app.main import app
+from app.db import SessionLocal
+from app.models import User
+from app.security import password_hash
 
 
 def test_patient_flow():
@@ -89,3 +90,50 @@ def test_patient_flow():
 def test_auth_required():
     with TestClient(app) as client:
         assert client.get("/api/v1/patients").status_code == 403
+
+
+def test_explicit_permission_and_inactive_account_enforcement():
+    with TestClient(app) as client:
+        with SessionLocal() as db:
+            db.add(User(
+                email="viewer@example.com",
+                password_hash=password_hash.hash("viewer-password"),
+                role="viewer",
+                permissions=["patients:demo:read"],
+            ))
+            db.add(User(
+                email="disabled@example.com",
+                password_hash=password_hash.hash("disabled-password"),
+                role="clinician",
+                active=False,
+                permissions=["patients:med:read"],
+            ))
+            db.commit()
+
+        viewer_token = client.post(
+            "/api/v1/auth/token",
+            json={"email": "viewer@example.com", "password": "viewer-password"},
+        ).json()["access_token"]
+        response = client.get(
+            "/api/v1/patients",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert response.status_code == 200
+        denied_write = client.post(
+            "/api/v1/patients",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+            json={
+                "first_name": "Read",
+                "last_name": "Only",
+                "date_of_birth": "1990-01-01",
+                "sex": "unknown",
+            },
+        )
+        assert denied_write.status_code == 403
+        assert denied_write.json() == {"detail": "Permission denied"}
+
+        disabled = client.post(
+            "/api/v1/auth/token",
+            json={"email": "disabled@example.com", "password": "disabled-password"},
+        )
+        assert disabled.status_code == 401

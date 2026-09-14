@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
@@ -10,34 +9,20 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
 from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
-from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, Login, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, Token, VitalSetCreate, VitalSetOut
-from .security import clinical_user, create_token, password_hash
+from .schemas import AppointmentCreate, AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalItemCreate, ClinicalItemOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PatientCreate, PatientOut, PatientPage, PaymentCreate, PaymentOut, PrescriptionCreate, PrescriptionOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
+from .security import (
+    clinical_user,
+    patient_demographics_user,
+    patient_demographics_write_user,
+)
 from .fhir import router as fhir_router
-
-QUESTIONNAIRES = {
-    "PHQ-9": {"title": "Patient Health Questionnaire-9", "count": 9},
-    "GAD-7": {"title": "Generalized Anxiety Disorder-7", "count": 7},
-}
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    # Unit tests use an isolated in-memory database. Deployed databases are
-    # changed exclusively through Alembic before the API process starts.
-    if settings.database_url == "sqlite://":
-        Base.metadata.create_all(engine)
-    with SessionLocal() as db:
-        if not db.scalar(select(User).where(User.email == "admin@example.com")):
-            db.add(User(email="admin@example.com", password_hash=password_hash.hash("change-me-now"), role="admin"))
-        for code, definition in QUESTIONNAIRES.items():
-            if not db.scalar(select(QuestionnaireDefinition).where(QuestionnaireDefinition.code == code, QuestionnaireDefinition.version == "1")):
-                db.add(QuestionnaireDefinition(code=code, version="1", title=definition["title"], questions=[{"id": f"q{x}", "text": f"{code} item {x}", "min": 0, "max": 3} for x in range(1, definition["count"] + 1)]))
-        db.commit()
-    yield
+from .api.auth import router as auth_router
+from .bootstrap import lifespan
 
 
 app = FastAPI(title="OpenEMR Next API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth_router)
 app.include_router(fhir_router)
 
 
@@ -46,16 +31,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/v1/auth/token", response_model=Token)
-def login(body: Login, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == body.email))
-    if not user or not password_hash.verify(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return Token(access_token=create_token(user))
-
-
 @app.get("/api/v1/patients", response_model=PatientPage)
-def list_patients(q: str | None = None, limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+def list_patients(q: str | None = None, limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0), db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
     filters = []
     if q:
         filters.append(or_(Patient.first_name.ilike(f"%{q}%"), Patient.last_name.ilike(f"%{q}%"), Patient.email.ilike(f"%{q}%")))
@@ -67,7 +44,7 @@ def list_patients(q: str | None = None, limit: int = Query(25, ge=1, le=100), of
 
 
 @app.post("/api/v1/patients", response_model=PatientOut, status_code=status.HTTP_201_CREATED)
-def create_patient(body: PatientCreate, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+def create_patient(body: PatientCreate, db: Session = Depends(get_db), user: User = Depends(patient_demographics_write_user)):
     patient = Patient(**body.model_dump())
     db.add(patient)
     db.flush()
@@ -78,7 +55,7 @@ def create_patient(body: PatientCreate, db: Session = Depends(get_db), user: Use
 
 
 @app.get("/api/v1/patients/{patient_uuid}", response_model=PatientOut)
-def get_patient(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+def get_patient(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(patient_demographics_user)):
     patient = db.scalar(select(Patient).where(Patient.uuid == patient_uuid))
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")

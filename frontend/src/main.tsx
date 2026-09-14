@@ -2,6 +2,7 @@ import React, { FormEvent, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import "./clinical.css";
+import { createApiClient } from "./api/client";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Patient = { uuid:string; first_name:string; last_name:string; date_of_birth:string; sex:string; email?:string };
@@ -39,12 +40,7 @@ function App(){
   const [selected,setSelected]=useState<Summary|null>(null);
   const [error,setError]=useState("");
 
-  async function api(path:string,init:RequestInit={}){
-    const response=await fetch(`${API}${path}`,{...init,headers:{Authorization:`Bearer ${token}`,...(init.headers??{})}});
-    if(response.status===401){localStorage.removeItem("token");setToken("");throw Error("Unauthorized");}
-    if(!response.ok){const body=await response.json().catch(()=>({detail:"Request failed"}));throw Error(body.detail);}
-    return response.json();
-  }
+  const api=createApiClient({baseUrl:API,getToken:()=>token,onUnauthorized:()=>{localStorage.removeItem("token");setToken("");}});
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
   async function openPatient(patient:Patient){
     setError("");
