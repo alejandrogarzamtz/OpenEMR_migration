@@ -126,7 +126,8 @@ end-to-end healthcare workflows:
   facility/warehouse assignments enforced by scheduling and inventory APIs;
 - a permission-aware report catalog with reproducible stored runs, totals,
   integrity checksums, searchable execution history and authenticated CSV
-  exports, including PHI-minimized messaging
+  exports, including facility-scoped clinical-decision evaluation history,
+  PHI-minimized messaging
   history, communication-delivery operations and CVX-based immunization
   registry reporting, plus balance-reconciled inventory activity;
 - transactional SHA3-512 integrity seals for staff and portal audit streams,

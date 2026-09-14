@@ -852,6 +852,24 @@ class ClinicalItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class ClinicalRuleLog(Base):
+    __tablename__ = "clinical_rule_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_log_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(default=0)
+    legacy_user_id: Mapped[int] = mapped_column(default=0)
+    legacy_facility_id: Mapped[int] = mapped_column(default=0)
+    category: Mapped[str] = mapped_column(String(255), index=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class LabOrder(Base):
     __tablename__ = "lab_orders"
     id: Mapped[int] = mapped_column(primary_key=True)

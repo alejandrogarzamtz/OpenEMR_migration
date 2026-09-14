@@ -1,6 +1,8 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from app.import_legacy import clean, event_datetime, json_value, legacy_consent_decision, parse_legacy_person_name, stable_legacy_row_keys, valid_dob
+from app.db import SessionLocal
+from app.import_legacy import clean, event_datetime, import_clinical_rule_log, json_value, legacy_consent_decision, parse_legacy_person_name, stable_legacy_row_keys, valid_dob
+from app.models import ClinicalRuleLog
 
 
 def test_legacy_value_normalization():
@@ -31,3 +33,17 @@ def test_legacy_multiset_row_keys_are_stable_and_preserve_duplicates():
     keys=[key for _,_,key in forward]
     assert keys==[key for _,_,key in reverse] and len(set(keys))==3
     assert keys[0].endswith(":1") and keys[1].endswith(":2")
+
+
+def test_cdr_import_is_lossless_for_unresolved_references_and_idempotent():
+    row={"id":920001,"date":None,"pid":929991,"uid":929992,"facility_id":929993,"category":"custom","value":"invalid { json","new_value":"","extra":"preserved"}
+    with SessionLocal() as db:
+        assert import_clinical_rule_log(row,db)=="inserted"
+        db.flush()
+        assert import_clinical_rule_log(row,db)=="existing"
+        item=db.query(ClinicalRuleLog).filter_by(legacy_log_id=920001).one()
+        assert item.occurred_at is None and item.patient_id is None and item.actor_id is None and item.facility_id is None
+        assert item.legacy_patient_id==929991 and item.legacy_user_id==929992 and item.legacy_facility_id==929993
+        assert item.value=="invalid { json" and item.new_value==""
+        assert item.legacy_payload==row
+        db.rollback()

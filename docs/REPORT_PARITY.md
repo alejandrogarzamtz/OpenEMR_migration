@@ -13,7 +13,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `appt_encounter_report` | PENDING |
 | `audit_log_tamper_report` | MIGRATED |
 | `background_services` | MIGRATED — ordered service registry with active/manual scheduling, live lease status, last/next run semantics, totals and CSV |
-| `cdr_log` | PENDING |
+| `cdr_log` | MIGRATED — lossless before/after decision payloads, legacy and normalized patient/user/facility identity, alert labels, inclusive date filters, facility isolation, totals and CSV |
 | `chart_location_activity` | MIGRATED — patient-scoped, date-filtered append-only physical chart location/custody history with totals and CSV |
 | `charts_checked_out` | MIGRATED — current checkout state derived from each patient's latest custody event, including named external custodians |
 | `clinical_reports` | PENDING |
@@ -56,12 +56,17 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 25 migrated, 23 pending/embedded**.
+Current accounting: **48 cataloged, 26 migrated, 22 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
 represented as runnable reports. Their date/text/radio/dropdown criteria
 behavior will be verified with the parent billing-report builder.
+
+`cdr_log` preserves raw `value` and `new_value` text exactly, including empty
+or malformed historical JSON, so a report never rewrites clinical evidence.
+Unresolved legacy references remain queryable by their original IDs. Modern
+facility grants constrain both normalized and legacy facility identities.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,

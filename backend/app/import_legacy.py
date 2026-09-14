@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, Referral, SecureMessage, ServiceCode, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, Referral, SecureMessage, ServiceCode, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -95,6 +95,25 @@ def patient_for_legacy(target: Session, legacy_pid) -> Patient | None:
     return patient
 
 
+def import_clinical_rule_log(row, target: Session) -> str:
+    """Import one CDR evaluation row without discarding unresolved legacy references."""
+    if target.scalar(select(ClinicalRuleLog.id).where(ClinicalRuleLog.legacy_log_id == row["id"])):
+        return "existing"
+    patient = patient_for_legacy(target, row.get("pid")) if row.get("pid") else None
+    actor = target.scalar(select(User).where(User.legacy_user_id == row.get("uid"))) if row.get("uid") else None
+    facility = target.scalar(select(Facility).where(Facility.legacy_facility_id == row.get("facility_id"))) if row.get("facility_id") else None
+    target.add(ClinicalRuleLog(
+        legacy_log_id=row["id"], occurred_at=legacy_datetime(row.get("date")),
+        patient_id=patient.id if patient else None, actor_id=actor.id if actor else None,
+        facility_id=facility.id if facility else None,
+        legacy_patient_id=row.get("pid") or 0, legacy_user_id=row.get("uid") or 0,
+        legacy_facility_id=row.get("facility_id") or 0, category=str(row.get("category") or ""),
+        value=row.get("value"), new_value=row.get("new_value"),
+        legacy_payload={key: json_value(value) for key, value in row.items()},
+    ))
+    return "inserted"
+
+
 def json_value(value):
     if isinstance(value, (date, datetime)): return value.isoformat()
     if hasattr(value, "as_tuple"): return str(value)
@@ -171,7 +190,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -350,6 +369,12 @@ def run(source_url: str, commit: bool = False) -> dict:
             facility=target.scalar(select(Facility).where(Facility.legacy_facility_id==row["facility_id"])) if row["facility_id"] else None
             target.add(Practitioner(legacy_user_id=row["id"],username=clean(row["username"]),first_name=clean(row["fname"]) or clean(row["username"]) or "Unknown",middle_name=clean(row["mname"]),last_name=clean(row["lname"]) or "User",title=clean(row["title"]),specialty=clean(row["specialty"]),npi=clean(row["npi"]),taxonomy=clean(row["taxonomy"]),email=clean(row["email"]),phone=clean(row["phonew1"]) or clean(row["phone"]),primary_facility_id=facility.id if facility else None,calendar_enabled=bool(row["calendar"]),active=bool(row["active"]),legacy_payload={key:json_value(value) for key,value in row.items()})); stats["practitioners"]["inserted"] += 1
         target.flush()
+        if "clinical_rules_log" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM clinical_rules_log ORDER BY id")).mappings():
+                stats["clinical_rule_logs"]["source"] += 1
+                result=import_clinical_rule_log(row,target)
+                stats["clinical_rule_logs"][result] += 1
+            target.flush()
         assignments = legacy.execute(text("SELECT tablename,table_id,facility_id,warehouse_id FROM users_facility WHERE tablename='users' ORDER BY table_id,facility_id,warehouse_id"))
         for row in assignments.mappings():
             stats["practitioner_facility_access"]["source"] += 1

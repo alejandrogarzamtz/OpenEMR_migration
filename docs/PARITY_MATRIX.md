@@ -26,7 +26,7 @@ are all verified. “Partial” never counts as final parity.
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
 | Care plans, teams and preferences | Partial | relational coded plans now include append-only status/progress/measured-outcome history; named polymorphic teams and both typed preference categories have audited React workflows, deterministic lossless import, and FHIR CarePlan/Goal/CareTeam read/search mappings; production reconciliation remains |
 | Questionnaires/PRO/SDOH | Partial | versioned PHQ-9/GAD-7 definitions now preserve legacy item wording and expose scored, audited FHIR responses; PROMIS, SDOH sets, patient delivery and broader repository remain |
-| Clinical decision support | Missing | rules, reminders, alerts, measures and intervention feedback |
+| Clinical decision support | Partial | evaluation history is losslessly imported and exposed through a permission- and facility-scoped immutable report; rule authoring/execution, reminders, measures and intervention feedback remain |
 | Insurance and eligibility | Partial | eligibility checks, coordination of benefits and authorization workflows |
 | Fee sheet and coding | Partial | configurable fee sheets, modifiers, diagnoses, NDC and price levels |
 | Claims and X12 | Partial | 837 generation, partners, clearinghouse transport, rejections and rebilling |
@@ -34,7 +34,7 @@ are all verified. “Partial” never counts as final parity.
 | Patient statements | Partial | explicitly released claim balances/history are patient-isolated in the portal; formatted statement generation, aging, collections and payment plans remain |
 | Portal | Partial | separate patient and representative identities, forced temporary-password replacement, lockout, one-time recovery, encrypted TOTP MFA, explicit scoped proxy grants with immediate revocation, context-isolated messaging, appointments, released records, statements and payment-intent history are implemented; live payment adapter, patient questionnaires, configurable release policies and notification preferences remain |
 | Internal messaging | Partial | patient-bound secure threads, staff replies, clinical tasks and notification outbox exist; staff-to-staff groups, preferences, SMS and Direct remain |
-| Reports | Partial | all 48 legacy PHP surfaces are cataloged and 25 have migrated workflows, now including immutable execution history; 23 remain pending, including two embedded billing-builder assets that cannot be verified before their parent workflow |
+| Reports | Partial | all 48 legacy PHP surfaces are cataloged and 26 have migrated workflows, now including lossless clinical-decision evaluation history; 22 remain pending/embedded, including two billing-builder assets that cannot be verified before their parent workflow |
 | Quality measures | Missing | CQM/AMC calculation, exports, dashboards and result history |
 | FHIR R4 API | Partial | Patient, Person/RelatedPerson, problems, allergies, medications, immunizations, observations, laboratory ServiceRequest/DiagnosticReport, Questionnaire/QuestionnaireResponse, appointments, encounters, organizations, locations, practitioners, coverage, document references/binaries, CarePlan, Goal and CareTeam have audited contracts; remaining resources, broader search parameters, formal validation and bulk export remain |
 | SMART on FHIR/OAuth | Missing | discovery, clients, scopes, launch context, refresh and revocation |

@@ -6,16 +6,17 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, CommunicationDelivery, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalRuleLog, CommunicationDelivery, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
+    "cdr_log":"patients:med:read",
     "collections_report":"acct:rep_a:read", "custom_report_range":"encounters:coding_a:read",
     "chart_location_activity":"patients:demo:read", "charts_checked_out":"patients:demo:read",
     "daily_summary_report":"acct:rep_a:read", "direct_message_log":"admin:super:read",
@@ -241,6 +242,25 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
         records=db.execute(query.order_by(ReportRun.created_at.desc(),ReportRun.id.desc())).all()
         rows=[{"run_uuid":item.uuid,"title":item.report_key.replace("_"," ").replace("."," ").title(),"created_at":value(item.created_at),"status":"complete","row_count":item.row_count,"checksum":item.checksum,"actor":actor.email} for item,actor in records]
         return columns,rows,{"runs":len(rows),"rows_materialized":sum(row["row_count"] for row in rows),"integrity_hashes":sum(bool(row["checksum"]) for row in rows)}
+    if key == "cdr_log":
+        columns=["log_uuid","date","patient_pid","patient_uuid","user_id","actor","facility_id","facility","category","category_title","value","new_value"]
+        query=(select(ClinicalRuleLog,Patient,User,Facility)
+               .outerjoin(Patient,Patient.id==ClinicalRuleLog.patient_id)
+               .outerjoin(User,User.id==ClinicalRuleLog.actor_id)
+               .outerjoin(Facility,Facility.id==ClinicalRuleLog.facility_id))
+        scope=facility_scope(db,user)
+        if scope is not None:
+            legacy_ids=list(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope),Facility.legacy_facility_id.is_not(None))))
+            query=query.where(or_(ClinicalRuleLog.facility_id.in_(scope),ClinicalRuleLog.legacy_facility_id.in_(legacy_ids)))
+        if params.get("_facility_id"):
+            query=query.where(or_(ClinicalRuleLog.facility_id==params["_facility_id"],ClinicalRuleLog.legacy_facility_id==params.get("_legacy_facility_id")))
+        if start:query=query.where(ClinicalRuleLog.occurred_at>=start)
+        if end:query=query.where(ClinicalRuleLog.occurred_at<end)
+        titles={"clinical_reminder_widget":"Passive Alert","active_reminder_popup":"Active Alert","allergy_alert":"Allergy Warning"}
+        rows=[]
+        for item,patient,actor,facility in db.execute(query.order_by(ClinicalRuleLog.occurred_at.desc(),ClinicalRuleLog.id.desc())):
+            rows.append({"log_uuid":item.uuid,"date":value(item.occurred_at),"patient_pid":item.legacy_patient_id,"patient_uuid":patient.uuid if patient else None,"user_id":item.legacy_user_id,"actor":actor.email if actor else None,"facility_id":item.legacy_facility_id,"facility":facility.name if facility else None,"category":item.category,"category_title":titles.get(item.category,item.category),"value":item.value,"new_value":item.new_value})
+        return columns,rows,{"logs":len(rows),"passive_alerts":sum(row["category"]=="clinical_reminder_widget" for row in rows),"active_alerts":sum(row["category"]=="active_reminder_popup" for row in rows),"allergy_warnings":sum(row["category"]=="allergy_alert" for row in rows),"changed_evaluations":sum(row["new_value"] is not None for row in rows)}
     if key == "inventory_activity": return inventory_activity(db,user,params)
     if key == "chart_location_activity":
         patient_id=params.get("_patient_id")
