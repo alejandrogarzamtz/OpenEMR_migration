@@ -112,7 +112,8 @@ end-to-end healthcare workflows:
 - administration of facilities, practitioners and warehouses, with explicit
   facility/warehouse assignments enforced by scheduling and inventory APIs;
 - a permission-aware report catalog with reproducible stored runs, totals,
-  checksums and authenticated CSV exports for migrated report families;
+  checksums and authenticated CSV exports, including PHI-minimized messaging
+  history and communication-delivery operations;
 - separate staff and patient identities, secure patient-bound message threads,
   forced replacement of temporary portal passwords, lockout protection,
   non-enumerating one-time portal recovery, encrypted patient TOTP MFA with

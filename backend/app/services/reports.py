@@ -2,16 +2,16 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Appointment, Charge, Encounter, Facility, InventoryLot, InventoryProduct, InventoryTransaction, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, User
+from ..models import Appointment, Charge, CommunicationDelivery, Encounter, Facility, InventoryLot, InventoryProduct, InventoryTransaction, MessageThread, Patient, PatientFlowEpisode, PatientFlowEvent, Prescription, SecureMessage, User
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "daily_summary_report", "destroyed_drugs_report", "encounters_report", "inventory_list", "inventory_transactions", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "inventory_list", "inventory_transactions", "message_list", "patient_flow_board_report", "patient_list", "prescriptions_report", "sales_by_item", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -22,7 +22,7 @@ PERMISSION_OVERRIDES = {
     "inventory_list":"inventory:reporting:read", "inventory_transactions":"acct:rep:read",
     "ip_tracker":"admin:super:read", "ippf_cyp_report":"acct:rep:read", "ippf_daily":"acct:rep:read",
     "ippf_statistics":"acct:rep:read", "payment_processing_report":"acct:rep_a:read",
-    "prepayment_balance_report":"acct:rep_a:read", "prescriptions_report":"patients:rx:read",
+    "message_list":"patients:med:read", "prepayment_balance_report":"acct:rep_a:read", "prescriptions_report":"patients:rx:read",
     "receipts_by_method_report":"acct:rep_a:read", "rwt_2026_report":"admin:super:read",
     "sales_by_item":"acct:rep:read", "svc_code_financial_report":"acct:rep_a:read",
 }
@@ -111,6 +111,26 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
         if end: query=query.where(Prescription.prescribed_at<end)
         if status: query=query.where(Prescription.status==status)
         rows=rows_from(db.execute(query.order_by(Prescription.prescribed_at)).all(),columns); return columns,rows,{"prescriptions":len(rows)}
+    if key == "message_list":
+        columns=["message_uuid","thread_uuid","created_at","user","patient","patient_uuid","date_of_birth","type","status","last_update"]
+        query=(select(SecureMessage.uuid,MessageThread.uuid,SecureMessage.created_at,func.coalesce(User.username,SecureMessage.sender_name,SecureMessage.sender_kind),(Patient.last_name+", "+Patient.first_name),Patient.uuid,Patient.date_of_birth,MessageThread.subject,MessageThread.status,MessageThread.updated_at)
+               .join(MessageThread,MessageThread.id==SecureMessage.thread_id)
+               .join(Patient,Patient.id==MessageThread.patient_id)
+               .outerjoin(User,User.id==SecureMessage.sender_user_id))
+        if start: query=query.where(SecureMessage.created_at>=start)
+        if end: query=query.where(SecureMessage.created_at<end)
+        if status: query=query.where(MessageThread.status==status)
+        rows=rows_from(db.execute(query.order_by(Patient.last_name,Patient.first_name,SecureMessage.created_at)).all(),columns)
+        return columns,rows,{"messages":len(rows),"threads":len({row["thread_uuid"] for row in rows})}
+    if key == "direct_message_log":
+        columns=["delivery_uuid","direction","channel","date_created","sender","recipient","status","status_changed","attempts","error"]
+        changed=func.coalesce(CommunicationDelivery.sent_at,CommunicationDelivery.failed_at,CommunicationDelivery.queued_at)
+        query=select(CommunicationDelivery.uuid,literal("sent"),CommunicationDelivery.channel,CommunicationDelivery.queued_at,literal("OpenRM"),CommunicationDelivery.recipient,CommunicationDelivery.status,changed,CommunicationDelivery.attempts,CommunicationDelivery.error_message)
+        if start: query=query.where(CommunicationDelivery.queued_at>=start)
+        if end: query=query.where(CommunicationDelivery.queued_at<end)
+        if status: query=query.where(CommunicationDelivery.status==status)
+        rows=rows_from(db.execute(query.order_by(CommunicationDelivery.queued_at.desc(),CommunicationDelivery.id.desc())).all(),columns)
+        return columns,rows,{"deliveries":len(rows),"failed":sum(row["status"]=="failed" for row in rows)}
     if key in {"inventory_list","destroyed_drugs_report"}:
         columns=["product","ndc","lot","warehouse","expiration","on_hand","destroyed_at"]
         query=select(InventoryProduct.name,InventoryProduct.ndc_number,InventoryLot.lot_number,InventoryLot.warehouse_id,InventoryLot.expiration,InventoryLot.on_hand,InventoryLot.destroyed_at).join(InventoryLot)

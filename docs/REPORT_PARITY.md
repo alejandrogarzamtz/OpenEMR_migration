@@ -23,7 +23,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `custom_report_range` | PENDING |
 | `daily_summary_report` | MIGRATED |
 | `destroyed_drugs_report` | MIGRATED |
-| `direct_message_log` | PENDING |
+| `direct_message_log` | MIGRATED |
 | `encounters_report` | MIGRATED |
 | `external_data` | PENDING |
 | `front_receipts_report` | PENDING |
@@ -36,7 +36,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `ippf_cyp_report` | PENDING |
 | `ippf_daily` | PENDING |
 | `ippf_statistics` | PENDING |
-| `message_list` | PENDING |
+| `message_list` | MIGRATED |
 | `non_reported` | PENDING |
 | `pat_ledger` | PENDING |
 | `patient_edu_web_lookup` | PENDING |
@@ -56,4 +56,13 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 11 migrated, 37 pending**.
+Current accounting: **48 cataloged, 13 migrated, 35 pending**.
+
+`message_list` reports the normalized secure-message history without exposing
+message bodies in broad report exports. It retains the legacy date, author,
+patient, type/status and update semantics and adds stable message/thread and
+patient UUIDs. `direct_message_log` is backed by the durable communication
+outbox and therefore reports outbound email, Direct and future delivery
+channels, status transitions, attempts and failures. It does not claim inbound
+Direct parity: inbound Direct transport remains part of the communication
+integration gap.
