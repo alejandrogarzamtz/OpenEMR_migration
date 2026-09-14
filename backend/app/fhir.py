@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import AuditEvent, ClinicalItem, Immunization, LabOrder, LabResult, Patient, Prescription, User, VitalSet
+from .models import AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, Practitioner, Prescription, User, VitalSet
 from .security import clinical_user
 from .services.patients import patient_by_uuid
 
@@ -34,7 +34,8 @@ def audit(db: Session, user: User, resource_type: str, patient_uuid: str):
 
 @router.get("/metadata")
 def metadata():
-    return {"resourceType": "CapabilityStatement", "status": "active", "date": "2026-09-01", "kind": "instance", "fhirVersion": "4.0.1", "format": ["json"], "rest": [{"mode": "server", "security": {"cors": True, "service": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/restful-security-service", "code": "OAuth"}]}]}, "resource": [{"type": "Patient", "interaction": [{"code": "read"}, {"code": "search-type"}]}, {"type": "Condition", "interaction": [{"code": "search-type"}]}, {"type": "AllergyIntolerance", "interaction": [{"code": "search-type"}]}, {"type": "MedicationStatement", "interaction": [{"code": "search-type"}]}, {"type": "Observation", "interaction": [{"code": "search-type"}]}, {"type": "Immunization", "interaction": [{"code": "search-type"}]}, {"type": "MedicationRequest", "interaction": [{"code": "search-type"}]}]}]}
+    clinical_plan_resources=[{"type":name,"interaction":[{"code":"read"},{"code":"search-type"}],"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("CarePlan","Goal","CareTeam")]
+    return {"resourceType": "CapabilityStatement", "status": "active", "date": "2026-09-14", "kind": "instance", "fhirVersion": "4.0.1", "format": ["json"], "rest": [{"mode": "server", "security": {"cors": True, "service": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/restful-security-service", "code": "OAuth"}]}]}, "resource": [{"type": "Patient", "interaction": [{"code": "read"}, {"code": "search-type"}]}, {"type": "Condition", "interaction": [{"code": "search-type"}]}, {"type": "AllergyIntolerance", "interaction": [{"code": "search-type"}]}, {"type": "MedicationStatement", "interaction": [{"code": "search-type"}]}, {"type": "Observation", "interaction": [{"code": "search-type"}]}, {"type": "Immunization", "interaction": [{"code": "search-type"}]}, {"type": "MedicationRequest", "interaction": [{"code": "search-type"}]},*clinical_plan_resources]}]}
 
 
 @router.get("/Patient/{patient_uuid}")
@@ -99,3 +100,102 @@ def fhir_immunizations(patient: str = Query(), db: Session = Depends(get_db), us
 @router.get("/MedicationRequest")
 def medication_requests(patient: str = Query(), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     item=patient_or_404(db,patient); rows=db.scalars(select(Prescription).where(Prescription.patient_id==item.id)).all(); resources=[{"resourceType":"MedicationRequest","id":x.uuid,"status":x.status,"intent":"order","medicationCodeableConcept":{"coding":[{"system":"http://www.nlm.nih.gov/research/umls/rxnorm","code":x.rxnorm_code,"display":x.drug_name}] if x.rxnorm_code else [],"text":x.drug_name},"subject":{"reference":f"Patient/{item.uuid}"},"authoredOn":x.prescribed_at.isoformat(),"dosageInstruction":[{"text":x.dosage_instructions}],"dispenseRequest":{"numberOfRepeatsAllowed":x.refills,**({"quantity":{"value":float(x.quantity)}} if x.quantity and x.quantity.replace(".","",1).isdigit() else {})},"substitution":{"allowedBoolean":x.substitutions_allowed}} for x in rows]; audit(db,user,"MedicationRequest",item.uuid); return bundle("MedicationRequest",resources)
+
+
+FHIR_STATUS={"draft":"draft","active":"active","on-hold":"on-hold","inactive":"revoked","revoked":"revoked","cancelled":"revoked","canceled":"revoked","completed":"completed","entered-in-error":"entered-in-error","unknown":"unknown"}
+ACTIVITY_STATUS={"draft":"not-started","active":"in-progress","on-hold":"on-hold","revoked":"stopped","cancelled":"cancelled","canceled":"cancelled","completed":"completed","entered-in-error":"entered-in-error","unknown":"unknown"}
+ACHIEVEMENT_BY_STATUS={"active":"in-progress","on-hold":"sustaining","completed":"achieved","cancelled":"not-achieved","canceled":"not-achieved"}
+
+
+def fhir_not_found(resource_type:str):
+    raise HTTPException(status_code=404,detail={"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"not-found","diagnostics":f"{resource_type} not found"}]})
+
+
+def patient_reference(value:str)->str:
+    return value.removeprefix("Patient/")
+
+
+def coded_concept(code:str|None,display:str|None)->dict:
+    concept={"text":display or code or "Care plan"}
+    if code:
+        prefix,value=code.split(":",1) if ":" in code else ("",code);systems={"SNOMED-CT":"http://snomed.info/sct","SNOMED":"http://snomed.info/sct","LOINC":"http://loinc.org","ICD10":"http://hl7.org/fhir/sid/icd-10-cm"}
+        concept["coding"]=[{"system":systems.get(prefix,prefix or "urn:openrm:care-plan-code"),"code":value,"display":display or value}]
+    return concept
+
+
+def source_status_extension(status_value:str,mapped:str)->list[dict]:
+    return [{"url":"https://openrm.org/fhir/StructureDefinition/source-status","valueCode":status_value}] if status_value!=mapped else []
+
+
+def latest_outcome(db:Session,plan_id:int)->CarePlanOutcome|None:
+    return db.scalar(select(CarePlanOutcome).where(CarePlanOutcome.care_plan_id==plan_id).order_by(CarePlanOutcome.recorded_at.desc(),CarePlanOutcome.id.desc()).limit(1))
+
+
+def goal_resource(db:Session,plan:CarePlan,patient_uuid:str)->dict:
+    lifecycle=FHIR_STATUS.get(plan.status,"unknown");outcome=latest_outcome(db,plan.id);achievement=outcome.achievement_status if outcome and outcome.achievement_status else ACHIEVEMENT_BY_STATUS.get(plan.status)
+    resource={"resourceType":"Goal","id":plan.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal"]},"lifecycleStatus":lifecycle,"category":[{"text":plan.engagement_category or "Clinical goal"}],"description":coded_concept(plan.code,plan.code_text or plan.description),"subject":{"reference":f"Patient/{patient_uuid}"},"startDate":plan.recorded_at.date().isoformat(),"extension":source_status_extension(plan.status,lifecycle)}
+    if achievement:resource["achievementStatus"]={"coding":[{"system":"http://terminology.hl7.org/CodeSystem/goal-achievement","code":achievement}]}
+    if plan.target_date:resource["target"]=[{"dueDate":plan.target_date.date().isoformat()}]
+    if plan.note_related_to or plan.reason_description:resource["note"]=[{"text":text} for text in (plan.note_related_to,plan.reason_description) if text]
+    return resource
+
+
+def care_plan_resource(db:Session,plan:CarePlan,patient_uuid:str)->dict:
+    status_value=FHIR_STATUS.get(plan.status,"unknown");encounter_uuid=db.scalar(select(Encounter.uuid).where(Encounter.id==plan.encounter_id));goal_ids=list(db.scalars(select(CarePlan.uuid).where(CarePlan.patient_id==plan.patient_id,CarePlan.encounter_id==plan.encounter_id,CarePlan.plan_type=="goal",CarePlan.active.is_(True))))
+    resource={"resourceType":"CarePlan","id":plan.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-careplan"]},"status":status_value,"intent":"plan","category":[{"coding":[{"system":"http://hl7.org/fhir/us/core/CodeSystem/careplan-category","code":"assess-plan"}]}],"title":plan.code_text or plan.description,"description":plan.description,"subject":{"reference":f"Patient/{patient_uuid}"},"created":plan.recorded_at.isoformat(),"period":{"start":plan.recorded_at.isoformat(),**({"end":plan.ends_at.isoformat()} if plan.ends_at else {})},"activity":[{"detail":{"status":ACTIVITY_STATUS.get(plan.status,"unknown"),"code":coded_concept(plan.code,plan.code_text or plan.description),**({"scheduledPeriod":{"start":plan.recorded_at.isoformat(),"end":plan.target_date.isoformat()}} if plan.target_date else {})}}],"extension":source_status_extension(plan.status,status_value)}
+    if encounter_uuid:resource["encounter"]={"reference":f"Encounter/{encounter_uuid}"}
+    if goal_ids:resource["goal"]=[{"reference":f"Goal/{goal_uuid}"} for goal_uuid in goal_ids]
+    if plan.reason_code:resource["extension"].append({"url":"https://openrm.org/fhir/StructureDefinition/care-plan-reason","valueCodeableConcept":coded_concept(plan.reason_code,plan.reason_description)})
+    if plan.note_related_to:resource["note"]=[{"text":plan.note_related_to}]
+    return resource
+
+
+def care_team_resource(db:Session,team:CareTeam,patient_uuid:str)->dict:
+    members=list(db.scalars(select(CareTeamMember).where(CareTeamMember.care_team_id==team.id).order_by(CareTeamMember.id)));participants=[]
+    for member in members:
+        reference=None
+        if member.practitioner_id:
+            uuid=db.scalar(select(Practitioner.uuid).where(Practitioner.id==member.practitioner_id));reference=f"Practitioner/{uuid}" if uuid else None
+        elif member.facility_id:
+            uuid=db.scalar(select(Facility.uuid).where(Facility.id==member.facility_id));reference=f"Organization/{uuid}" if uuid else None
+        participant={"role":[{"text":member.role}],"member":{"display":member.display_name,**({"reference":reference} if reference else {})},**({"period":{"start":member.provider_since.isoformat()}} if member.provider_since else {})}
+        if member.status not in {"active","proposed"}:participant["extension"]=[{"url":"https://openrm.org/fhir/StructureDefinition/participant-status","valueCode":member.status}]
+        participants.append(participant)
+    status_value=team.status if team.status in {"proposed","active","suspended","inactive","entered-in-error"} else "entered-in-error" if team.status=="entered-in-error" else "inactive"
+    return {"resourceType":"CareTeam","id":team.uuid,"meta":{"profile":["http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam"]},"status":status_value,"name":team.name,"subject":{"reference":f"Patient/{patient_uuid}"},"participant":participants,"period":{"start":team.created_at.isoformat(),**({"end":team.updated_at.isoformat()} if status_value=="inactive" else {})},**({"note":[{"text":team.note}]} if team.note else {})}
+
+
+@router.get("/CarePlan")
+def search_care_plans(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CarePlan).where(CarePlan.patient_id==owner.id,or_(CarePlan.plan_type!="goal",CarePlan.plan_type.is_(None))).order_by(CarePlan.recorded_at.desc())));resources=[care_plan_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["status"]==status];audit(db,user,"CarePlan",owner.uuid);return bundle("CarePlan",resources)
+
+
+@router.get("/CarePlan/{resource_uuid}")
+def read_care_plan(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(CarePlan).where(CarePlan.uuid==resource_uuid,or_(CarePlan.plan_type!="goal",CarePlan.plan_type.is_(None))));
+    if not row:fhir_not_found("CarePlan")
+    owner=db.get(Patient,row.patient_id);result=care_plan_resource(db,row,owner.uuid);audit(db,user,"CarePlan",row.uuid);return result
+
+
+@router.get("/Goal")
+def search_goals(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CarePlan).where(CarePlan.patient_id==owner.id,CarePlan.plan_type=="goal").order_by(CarePlan.recorded_at.desc())));resources=[goal_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["lifecycleStatus"]==status];audit(db,user,"Goal",owner.uuid);return bundle("Goal",resources)
+
+
+@router.get("/Goal/{resource_uuid}")
+def read_goal(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(CarePlan).where(CarePlan.uuid==resource_uuid,CarePlan.plan_type=="goal"));
+    if not row:fhir_not_found("Goal")
+    owner=db.get(Patient,row.patient_id);result=goal_resource(db,row,owner.uuid);audit(db,user,"Goal",row.uuid);return result
+
+
+@router.get("/CareTeam")
+def search_care_teams(patient:str=Query(),status:str|None=None,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    owner=patient_or_404(db,patient_reference(patient));rows=list(db.scalars(select(CareTeam).where(CareTeam.patient_id==owner.id).order_by(CareTeam.created_at.desc())));resources=[care_team_resource(db,row,owner.uuid) for row in rows];resources=[item for item in resources if not status or item["status"]==status];audit(db,user,"CareTeam",owner.uuid);return bundle("CareTeam",resources)
+
+
+@router.get("/CareTeam/{resource_uuid}")
+def read_care_team(resource_uuid:str,db:Session=Depends(get_db),user:User=Depends(clinical_user)):
+    row=db.scalar(select(CareTeam).where(CareTeam.uuid==resource_uuid));
+    if not row:fhir_not_found("CareTeam")
+    owner=db.get(Patient,row.patient_id);result=care_team_resource(db,row,owner.uuid);audit(db,user,"CareTeam",row.uuid);return result

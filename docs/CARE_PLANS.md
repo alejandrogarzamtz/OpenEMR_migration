@@ -34,5 +34,7 @@ event containing that exact status and the same deterministic row payload. It
 labels the event as an initial legacy snapshot and does not claim that separate
 historical outcomes existed.
 
-FHIR CarePlan/Goal resources and production-source reconciliation remain
-explicit parity work.
+FHIR R4 CarePlan and Goal read/search resources expose these records in the
+patient compartment, including encounter and goal relationships and the latest
+recorded achievement state. Production-source reconciliation remains explicit
+parity work.

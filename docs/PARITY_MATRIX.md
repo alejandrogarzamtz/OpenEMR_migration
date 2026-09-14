@@ -24,7 +24,7 @@ are all verified. “Partial” never counts as final parity.
 | Labs and procedures | Partial | multi-line orders, specimens, questions, HL7, Quest/LabCorp and review/sign-off |
 | Documents | Partial | categories, filesystem/object storage, versions, templates and legal signing |
 | Imaging | Missing | orders, results, DICOM/external viewer and ophthalmology imaging |
-| Care plans, teams and preferences | Partial | relational coded plans now include append-only status/progress/measured-outcome history; named polymorphic teams and both typed preference categories have audited React workflows and deterministic lossless import; FHIR resources and production reconciliation remain |
+| Care plans, teams and preferences | Partial | relational coded plans now include append-only status/progress/measured-outcome history; named polymorphic teams and both typed preference categories have audited React workflows, deterministic lossless import, and FHIR CarePlan/Goal/CareTeam read/search mappings; production reconciliation remains |
 | Questionnaires/PRO/SDOH | Partial | versioned PHQ-9/GAD-7 responses and scoring exist; PROMIS, SDOH sets, patient delivery and broader repository remain |
 | Clinical decision support | Missing | rules, reminders, alerts, measures and intervention feedback |
 | Insurance and eligibility | Partial | eligibility checks, coordination of benefits and authorization workflows |
@@ -36,7 +36,7 @@ are all verified. “Partial” never counts as final parity.
 | Internal messaging | Partial | patient-bound secure threads, staff replies, clinical tasks and notification outbox exist; staff-to-staff groups, preferences, SMS and Direct remain |
 | Reports | Partial | all 48 legacy surfaces are cataloged and 11 report families have reproducible runs; 37 implementations remain |
 | Quality measures | Missing | CQM/AMC calculation, exports, dashboards and result history |
-| FHIR R4 API | Partial | remaining resources, search parameters, validation and bulk export |
+| FHIR R4 API | Partial | Patient, core clinical observations, CarePlan, Goal and CareTeam read/search contracts exist; remaining resources, broader search parameters, formal validation and bulk export remain |
 | SMART on FHIR/OAuth | Missing | discovery, clients, scopes, launch context, refresh and revocation |
 | Standard OpenEMR API | Missing | compatibility routes and portal API contracts |
 | C-CDA/CCR/EHI export | Missing | generate, import, validate and complete patient export |

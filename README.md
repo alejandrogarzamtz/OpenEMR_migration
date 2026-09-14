@@ -126,13 +126,14 @@ end-to-end healthcare workflows:
 - encounters, clinical summaries, problems, allergies, medications, laboratory
   orders/results, documents, insurance, charges, claims, payments,
   immunizations, vital signs, prescriptions, signable clinical forms,
-  questionnaires, and an initial FHIR surface;
+  questionnaires, and an authenticated FHIR surface including care plans, goals,
+  care teams, observations, medications and immunizations;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
 forms, advanced demographic fields, recurrence rules, broader portal workflows,
-remaining reports, advanced inventory, billing exchanges, FHIR resources, integrations, administrative
+remaining reports, advanced inventory, billing exchanges, broader FHIR resources, integrations, administrative
 tools, and background services are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
