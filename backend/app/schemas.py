@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
@@ -664,6 +665,32 @@ class ReportRunOut(BaseModel):
     row_count: int
     checksum: str
     created_at: datetime
+
+
+class PatientEducationResourceCreate(BaseModel):
+    name: str = Field(min_length=1,max_length=255)
+    url_template: str = Field(min_length=6,max_length=4000)
+    sequence: int = Field(default=0,ge=0)
+    active: bool = True
+
+    @field_validator("url_template")
+    @classmethod
+    def valid_search_template(cls,value):
+        parsed=urlsplit(value)
+        if parsed.scheme not in {"http","https"} or not parsed.netloc:raise ValueError("url_template must be an absolute HTTP(S) URL")
+        if value.count("[%]")!=1:raise ValueError("url_template must contain exactly one [%] placeholder")
+        return value
+
+
+class PatientEducationResourceOut(PatientEducationResourceCreate):
+    model_config=ConfigDict(from_attributes=True)
+    uuid: str
+
+
+class PatientEducationSearchOut(BaseModel):
+    resource_uuid: str
+    resource_name: str
+    url: str
 
 
 class IpTrackerUpdate(BaseModel):

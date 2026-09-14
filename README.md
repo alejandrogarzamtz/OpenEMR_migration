@@ -118,6 +118,8 @@ end-to-end healthcare workflows:
   operational reporting;
 - provenance-preserving external encounter and procedure history in the
   longitudinal patient chart;
+- configurable patient-education search resources with server-side URL
+  validation and audited lookups;
 - medication and supply inventory with warehouse lots, expiration-aware FEFO
   dispensing, stock movements, destruction records, and lossless legacy import;
 - administration of facilities, practitioners and warehouses, with explicit

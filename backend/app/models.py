@@ -999,6 +999,18 @@ class ServiceCode(Base):
     legacy_payload: Mapped[dict | None]=mapped_column(JSON,nullable=True)
 
 
+class PatientEducationResource(Base):
+    __tablename__ = "patient_education_resources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_option_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(255))
+    url_template: Mapped[str] = mapped_column(Text)
+    sequence: Mapped[int] = mapped_column(default=0)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class ClaimPayment(Base):
     __tablename__ = "claim_payments"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -28,6 +28,7 @@ from .api.care_plans import router as care_plans_router
 from .api.clinical_form_links import router as clinical_form_links_router
 from .api.care_teams import router as care_teams_router
 from .api.patient_preferences import router as patient_preferences_router
+from .api.patient_education import router as patient_education_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
 from .services.clinical_signatures import create_encounter_signature, create_signature, encounter_locked, encounter_signatures, form_locked, form_signatures, verify_encounter_signature_chain, verify_signature_chain
@@ -51,6 +52,7 @@ app.include_router(care_plans_router)
 app.include_router(clinical_form_links_router)
 app.include_router(care_teams_router)
 app.include_router(patient_preferences_router)
+app.include_router(patient_education_router)
 app.include_router(fhir_router)
 
 

@@ -39,7 +39,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `message_list` | MIGRATED |
 | `non_reported` | PENDING |
 | `pat_ledger` | PENDING |
-| `patient_edu_web_lookup` | PENDING |
+| `patient_edu_web_lookup` | MIGRATED — configurable ordered resource catalog, validated single-placeholder HTTP(S) templates, URL-encoded audited searches, administration, React workflow, snapshot and CSV |
 | `patient_flow_board_report` | MIGRATED |
 | `patient_list` | MIGRATED |
 | `patient_list_creation` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 23 migrated, 25 pending**.
+Current accounting: **48 cataloged, 24 migrated, 24 pending**.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,
