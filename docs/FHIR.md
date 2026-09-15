@@ -1,12 +1,10 @@
 # FHIR R4 interface
 
 The compatibility API is exposed below `/fhir` and advertised by
-`GET /fhir/metadata`. It currently supports authenticated read/search for
-Patient, Condition, AllergyIntolerance, MedicationStatement, MedicationRequest,
-Immunization, Observation, Appointment, Encounter, Organization, Location,
-Practitioner, Coverage, DocumentReference, Binary, CarePlan, Goal, and CareTeam
-resources, plus laboratory ServiceRequest/DiagnosticReport and scored
-Questionnaire/QuestionnaireResponse. Observation
+`GET /fhir/metadata`. All 80 routes in the OpenEMR FHIR R4 legacy map have
+modern contracts. They cover the clinical, scheduling, directory, document,
+medication, laboratory, questionnaire, terminology, provenance and Bulk Data
+resources recorded in the generated legacy API inventory. Observation
 searches combine laboratory results and LOINC-coded vital signs. Patient-bound searches
 require a patient compartment; Appointment, Encounter, and care-coordination
 searches also support normalized FHIR status filtering. Individual reads,
@@ -34,18 +32,18 @@ and reference a resolvable payer Organization. DocumentReference resources
 retain MIME type, encounter context, upload time and a standards-encoded SHA-256
 attachment hash. Their authenticated Binary URL streams the original bytes with
 the stored media type, ETag and safe filename. Document searches support exact
-MIME type plus the `eq`, `gt`, `ge`, `lt`, and `le` FHIR date prefixes. The
-legacy `$docref` clinical-document generation operation remains separate parity
-work; it is not claimed by the read-only document surface.
+MIME type plus the `eq`, `gt`, `ge`, `lt`, and `le` FHIR date prefixes.
+`POST /fhir/DocumentReference/$docref` accepts a FHIR Parameters patient value
+and returns the matching document-reference bundle.
 
 Each relational laboratory order is exposed as a ServiceRequest with normalized
 status and priority, LOINC code, authored time, instructions, patient and
 encounter. A DiagnosticReport is exposed only after at least one result exists;
 it links back to the originating ServiceRequest and forward to resolvable
 Observation resources. Diagnostic searches support patient, normalized status,
-LOINC code and FHIR date prefixes. The current model does not retain specimen
-identity, collection container or accession details, so Specimen remains
-explicitly outside the verified surface rather than being synthesized.
+LOINC code and FHIR date prefixes. Specimen resources use preserved order
+specimen type, location, volume and collection time and do not invent container
+or accession details absent from the source record.
 
 The active PHQ-9 and GAD-7 definitions are exposed as versioned Questionnaire
 resources with their preserved legacy item wording, LOINC panel codes, required
@@ -70,5 +68,15 @@ SMART App Launch 2.2 standalone, EHR, patient or asymmetric backend launch with
 PKCE, OIDC and patient/user/system scopes. SMART tokens are restricted to
 `/fhir/*`, patient scopes are compartment-bound, and all access remains bounded
 by the registered owner user's OpenRM permissions. See
-`SMART_BACKEND_SERVICES.md`. Bulk Data and formal deployment-profile validation
-remain part of the wider FHIR API work.
+`SMART_BACKEND_SERVICES.md`.
+
+FHIR Bulk Data initiation is available for system, patient, and the explicit
+`all-patients` Group scopes. Jobs are persisted, bound to the requesting
+identity, expire after 24 hours, and expose authorized NDJSON files through the
+status response. Cancellation is supported. Work currently completes during
+initiation but follows the asynchronous `202`/`Content-Location` protocol so a
+worker can be introduced without changing the client contract.
+
+The implementation has route and behavior tests and does not claim external
+certification. Deployment-profile validation, terminology expansion, optional
+search parameters, and performance sizing remain environment-specific work.

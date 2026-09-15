@@ -1,0 +1,8 @@
+{
+  "apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php": {
+    "expected_route_count": 80,
+    "replacement": "`/fhir/*` FHIR R4, SMART and Bulk Data contracts",
+    "test": "`test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`",
+    "status": "MIGRATED"
+  }
+}

@@ -1,8 +1,10 @@
+from datetime import date, datetime, timezone
+
 from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import InsuranceType, ReferenceOption
+from app.models import BackgroundService, ExternalProcedure, Immunization, InsuranceType, InventoryProduct, Patient, PatientEmployment, ReferenceOption
 from test_communications import create_portal
 
 
@@ -134,3 +136,67 @@ def test_standard_api_administration_and_reference_catalogs():
         assert client.get(f"/apis/default/api/insurance_company/{payer_uuid}",headers=headers).json()["data"]["city"]=="Monterrey"
         updated=client.put(f"/apis/default/api/insurance_company/{payer_uuid}",headers=headers,json={"name":"Compatibility Health North"})
         assert updated.status_code==200 and updated.json()["data"]["name"].endswith("North")
+
+
+def test_standard_api_patient_documents_employer_and_insurance():
+    with TestClient(app) as client:
+        headers=staff(client)
+        patient=client.post("/apis/default/api/patient",headers=headers,json={"fname":"Coverage","lname":"Compatibility","DOB":"1978-07-08","sex":"unknown"}).json()["data"]
+        with SessionLocal() as db:
+            stored=db.query(Patient).filter(Patient.uuid==patient["uuid"]).one();db.add(PatientEmployment(patient_id=stored.id,employer_name="OpenRM Community",active=True));db.commit()
+        employer=client.get(f"/apis/default/api/patient/{patient['uuid']}/employer",headers=headers)
+        assert employer.status_code==200 and employer.json()["data"][0]["employer_name"]=="OpenRM Community"
+        uploaded=client.post(f"/apis/default/api/patient/{patient['uuid']}/document",headers=headers,files={"document":("note.txt",b"clinical document","text/plain")})
+        assert uploaded.status_code==201,uploaded.text
+        document_uuid=uploaded.json()["data"]["uuid"]
+        assert client.get(f"/apis/default/api/patient/{patient['uuid']}/document",headers=headers).json()["data"][0]["uuid"]==document_uuid
+        downloaded=client.get(f"/apis/default/api/patient/{patient['uuid']}/document/{document_uuid}",headers=headers)
+        assert downloaded.status_code==200 and downloaded.content==b"clinical document"
+        first=client.post(f"/apis/default/api/patient/{patient['uuid']}/insurance",headers=headers,json={"payer_name":"Primary Health","type":"primary","policy_number":"P-1","subscriber_name":"Coverage Compatibility"})
+        second=client.post(f"/apis/default/api/patient/{patient['uuid']}/insurance",headers=headers,json={"payer_name":"Secondary Health","type":"secondary","policy_number":"S-1","subscriber_name":"Coverage Compatibility"})
+        assert first.status_code==201 and second.status_code==201
+        second_uuid=second.json()["data"]["uuid"]
+        assert client.get(f"/apis/default/api/patient/{patient['uuid']}/insurance/{second_uuid}",headers=headers).status_code==200
+        updated=client.put(f"/apis/default/api/patient/{patient['uuid']}/insurance/{second_uuid}",headers=headers,json={"plan_name":"Modern Plan"})
+        assert updated.status_code==200 and updated.json()["data"]["plan_name"]=="Modern Plan"
+        swapped=client.get(f"/apis/default/api/patient/{patient['uuid']}/insurance/$swap-insurance",headers=headers,params={"type":"primary","uuid":second_uuid})
+        assert swapped.status_code==200 and swapped.json()["data"]["priority"]=="primary"
+        assert len(client.get(f"/apis/default/api/patient/{patient['uuid']}/insurance",headers=headers).json()["data"])==2
+
+
+def test_standard_api_patient_messages_and_transactions():
+    with TestClient(app) as client:
+        headers=staff(client);patient=client.post("/apis/default/api/patient",headers=headers,json={"fname":"Message","lname":"Compatibility","DOB":"1988-08-08","sex":"unknown"}).json()["data"];base=f"/apis/default/api/patient/{patient['uuid']}"
+        message=client.post(f"{base}/message",headers=headers,json={"subject":"Follow-up","body":"Please call the patient"})
+        assert message.status_code==201,message.text
+        message_uuid=message.json()["data"]["uuid"]
+        updated=client.put(f"{base}/message/{message_uuid}",headers=headers,json={"body":"Patient contacted"})
+        assert updated.status_code==200 and updated.json()["data"]["body"]=="Patient contacted"
+        assert client.delete(f"{base}/message/{message_uuid}",headers=headers).status_code==200
+        assert client.put(f"{base}/message/{message_uuid}",headers=headers,json={"body":"invalid"}).status_code==404
+        transaction=client.post(f"{base}/transaction",headers=headers,json={"title":"Referral transaction","date":"2026-09-15T13:00:00Z","body":"Referral sent"})
+        assert transaction.status_code==201,transaction.text
+        transaction_uuid=transaction.json()["data"]["uuid"]
+        assert client.get(f"{base}/transaction",headers=headers).json()["data"][0]["uuid"]==transaction_uuid
+        changed=client.put(f"/apis/default/api/transaction/{transaction_uuid}",headers=headers,json={"status":"completed"})
+        assert changed.status_code==200 and changed.json()["data"]["status"]=="completed"
+
+
+def test_standard_api_global_clinical_catalogs_and_background_services():
+    with TestClient(app) as client:
+        headers=staff(client);patient=client.post("/apis/default/api/patient",headers=headers,json={"fname":"Global","lname":"Compatibility","DOB":"1980-01-01","sex":"unknown"}).json()["data"]
+        with SessionLocal() as db:
+            stored=db.query(Patient).filter(Patient.uuid==patient["uuid"]).one();immunization=Immunization(patient_id=stored.id,administered_at=datetime(2026,9,15,10,tzinfo=timezone.utc),cvx_code="207",vaccine_name="COVID-19");procedure=ExternalProcedure(patient_id=stored.id,occurred_on=date(2026,9,14),code_system="CPT",code="99213",code_text="Office visit");drug=InventoryProduct(name="Compatibility Drug",active=True);service=BackgroundService(name="compat",title="Compatibility service",active=True,running_state=-1,next_run=datetime(2020,1,1,tzinfo=timezone.utc),execute_interval_minutes=60,handler="compat_handler");db.add_all([immunization,procedure,drug,service]);db.commit();ids={"immunization":immunization.uuid,"procedure":procedure.uuid,"drug":drug.uuid}
+        for resource,item_uuid in ids.items():
+            assert client.get(f"/apis/default/api/{resource}",headers=headers).status_code==200
+            assert client.get(f"/apis/default/api/{resource}/{item_uuid}",headers=headers).status_code==200
+        prescription=client.post("/apis/default/api/prescription",headers=headers,json={"patient_uuid":patient["uuid"],"drug_name":"Compatibility Drug","dosage_instructions":"Once daily"})
+        assert prescription.status_code==201,prescription.text
+        prescription_uuid=prescription.json()["data"]["uuid"]
+        assert client.get("/apis/default/api/prescription",headers=headers).status_code==200
+        assert client.get(f"/apis/default/api/prescription/{prescription_uuid}",headers=headers).status_code==200
+        assert client.delete(f"/apis/default/api/prescription/{prescription_uuid}",headers=headers).status_code==200
+        assert client.get("/apis/default/api/background_service",headers=headers).status_code==200
+        assert client.get("/apis/default/api/background_service/compat",headers=headers).status_code==200
+        assert client.post("/apis/default/api/background_service/compat/run",headers=headers).status_code==200
+        assert client.post("/apis/default/api/background_service/$run",headers=headers).status_code==200

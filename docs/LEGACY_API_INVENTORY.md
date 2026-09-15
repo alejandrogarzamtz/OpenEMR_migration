@@ -5,86 +5,86 @@ replacement contract test before API parity can be verified.
 
 | Legacy route map | Method and route | Replacement | Test | Status |
 |---|---|---|---|---|
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/AllergyIntolerance` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/AllergyIntolerance/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Appointment` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Appointment/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CarePlan` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CarePlan/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CareTeam` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CareTeam/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Condition` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Condition/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Coverage` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Coverage/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Device` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Device/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DiagnosticReport` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DiagnosticReport/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DocumentReference` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/DocumentReference/$docref` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DocumentReference/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Binary/:id` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Encounter` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Encounter/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Goal` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Goal/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Group` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Group/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Group/:id/$export` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Immunization` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Immunization/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Location` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Location/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Media` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Media/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Medication` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Medication/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationDispense` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationDispense/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationRequest` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationRequest/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Observation` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Observation/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Organization` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Organization/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Specimen` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Specimen/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/Organization` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `PUT /fhir/Organization/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/Patient` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `PUT /fhir/Patient/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Patient` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Patient/$export` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Patient/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Person` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Person/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Practitioner` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Practitioner/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/Practitioner` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `PUT /fhir/Practitioner/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/PractitionerRole` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/PractitionerRole/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Procedure` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/RelatedPerson` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/RelatedPerson/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ServiceRequest` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ServiceRequest/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Procedure/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Provenance/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Provenance` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Questionnaire` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/QuestionnaireResponse` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/QuestionnaireResponse/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ValueSet` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ValueSet/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/metadata` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/.well-known/smart-configuration` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/OperationDefinition` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/OperationDefinition/:operation` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/$export` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/$bulkdata-status` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `DELETE /fhir/$bulkdata-status` | `—` | `—` | NOT STARTED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/AllergyIntolerance` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/AllergyIntolerance/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Appointment` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Appointment/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CarePlan` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CarePlan/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CareTeam` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/CareTeam/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Condition` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Condition/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Coverage` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Coverage/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Device` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Device/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DiagnosticReport` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DiagnosticReport/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DocumentReference` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/DocumentReference/$docref` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/DocumentReference/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Binary/:id` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Encounter` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Encounter/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Goal` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Goal/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Group` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Group/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Group/:id/$export` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Immunization` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Immunization/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Location` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Location/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Media` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Media/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Medication` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Medication/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationDispense` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationDispense/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationRequest` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/MedicationRequest/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Observation` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Observation/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Organization` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Organization/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Specimen` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Specimen/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/Organization` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `PUT /fhir/Organization/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/Patient` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `PUT /fhir/Patient/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Patient` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Patient/$export` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Patient/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Person` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Person/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Practitioner` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Practitioner/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `POST /fhir/Practitioner` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `PUT /fhir/Practitioner/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/PractitionerRole` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/PractitionerRole/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Procedure` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/RelatedPerson` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/RelatedPerson/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ServiceRequest` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ServiceRequest/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Procedure/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Provenance/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Provenance` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/Questionnaire` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/QuestionnaireResponse` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/QuestionnaireResponse/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ValueSet` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/ValueSet/:uuid` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/metadata` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/.well-known/smart-configuration` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/OperationDefinition` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/OperationDefinition/:operation` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/$export` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `GET /fhir/$bulkdata-status` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
+| `apis/routes/_rest_routes_fhir_r4_us_core_3_1_0.inc.php` | `DELETE /fhir/$bulkdata-status` | ``/fhir/*` FHIR R4, SMART and Bulk Data contracts` | ``test_fhir_bulk_ehi.py::test_complete_legacy_fhir_contract_is_registered`` | MIGRATED |
 | `apis/routes/_rest_routes_portal.inc.php` | `GET /portal/patient` | `GET /apis/default/portal/patient` | `backend/tests/test_openemr_compat.py` | MIGRATED |
 | `apis/routes/_rest_routes_portal.inc.php` | `GET /portal/patient/encounter` | `GET /apis/default/portal/patient/encounter` | `backend/tests/test_openemr_compat.py` | MIGRATED |
 | `apis/routes/_rest_routes_portal.inc.php` | `GET /portal/patient/encounter/:euuid` | `GET /apis/default/portal/patient/encounter/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
@@ -159,32 +159,32 @@ replacement contract test before API parity can be verified.
 | `apis/routes/_rest_routes_standard.inc.php` | `GET /api/insurance_type` | `GET /apis/default/api/insurance_type` | `backend/tests/test_openemr_compat.py` | MIGRATED |
 | `apis/routes/_rest_routes_standard.inc.php` | `POST /api/insurance_company` | `POST /apis/default/api/insurance_company` | `backend/tests/test_openemr_compat.py` | MIGRATED |
 | `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/insurance_company/:iid` | `PUT /apis/default/api/insurance_company/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:pid/document` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:pid/document` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:pid/document/:did` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/employer` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/insurance` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/insurance/$swap-insurance` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/insurance/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/patient/:puuid/insurance/:insuranceUuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:puuid/insurance` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:pid/message` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:pid/transaction` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:pid/transaction` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/transaction/:tid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/patient/:pid/message/:mid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `DELETE /api/patient/:pid/message/:mid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/immunization` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/immunization/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/procedure` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/procedure/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/drug` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/drug/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/prescription` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/prescription/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/prescription` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `DELETE /api/prescription/:uuid` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/background_service` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/background_service/:name` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/background_service/:name/run` | `—` | `—` | NOT STARTED |
-| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/background_service/$run` | `—` | `—` | NOT STARTED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:pid/document` | `POST /apis/default/api/patient/{patient_uuid}/document` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:pid/document` | `GET /apis/default/api/patient/{patient_uuid}/document` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:pid/document/:did` | `GET /apis/default/api/patient/{patient_uuid}/document/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/employer` | `GET /apis/default/api/patient/{patient_uuid}/employer` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/insurance` | `GET /apis/default/api/patient/{patient_uuid}/insurance` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/insurance/$swap-insurance` | `GET /apis/default/api/patient/{patient_uuid}/insurance/$swap-insurance` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:puuid/insurance/:uuid` | `GET /apis/default/api/patient/{patient_uuid}/insurance/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/patient/:puuid/insurance/:insuranceUuid` | `PUT /apis/default/api/patient/{patient_uuid}/insurance/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:puuid/insurance` | `POST /apis/default/api/patient/{patient_uuid}/insurance` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:pid/message` | `POST /apis/default/api/patient/{patient_uuid}/message` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/patient/:pid/transaction` | `GET /apis/default/api/patient/{patient_uuid}/transaction` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/patient/:pid/transaction` | `POST /apis/default/api/patient/{patient_uuid}/transaction` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/transaction/:tid` | `PUT /apis/default/api/transaction/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `PUT /api/patient/:pid/message/:mid` | `PUT /apis/default/api/patient/{patient_uuid}/message/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `DELETE /api/patient/:pid/message/:mid` | `DELETE /apis/default/api/patient/{patient_uuid}/message/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/immunization` | `GET /apis/default/api/immunization` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/immunization/:uuid` | `GET /apis/default/api/immunization/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/procedure` | `GET /apis/default/api/procedure` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/procedure/:uuid` | `GET /apis/default/api/procedure/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/drug` | `GET /apis/default/api/drug` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/drug/:uuid` | `GET /apis/default/api/drug/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/prescription` | `GET /apis/default/api/prescription` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/prescription/:uuid` | `GET /apis/default/api/prescription/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/prescription` | `POST /apis/default/api/prescription` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `DELETE /api/prescription/:uuid` | `DELETE /apis/default/api/prescription/{uuid}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/background_service` | `GET /apis/default/api/background_service` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `GET /api/background_service/:name` | `GET /apis/default/api/background_service/{name}` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/background_service/:name/run` | `POST /apis/default/api/background_service/{name}/run` | `backend/tests/test_openemr_compat.py` | MIGRATED |
+| `apis/routes/_rest_routes_standard.inc.php` | `POST /api/background_service/$run` | `POST /apis/default/api/background_service/$run` | `backend/tests/test_openemr_compat.py` | MIGRATED |

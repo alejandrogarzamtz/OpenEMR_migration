@@ -162,7 +162,13 @@ def require_permission(section: str, value: str, mode: str = "read") -> Callable
         if session.smart_client_id is not None:
             parts=request.url.path.strip("/").split("/")
             if len(parts)<2 or parts[0]!="fhir":raise HTTPException(status_code=403,detail="SMART Backend Services tokens are restricted to FHIR")
-            resource=parts[1];operation="s" if len(parts)==2 else "r";grants=session.smart_scopes or []
+            resource=parts[1]
+            if request.method=="POST" and not (len(parts)>2 and parts[2].startswith("$")):operation="c"
+            elif request.method in {"PUT","PATCH"}:operation="u"
+            elif request.method=="DELETE":operation="d"
+            elif len(parts)==2 or (len(parts)>2 and parts[2].startswith("$")):operation="s"
+            else:operation="r"
+            grants=session.smart_scopes or []
             def covers(scope:str):
                 if "/" not in scope or "." not in scope:return False
                 context,tail=scope.split("/",1);target,actions=tail.rsplit(".",1)
@@ -183,9 +189,11 @@ def smart_patient_access(db:Session,request:Request,session:AuthSession,resource
     if resource_id is None:
         reference=request.query_params.get("_id") if resource=="Patient" else request.query_params.get("patient")
         return bool(reference and reference.rstrip("/").rsplit("/",1)[-1]==patient.uuid)
-    if resource=="Patient":return resource_id==patient.uuid
-    from .models import Appointment, CarePlan, CareTeam, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, PatientRelatedPerson, Prescription, QuestionnaireResponse, VitalSet
-    direct={"Condition":ClinicalItem,"AllergyIntolerance":ClinicalItem,"MedicationStatement":ClinicalItem,"Immunization":Immunization,"MedicationRequest":Prescription,"CarePlan":CarePlan,"Goal":CarePlan,"CareTeam":CareTeam,"Appointment":Appointment,"Encounter":Encounter,"Coverage":Coverage,"DocumentReference":Document,"Binary":Document,"ServiceRequest":LabOrder,"DiagnosticReport":LabOrder,"QuestionnaireResponse":QuestionnaireResponse,"RelatedPerson":PatientRelatedPerson}
+    if resource=="Patient":
+        reference=request.query_params.get("patient") if resource_id.startswith("$") else resource_id
+        return bool(reference and reference.rstrip("/").rsplit("/",1)[-1]==patient.uuid)
+    from .models import Appointment, CarePlan, CareTeam, ClinicalItem, Coverage, Document, Encounter, ExternalProcedure, Immunization, InventoryTransaction, LabOrder, LabResult, PatientRelatedPerson, Prescription, QuestionnaireResponse, VitalSet
+    direct={"Condition":ClinicalItem,"AllergyIntolerance":ClinicalItem,"MedicationStatement":ClinicalItem,"Immunization":Immunization,"MedicationRequest":Prescription,"MedicationDispense":InventoryTransaction,"CarePlan":CarePlan,"Goal":CarePlan,"CareTeam":CareTeam,"Appointment":Appointment,"Encounter":Encounter,"Coverage":Coverage,"DocumentReference":Document,"Binary":Document,"Media":Document,"ServiceRequest":LabOrder,"DiagnosticReport":LabOrder,"Specimen":LabOrder,"Procedure":ExternalProcedure,"QuestionnaireResponse":QuestionnaireResponse,"RelatedPerson":PatientRelatedPerson}
     model=direct.get(resource)
     if model:return bool(db.scalar(select(model.id).where(model.uuid==resource_id,model.patient_id==patient_id)))
     if resource=="Observation":

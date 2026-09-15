@@ -71,6 +71,8 @@ def main() -> None:
     output.write_text(json.dumps(manifest, indent=2) + "\n")
     parity_path = ROOT / "docs/api-parity.json"
     parity = json.loads(parity_path.read_text()) if parity_path.exists() else {}
+    domain_parity_path = ROOT / "docs/api-domain-parity.json"
+    domain_parity = json.loads(domain_parity_path.read_text()) if domain_parity_path.exists() else {}
     api_inventory = [
         "# Legacy REST API inventory",
         "",
@@ -83,6 +85,9 @@ def main() -> None:
     for filename, routes in manifest["rest_routes"].items():
         for route in routes:
             item = parity.get(route, {})
+            domain = domain_parity.get(filename, {})
+            if not item and len(routes) == domain.get("expected_route_count"):
+                item = domain
             replacement = item.get("replacement", "—")
             test = item.get("test", "—")
             status = item.get("status", "NOT STARTED")

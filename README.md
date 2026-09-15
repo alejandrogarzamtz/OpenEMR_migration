@@ -179,12 +179,15 @@ end-to-end healthcare workflows:
   coverage, document references and binary retrieval, observations, medications,
   immunizations, laboratory service requests, diagnostic reports and scored
   patient questionnaires, plus related-person and clinical-identity resources;
+- the complete 80-route legacy FHIR contract family, persisted FHIR Bulk Data
+  exports for system, patient, and group scopes, `$docref`, C-CDA clinical
+  summaries, and patient-scoped EHI packages with checksum manifests;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
 forms, advanced demographic fields, recurrence rules, broader portal workflows,
-remaining reports, advanced inventory, billing exchanges, broader FHIR resources, integrations, administrative
+remaining specialized workflows, advanced inventory, production integrations, administrative
 tools, and background services are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
@@ -365,6 +368,8 @@ Start with these documents:
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged
   delivery approach;
 - [FHIR Notes](docs/FHIR.md) — current standards implementation and limitations.
+- [EHI Export](docs/EHI_EXPORT.md) — C-CDA, designated-record-set packaging,
+  integrity manifests, authorization, and operational boundaries.
 - [SMART App Launch](docs/SMART_BACKEND_SERVICES.md) — interactive and backend authorization, scopes, identity, token lifecycle, and deployment requirements.
 - [OpenEMR API compatibility](docs/OPENEMR_API_COMPATIBILITY.md) — legacy Standard and Portal REST URLs, payload aliases, authorization, and route-level migration status.
 

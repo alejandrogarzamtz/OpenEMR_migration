@@ -33,6 +33,7 @@ jobs:
       - run: python3 scripts/verify_billing_report_criteria_provenance.py
       - run: python3 scripts/verify_smart_backend_services.py
       - run: python3 scripts/verify_openemr_api_compatibility.py
+      - run: python3 scripts/verify_fhir_api_compatibility.py
       - run: python3 scripts/verify_patient_provider_assignments.py
       - run: docker compose build api
       - run: docker compose run --rm api python -m pytest -q

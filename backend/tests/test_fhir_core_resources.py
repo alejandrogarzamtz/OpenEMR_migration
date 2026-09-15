@@ -104,7 +104,8 @@ def test_fhir_core_resource_search_read_references_and_audit():
         advertised = {resource["type"]: resource for resource in capability["rest"][0]["resource"]}
         expected = {"Appointment", "Encounter", "Organization", "Location", "Practitioner", "Condition", "AllergyIntolerance", "MedicationStatement", "Observation", "Immunization", "MedicationRequest"}
         assert expected <= advertised.keys()
-        assert all({item["code"] for item in advertised[name]["interaction"]} == {"read", "search-type"} for name in expected)
+        assert all({item["code"] for item in advertised[name]["interaction"]} == {"read", "search-type"} for name in expected - {"Organization", "Practitioner"})
+        assert all({item["code"] for item in advertised[name]["interaction"]} == {"read", "search-type", "create", "update"} for name in {"Organization", "Practitioner"})
 
         appointment_resource = client.get(f"/fhir/Appointment/{appointment['uuid']}", headers=headers).json()
         assert appointment_resource["status"] == "arrived"
