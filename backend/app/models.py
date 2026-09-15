@@ -21,6 +21,28 @@ class User(Base):
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
+class ReferenceOption(Base):
+    """Lossless modern catalog for OpenEMR list_options values."""
+    __tablename__ = "reference_options"
+    __table_args__ = (UniqueConstraint("list_id", "option_id", name="uq_reference_option"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    list_id: Mapped[str] = mapped_column(String(100), index=True)
+    option_id: Mapped[str] = mapped_column(String(100))
+    title: Mapped[str] = mapped_column(String(255))
+    sequence: Mapped[int] = mapped_column(default=0)
+    active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class InsuranceType(Base):
+    __tablename__ = "insurance_types"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_type_id: Mapped[int] = mapped_column(unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    claim_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
 class Patient(Base):
     __tablename__ = "patients"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1237,6 +1259,7 @@ class Payer(Base):
     name: Mapped[str] = mapped_column(String(255), index=True)
     payer_identifier: Mapped[str | None] = mapped_column(String(25), nullable=True)
     active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Coverage(Base):

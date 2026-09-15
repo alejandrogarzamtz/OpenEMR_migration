@@ -8,7 +8,7 @@ Patient payloads accept and return `fname`, `mname`, `lname`, and `DOB` aliases.
 The current group covers facilities, patients, encounters, SOAP notes, vital
 signs, problems, allergies, medications, surgeries, dental issues,
 practitioners, appointments, version/product discovery, and all five legacy
-portal routes. This represents 61 of 97 Standard API routes and all 5 portal
+portal routes. This represents 69 of 98 Standard API routes and all 5 portal
 routes in the preserved route maps.
 Staff routes enforce modern ACLs. Portal routes derive the patient only from the
 authenticated portal session and never accept a caller-provided patient ID.

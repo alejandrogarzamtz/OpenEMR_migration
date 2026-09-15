@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app.db import SessionLocal
 from app.main import app
+from app.models import InsuranceType, ReferenceOption
 from test_communications import create_portal
 
 
@@ -110,3 +112,25 @@ def test_standard_api_clinical_resources_and_encounter_notes():
         for resource,item_uuid in created.items():
             assert client.delete(f"/apis/default/api/patient/{patient['uuid']}/{resource}/{item_uuid}",headers=headers).status_code==200
             assert client.get(f"/apis/default/api/patient/{patient['uuid']}/{resource}/{item_uuid}",headers=headers).status_code==404
+
+
+def test_standard_api_administration_and_reference_catalogs():
+    with TestClient(app) as client:
+        headers=staff(client)
+        with SessionLocal() as db:
+            db.add_all([ReferenceOption(list_id="language",option_id="en",title="English",sequence=1,active=True,legacy_payload={"notes":"English language"}),InsuranceType(legacy_type_id=2,name="Medicare Part B",claim_type="MB")]);db.commit()
+        options=client.get("/apis/default/api/list/language",headers=headers)
+        assert options.status_code==200 and options.json()["data"][0]["option_id"]=="en"
+        users=client.get("/apis/default/api/user",headers=headers)
+        assert users.status_code==200 and "password_hash" not in users.text
+        user_uuid=users.json()["data"][0]["uuid"]
+        assert client.get(f"/apis/default/api/user/{user_uuid}",headers=headers).status_code==200
+        types=client.get("/apis/default/api/insurance_type",headers=headers)
+        assert types.status_code==200 and types.json()["data"][0]["claim_type"]=="MB"
+        payer=client.post("/apis/default/api/insurance_company",headers=headers,json={"name":"Compatibility Health","cms_id":"CMS42","city":"Monterrey"})
+        assert payer.status_code==201,payer.text
+        payer_uuid=payer.json()["data"]["uuid"]
+        assert any(item["name"]=="Compatibility Health" for item in client.get("/apis/default/api/insurance_company",headers=headers).json()["data"])
+        assert client.get(f"/apis/default/api/insurance_company/{payer_uuid}",headers=headers).json()["data"]["city"]=="Monterrey"
+        updated=client.put(f"/apis/default/api/insurance_company/{payer_uuid}",headers=headers,json={"name":"Compatibility Health North"})
+        assert updated.status_code==200 and updated.json()["data"]["name"].endswith("North")

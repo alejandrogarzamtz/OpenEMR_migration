@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Appointment, AuditEvent, ClinicalForm, ClinicalItem, Encounter, Facility, IdentityAuditEvent, Patient, PortalAccount, Practitioner, User, VitalSet
+from ..models import Appointment, AuditEvent, ClinicalForm, ClinicalItem, Encounter, Facility, IdentityAuditEvent, InsuranceType, Patient, Payer, PortalAccount, Practitioner, ReferenceOption, User, VitalSet
 from ..schemas import AppointmentCreate, FacilityCreate, PatientCreate, PractitionerCreate
 from ..security import current_portal_account, current_user, user_has_permission
 from ..services.patients import patient_by_uuid
@@ -323,6 +323,78 @@ def clinical_item_values(body:dict,*,partial:bool=False)->dict:
     for key in ("onset_date","end_date"):
         if key in values:values[key]=date_value(values[key])
     return values
+
+
+def user_data(item:User)->dict:
+    return {"uuid":item.uuid,"username":item.username,"email":item.email,"role":item.role,"active":item.active}
+
+
+def payer_data(item:Payer)->dict:
+    data=dict(item.legacy_payload or {});data.update(uuid=item.uuid,id=item.uuid,name=item.name,x12_receiver_id=item.payer_identifier,inactive=0 if item.active else 1)
+    return data
+
+
+@router.get("/apis/{site}/api/list/{list_name}")
+def reference_list(site:str,list_name:str,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"lists","default");items=list(db.scalars(select(ReferenceOption).where(ReferenceOption.list_id==list_name).order_by(ReferenceOption.sequence,ReferenceOption.option_id)))
+    data=[]
+    for item in items:
+        value=dict(item.legacy_payload or {});value.update(uuid=item.uuid,list_id=item.list_id,option_id=item.option_id,title=item.title,seq=item.sequence,activity=1 if item.active else 0);data.append(value)
+    db.add(AuditEvent(actor_id=user.id,action="search",resource_type="reference_option",resource_id=list_name));db.commit();return response(data)
+
+
+@router.get("/apis/{site}/api/user")
+def users(site:str,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"admin","users");items=list(db.scalars(select(User).order_by(User.email)));db.add(AuditEvent(actor_id=user.id,action="search",resource_type="user"));db.commit();return response([user_data(item) for item in items])
+
+
+@router.get("/apis/{site}/api/user/{user_uuid}")
+def user_get(site:str,user_uuid:str,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"admin","users");item=db.scalar(select(User).where(User.uuid==user_uuid))
+    if not item:raise HTTPException(status_code=404,detail="User not found")
+    db.add(AuditEvent(actor_id=user.id,action="read",resource_type="user",resource_id=item.uuid));db.commit();return response(user_data(item))
+
+
+@router.get("/apis/{site}/api/insurance_type")
+def insurance_types(site:str,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"acct","bill");items=list(db.scalars(select(InsuranceType).order_by(InsuranceType.legacy_type_id)));db.add(AuditEvent(actor_id=user.id,action="search",resource_type="insurance_type"));db.commit();return response([{"id":item.legacy_type_id,"type":item.name,"claim_type":item.claim_type} for item in items])
+
+
+@router.get("/apis/{site}/api/insurance_company")
+def insurance_companies(site:str,name:str|None=None,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"acct","bill");query=select(Payer)
+    if name:query=query.where(Payer.name.ilike(f"%{name}%"))
+    items=list(db.scalars(query.order_by(Payer.name)));db.add(AuditEvent(actor_id=user.id,action="search",resource_type="insurance_company"));db.commit();return response([payer_data(item) for item in items])
+
+
+def payer_by_identifier(db:Session,value:str)->Payer:
+    item=db.scalar(select(Payer).where(Payer.uuid==value))
+    if not item and value.isdigit():item=db.scalar(select(Payer).where(Payer.legacy_payer_id==int(value)))
+    if not item:raise HTTPException(status_code=404,detail="Insurance company not found")
+    return item
+
+
+@router.get("/apis/{site}/api/insurance_company/{payer_id}")
+def insurance_company(site:str,payer_id:str,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"acct","bill");item=payer_by_identifier(db,payer_id);db.add(AuditEvent(actor_id=user.id,action="read",resource_type="insurance_company",resource_id=item.uuid));db.commit();return response(payer_data(item))
+
+
+@router.post("/apis/{site}/api/insurance_company",status_code=status.HTTP_201_CREATED)
+def insurance_company_create(site:str,body:dict,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"acct","bill","write")
+    if not str(body.get("name") or "").strip():raise HTTPException(status_code=422,detail="name is required")
+    item=Payer(name=str(body["name"]).strip(),payer_identifier=body.get("x12_receiver_id") or body.get("cms_id"),active=not bool(body.get("inactive",False)),legacy_payload=body);db.add(item);db.flush();db.add(AuditEvent(actor_id=user.id,action="create",resource_type="insurance_company",resource_id=item.uuid));db.commit();db.refresh(item);return response(payer_data(item))
+
+
+@router.put("/apis/{site}/api/insurance_company/{payer_id}")
+def insurance_company_update(site:str,payer_id:str,body:dict,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site);permission(user,"acct","bill","write");item=payer_by_identifier(db,payer_id)
+    if "name" in body:
+        if not str(body["name"]).strip():raise HTTPException(status_code=422,detail="name is required")
+        item.name=str(body["name"]).strip()
+    if "x12_receiver_id" in body or "cms_id" in body:item.payer_identifier=body.get("x12_receiver_id") or body.get("cms_id")
+    if "inactive" in body:item.active=not bool(body["inactive"])
+    item.legacy_payload={**(item.legacy_payload or {}),**body};db.add(AuditEvent(actor_id=user.id,action="update",resource_type="insurance_company",resource_id=item.uuid));db.commit();db.refresh(item);return response(payer_data(item))
 
 
 @router.get("/apis/{site}/api/{resource}")
