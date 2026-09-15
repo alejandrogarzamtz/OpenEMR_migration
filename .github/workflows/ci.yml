@@ -30,6 +30,7 @@ jobs:
       - run: python3 scripts/verify_amc_tracking_provenance.py
       - run: python3 scripts/verify_amc_full_report_provenance.py
       - run: python3 scripts/verify_cqm_report_provenance.py
+      - run: python3 scripts/verify_billing_report_criteria_provenance.py
       - run: python3 scripts/verify_patient_provider_assignments.py
       - run: docker compose build api
       - run: docker compose run --rm api python -m pytest -q

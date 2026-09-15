@@ -19,7 +19,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `clinical_reports` | MIGRATED |
 | `collections_report` | MIGRATED — integrated A/R responsibility, effective payer/policy selection, charges, product sales, payments, adjustments, aging buckets, patient and insurance modes, facility ACL, snapshots and CSV |
 | `cqm` | MIGRATED — filtered saved-calculation catalog; Standard, CQM 2011/2014 and historical report metadata; typed measure totals, immutable snapshots and CSV; results are only presented from persisted calculations |
-| `criteria.tab` | EMBEDDED / PENDING — criteria UI included by the legacy billing report, not an independently executable report; parity belongs to the unfinished billing-report builder |
+| `criteria.tab` | EMBEDDED / VERIFIED — its date, text, radio, payer/provider and dropdown criteria are represented by validated typed inputs on the modern financial report workflows; it is intentionally not executable by itself |
 | `custom_report_range` | MIGRATED — printable patient Superbill with qualifying new-patient encounters, full demographics and subscriber coverage, active charge/provider fallback, copay reconciliation, facility ACL, snapshots and CSV |
 | `daily_summary_report` | MIGRATED |
 | `destroyed_drugs_report` | MIGRATED |
@@ -48,7 +48,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `prescriptions_report` | MIGRATED |
 | `receipts_by_method_report` | MIGRATED — copays plus integrated A/R payments/adjustments by payer, configured method or check reference; service/deposit dates, procedure/provider/facility filters, detail/summary, snapshots and CSV |
 | `referrals_report` | MIGRATED — facility/date/status scoped referral-loop report with recipient organization, request/reply dates, patient identifiers and reason |
-| `report.script` | EMBEDDED / PENDING — shared JavaScript for the legacy billing criteria component, not an independently executable report; parity belongs to that parent workflow |
+| `report.script` | EMBEDDED / VERIFIED — add/update/remove criteria behavior is replaced by controlled React form state and server-side schema validation on the modern financial report workflows; it is intentionally not executable by itself |
 | `report_results` | MIGRATED — date-filtered immutable run history with title, completion state, row count, actor, SHA-256 integrity checksum, snapshot totals and CSV |
 | `rwt_2026_report` | MIGRATED — fixed April–September 2026 ONC period; lossless C-CDA, Direct, QRDA import/export, API actor/resource analytics and optional EHI-export evidence; modern API requests remain continuously measured |
 | `sales_by_item` | MIGRATED |
@@ -56,12 +56,14 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 46 migrated, 2 embedded**.
+Current accounting: **48/48 accounted: 46 runnable reports migrated and 2 embedded components verified**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
-than standalone routes. They remain explicitly accounted for, but must not be
-represented as runnable reports. Their date/text/radio/dropdown criteria
-behavior will be verified with the parent billing-report builder.
+than standalone routes. The catalog identifies them as `embedded`; it does not
+misrepresent them as runnable reports. Their legacy free-form SQL criteria are
+replaced by typed date, identity, payer, provider, facility, status and grouping
+inputs with Pydantic validation, scoped query construction and controlled React
+forms across the migrated billing and financial reports.
 
 `custom_report_range` preserves the legacy New Patient Encounter selection and
 reverse chronological Superbill order, while treating the selected end date as

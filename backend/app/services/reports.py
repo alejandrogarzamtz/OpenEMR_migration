@@ -53,7 +53,8 @@ def permission_for(key: str) -> str:
 
 
 def catalog() -> list[dict]:
-    return [{"key":key,"title":key.replace("_"," ").replace("."," ").title(),"category":category_for(key),"permission":permission_for(key),"legacy_path":f"interface/reports/{key}.php","migrated":key in IMPLEMENTED} for key in REPORT_PATHS]
+    embedded={"criteria.tab","report.script"}
+    return [{"key":key,"title":key.replace("_"," ").replace("."," ").title(),"category":category_for(key),"permission":permission_for(key),"legacy_path":f"interface/reports/{key}.php","migrated":key in IMPLEMENTED,"migration_status":"migrated" if key in IMPLEMENTED else "embedded" if key in embedded else "pending"} for key in REPORT_PATHS]
 
 
 def bounds(start: date | None, end: date | None) -> tuple[datetime | None, datetime | None]:

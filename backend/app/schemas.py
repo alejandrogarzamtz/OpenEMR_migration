@@ -655,6 +655,7 @@ class ReportCatalogItem(BaseModel):
     permission: str
     legacy_path: str
     migrated: bool
+    migration_status: str
 
 
 class ReportRunCreate(BaseModel):

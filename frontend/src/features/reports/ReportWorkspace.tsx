@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { ApiRequest } from "../../api/client";
 
-type CatalogItem={key:string;title:string;category:string;permission:string;legacy_path:string;migrated:boolean};
+type CatalogItem={key:string;title:string;category:string;permission:string;legacy_path:string;migrated:boolean;migration_status?:"migrated"|"embedded"|"pending"};
 type ReportRun={uuid:string;report_key:string;parameters:Record<string,unknown>;columns:string[];rows:Record<string,unknown>[];totals:Record<string,unknown>;row_count:number;checksum:string;created_at:string};
 
 export function ReportWorkspace({api}:{api:ApiRequest}){
@@ -22,7 +22,7 @@ export function ReportWorkspace({api}:{api:ApiRequest}){
   async function completeAmc(row:Record<string,unknown>,electronically=false){if(!run)return;try{await api(`/api/v1/amc-tracking/${run.parameters.amc_rule}/${row.source_uuid}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({completed:true,electronically})});const rows=run.rows.filter(item=>item.source_uuid!==row.source_uuid);setRun({...run,rows,row_count:rows.length,totals:{...run.totals,candidates:rows.length}});setError("");}catch(reason){setError(reason instanceof Error?reason.message:"Could not update AMC evidence");}}
   const categories=[...new Set(catalog.map(item=>item.category))];
   return <section className="report-workspace">
-    <section className="card report-catalog"><h2>Report catalog <span>{catalog.length}</span></h2>{categories.map(category=><div key={category}><h3>{category}</h3>{catalog.filter(item=>item.category===category).map(item=><button key={item.key} className={selected?.key===item.key?"report-item selected":"report-item"} onClick={()=>{setSelected(item);setRun(null);setError("");}}><span>{item.title}</span><small>{item.migrated?"Available":"Migration pending"}</small></button>)}</div>)}</section>
+    <section className="card report-catalog"><h2>Report catalog <span>{catalog.length}</span></h2>{categories.map(category=><div key={category}><h3>{category}</h3>{catalog.filter(item=>item.category===category).map(item=><button key={item.key} className={selected?.key===item.key?"report-item selected":"report-item"} onClick={()=>{setSelected(item);setRun(null);setError("");}}><span>{item.title}</span><small>{item.migrated?"Available":item.migration_status==="embedded"?"Embedded component":"Migration pending"}</small></button>)}</div>)}</section>
     <section className="card report-viewer">{selected?<><p className="eyebrow">{selected.category}</p><h2>{selected.title}</h2><small>{selected.legacy_path}</small>{selected.migrated?<form className="report-filters" onSubmit={execute}>
       <label>From<input name="date_from" type="date"/></label><label>To<input name="date_to" type="date"/></label><label>Status<input name="status"/></label><label>Warehouse<input name="warehouse_code"/></label>
       {selected.key==="chart_location_activity"&&<label>Patient UUID<input name="patient_uuid" required/></label>}

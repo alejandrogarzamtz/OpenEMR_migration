@@ -1,0 +1,14 @@
+{
+  "sources": {
+    "criteria.tab": {
+      "path": "openemr-legacy/interface/reports/criteria.tab.php",
+      "sha256": "c133746af616f397424316dc60c75910e788e46e232b1a9ba332991663dd1414",
+      "required_tokens": ["date_master_criteria", "query_drop_down", "text_like", "radio_like", "final_this_page_criteria"]
+    },
+    "report.script": {
+      "path": "openemr-legacy/interface/reports/report.script.php",
+      "sha256": "fdcb82b08f45feff8ac34fc58f4e51a763f244fafbfd6668f17e4981e70c2691",
+      "required_tokens": ["calendar_function", "appendOptionRadioCriteria", "appendOptionTextCriteria", "appendOptionDateCriteria", "removeOptionsAll"]
+    }
+  }
+}

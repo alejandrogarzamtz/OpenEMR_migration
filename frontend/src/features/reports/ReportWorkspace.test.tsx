@@ -97,4 +97,7 @@ describe("ReportWorkspace",()=>{
     const api=vi.fn().mockResolvedValueOnce([{key:"cqm",title:"Cqm",category:"clinical",permission:"patients:med:read",legacy_path:"interface/reports/cqm.php",migrated:true}]).mockResolvedValueOnce({uuid:"cqm-run",report_key:"cqm",parameters:{},columns:["report_type","measure_count"],rows:[{report_type:"cqm_2014",measure_count:2}],totals:{reports:1},row_count:1,checksum:"4".repeat(64),created_at:"2026-09-15"});
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Cqm"));fireEvent.change(screen.getByLabelText("Report type"),{target:{value:"cqm_2014"}});fireEvent.click(screen.getByText("Run report"));await screen.findByText("cqm_2014");const request=JSON.parse(String(api.mock.calls[1][1].body));expect(request.quality_report_type).toBe("cqm_2014");expect(request.quality_report_uuid).toBeNull();
   });
+  it("identifies billing criteria assets as embedded components",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"criteria.tab",title:"Criteria Tab",category:"clinical",permission:"patients:med:read",legacy_path:"interface/reports/criteria.tab.php",migrated:false,migration_status:"embedded"}]);render(<ReportWorkspace api={api as any}/>);expect(await screen.findByText("Embedded component")).toBeTruthy();
+  });
 });
