@@ -52,4 +52,8 @@ describe("ReportWorkspace",()=>{
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Svc Code Financial Report"));fireEvent.change(screen.getByLabelText("Provider legacy ID"),{target:{value:"968"}});fireEvent.click(screen.getByLabelText("Important codes only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("99213");
     const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.provider_legacy_id).toBe(968);expect(request.financial_reporting_only).toBe(true);
   });
+  it("explains and runs the fixed 2026 regulatory period",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"rwt_2026_report",title:"Rwt 2026 Report",category:"clinical",permission:"admin:super:read",legacy_path:"interface/reports/rwt_2026_report.php",migrated:true}]).mockResolvedValueOnce({uuid:"r10",report_key:"rwt_2026_report",parameters:{},columns:["metric","measure","count"],rows:[{metric:1,measure:"generated_ccda_documents",count:2}],totals:{metrics:6},row_count:1,checksum:"abcdef0123456789",created_at:"2026-01-01T00:00:00Z"});
+    render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Rwt 2026 Report"));expect(screen.getByText(/Fixed ONC measurement period/)).toBeTruthy();fireEvent.click(screen.getByText("Run report"));await screen.findByText("generated_ccda_documents");expect(api.mock.calls[1][0]).toContain("rwt_2026_report");
+  });
 });

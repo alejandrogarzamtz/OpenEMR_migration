@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from uuid import uuid4
+import jwt
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, ProcedureOrderLine, ProcedureReport, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
+from .models import Appointment, AuditEvent, Charge, Claim, ClaimPayment, ClinicalForm, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, Patient, Payer, Pharmacy, Prescription, ProcedureOrderLine, ProcedureReport, QuestionnaireDefinition, QuestionnaireResponse, RegulatoryMetricEvent, User, VitalSet
 from .schemas import AppointmentOut, ChargeCreate, ChargeOut, ClaimCreate, ClaimOut, ClinicalFormCreate, ClinicalFormOut, ClinicalFormUpdate, ClinicalItemCreate, ClinicalItemOut, ClinicalSignatureCreate, ClinicalSignatureOut, ClinicalSummary, CoverageCreate, CoverageOut, DocumentOut, EncounterCreate, EncounterOut, ImmunizationCreate, ImmunizationOut, LabOrderCreate, LabOrderDetail, LabOrderOut, LabResultCreate, LabResultOut, PaymentCreate, PrescriptionCreate, PrescriptionOut, ProcedureReportOut, QuestionnaireDefinitionOut, QuestionnaireResponseCreate, QuestionnaireResponseOut, VitalSetCreate, VitalSetOut
 from .security import (
     clinical_user,
@@ -58,6 +60,25 @@ app.include_router(patient_education_router)
 app.include_router(social_history_router)
 app.include_router(patient_providers_router)
 app.include_router(fhir_router)
+
+
+@app.middleware("http")
+async def record_api_metric(request: Request, call_next):
+    response=await call_next(request)
+    if request.url.path.startswith("/api/") or request.url.path.startswith("/fhir"):
+        actor_kind=None
+        authorization=request.headers.get("authorization","")
+        if authorization.lower().startswith("bearer "):
+            try:actor_kind=jwt.decode(authorization.split(" ",1)[1],options={"verify_signature":False}).get("kind")
+            except jwt.PyJWTError:pass
+        route=request.scope.get("route");resource=getattr(route,"path",None) or request.url.path
+        try:
+            with SessionLocal() as db:
+                db.add(RegulatoryMetricEvent(source_key=f"modern:api:{uuid4()}",metric_type="api-request",occurred_at=datetime.now(timezone.utc),success=response.status_code<400,actor_kind="user" if actor_kind=="staff" else "patient" if actor_kind=="portal" else None,resource=resource,legacy_payload={"method":request.method,"path":request.url.path,"status_code":response.status_code}))
+                db.commit()
+        except Exception:
+            pass
+    return response
 
 
 @app.get("/health")

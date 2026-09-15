@@ -50,13 +50,13 @@ snapshot, totals and CSV export. All entries remain visible through
 | `referrals_report` | MIGRATED — facility/date/status scoped referral-loop report with recipient organization, request/reply dates, patient identifiers and reason |
 | `report.script` | EMBEDDED / PENDING — shared JavaScript for the legacy billing criteria component, not an independently executable report; parity belongs to that parent workflow |
 | `report_results` | MIGRATED — date-filtered immutable run history with title, completion state, row count, actor, SHA-256 integrity checksum, snapshot totals and CSV |
-| `rwt_2026_report` | PENDING |
+| `rwt_2026_report` | MIGRATED — fixed April–September 2026 ONC period; lossless C-CDA, Direct, QRDA import/export, API actor/resource analytics and optional EHI-export evidence; modern API requests remain continuously measured |
 | `sales_by_item` | MIGRATED |
 | `services_by_category` | MIGRATED — active service catalog, superbill categories, code-type/category filters, modifiers, units, related codes and multi-level prices |
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 35 migrated, 13 pending/embedded**.
+Current accounting: **48 cataloged, 36 migrated, 12 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be

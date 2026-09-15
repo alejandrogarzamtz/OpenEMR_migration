@@ -7,13 +7,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, RegulatoryMetricEvent, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -528,6 +528,32 @@ def service_code_financial_report(db: Session,user: User,params: dict):
     return columns,rows,{"codes":len(rows),"units":sum(row["units"] for row in rows),"amount_billed":money("amount_billed"),"paid_amount":money("paid_amount"),"adjustment_amount":money("adjustment_amount"),"balance_amount":money("balance_amount")}
 
 
+def real_world_testing_2026_report(db: Session,user: User,params: dict):
+    """ONC real-world-testing evidence for the mandated 2026 measurement period."""
+    del user,params
+    start=datetime(2026,4,1,tzinfo=timezone.utc);end=datetime(2026,10,1,tzinfo=timezone.utc)
+    events=list(db.scalars(select(RegulatoryMetricEvent).where(RegulatoryMetricEvent.occurred_at>=start,RegulatoryMetricEvent.occurred_at<end).order_by(RegulatoryMetricEvent.occurred_at,RegulatoryMetricEvent.id)))
+    counts={kind:sum(item.metric_type==kind for item in events) for kind in ("ccda-generated","direct-sent","direct-received","qrda-import","qrda3-export","ehi-export")}
+    api=[item for item in events if item.metric_type=="api-request"]
+    rows=[
+        {"metric":1,"measure":"generated_ccda_documents","resource":None,"count":counts["ccda-generated"]},
+        {"metric":2,"measure":"sent_direct_messages","resource":None,"count":counts["direct-sent"]},
+        {"metric":2,"measure":"received_direct_messages","resource":None,"count":counts["direct-received"]},
+        {"metric":3,"measure":"qrda_imports","resource":None,"count":counts["qrda-import"]},
+        {"metric":4,"measure":"generated_cqm_qrda3_reports","resource":None,"count":counts["qrda3-export"]},
+        {"metric":5,"measure":"successful_api_requests","resource":None,"count":sum(item.success is True for item in api)},
+        {"metric":5,"measure":"unsuccessful_api_requests","resource":None,"count":sum(item.success is not True for item in api)},
+        {"metric":5,"measure":"api_requests_by_users","resource":None,"count":sum(item.success is True and item.actor_kind=="user" for item in api)},
+        {"metric":5,"measure":"api_requests_by_patients","resource":None,"count":sum(item.success is True and item.actor_kind=="patient" for item in api)},
+    ]
+    resources={}
+    for item in api:
+        if item.success is True and item.resource:resources[item.resource]=resources.get(item.resource,0)+1
+    rows.extend({"metric":5,"measure":"api_requests_for_resource","resource":resource,"count":count} for resource,count in sorted(resources.items()))
+    rows.append({"metric":6,"measure":"ehi_exports","resource":None,"count":counts["ehi-export"]})
+    return ["metric","measure","resource","count"],rows,{"measurement_period_start":"2026-04-01","measurement_period_end":"2026-09-30","evidence_events":len(events),"metrics":6}
+
+
 def appointment_scope(query, db: Session, user: User):
     scope=facility_scope(db,user)
     if scope is None: return query
@@ -678,6 +704,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "payment_processing_report": return payment_processing_report(db,user,params)
     if key == "prepayment_balance_report": return prepayment_balance_report(db,user,params)
     if key == "svc_code_financial_report": return service_code_financial_report(db,user,params)
+    if key == "rwt_2026_report": return real_world_testing_2026_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

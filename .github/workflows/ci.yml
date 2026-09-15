@@ -19,6 +19,7 @@ jobs:
       - run: python3 scripts/verify_payment_processing_provenance.py
       - run: python3 scripts/verify_prepayment_provenance.py
       - run: python3 scripts/verify_service_code_financial_provenance.py
+      - run: python3 scripts/verify_rwt_2026_provenance.py
       - run: python3 scripts/verify_patient_provider_assignments.py
       - run: docker compose build api
       - run: docker compose run --rm api python -m pytest -q

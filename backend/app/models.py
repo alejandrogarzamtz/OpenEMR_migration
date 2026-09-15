@@ -281,6 +281,20 @@ class IdentityAuditEvent(Base):
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class RegulatoryMetricEvent(Base):
+    """Lossless evidence for ONC real-world-testing metrics and modern API use."""
+    __tablename__ = "regulatory_metric_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    source_key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    metric_type: Mapped[str] = mapped_column(String(40), index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    success: Mapped[bool | None] = mapped_column(nullable=True, index=True)
+    actor_kind: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    resource: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class AuditEventSeal(Base):
     """Independent checksum evidence retained even if its audit row is removed."""
 
