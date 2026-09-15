@@ -38,7 +38,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `ippf_statistics` | PENDING |
 | `message_list` | MIGRATED |
 | `non_reported` | MIGRATED — unsubmitted reportable ICD-9 issue detection, date/patient/code filters, scoped HL7 2.5.1 ADT export, durable submission exclusion, snapshots and CSV |
-| `pat_ledger` | PENDING |
+| `pat_ledger` | MIGRATED — patient/date/facility/provider-scoped procedure ledger with encounter charges, live payments and adjustments, unapplied-credit reconciliation, balances, snapshots and CSV |
 | `patient_edu_web_lookup` | MIGRATED — configurable ordered resource catalog, validated single-placeholder HTTP(S) templates, URL-encoded audited searches, administration, React workflow, snapshot and CSV |
 | `patient_flow_board_report` | MIGRATED |
 | `patient_list` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 38 migrated, 10 pending/embedded**.
+Current accounting: **48 cataloged, 39 migrated, 9 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -78,6 +78,15 @@ syndromic-submission record. Its authenticated HL7 export reproduces the legacy
 facility with NPI, escapes delimiters, records message control IDs, and prevents
 duplicate export from a stale report snapshot. As in the source workflow, the
 record proves generation/export under the `PH_SS-NoAck` profile, not receiver ACK.
+
+`pat_ledger` requires an explicit patient and reproduces the legacy accounting
+scope: active procedure-code charges from encounters in the selected period,
+all non-deleted A/R activity attached to those encounters, and payment sessions
+created in the period whose funds were partially applied. Charge fees are not
+multiplied by units, payments and adjustments reduce encounter balances, and
+only the residual portion of a partially applied session reduces the grand
+balance. Detail rows retain both the displayed original payment and its applied
+and balance effects so totals remain auditable rather than inferred.
 
 `cdr_log` preserves raw `value` and `new_value` text exactly, including empty
 or malformed historical JSON, so a report never rewrites clinical evidence.

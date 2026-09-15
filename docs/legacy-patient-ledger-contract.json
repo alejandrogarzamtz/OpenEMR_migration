@@ -1,0 +1,14 @@
+{
+  "report_sha256": "7e26f23c814978b61e481df46a3fd7b141f95266c97b2904c03be6c58bd3b7f2",
+  "required_tokens": [
+    "This is a report to create a patient ledger of charges with payments",
+    "AND c.ct_proc = '1'",
+    "AND activity > 0",
+    "GetAllCredits",
+    "activity.deleted IS NULL",
+    "GetAllUnapplied",
+    "pay_total",
+    "$pmt['pay_total'] - $pmt['applied']",
+    "$enc_bal = $enc_bal - $pmt_amt - $adj_amt"
+  ]
+}

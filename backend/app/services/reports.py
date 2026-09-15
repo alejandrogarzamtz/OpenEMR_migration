@@ -13,7 +13,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "non_reported", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -29,7 +29,7 @@ PERMISSION_OVERRIDES = {
     "ippf_statistics":"acct:rep:read", "payment_processing_report":"acct:rep_a:read",
     "message_list":"patients:med:read", "prepayment_balance_report":"acct:rep_a:read", "prescriptions_report":"patients:rx:read",
     "receipts_by_method_report":"acct:rep_a:read", "rwt_2026_report":"admin:super:read",
-    "sales_by_item":"acct:rep:read", "svc_code_financial_report":"acct:rep_a:read",
+    "sales_by_item":"acct:rep:read", "svc_code_financial_report":"acct:rep_a:read", "pat_ledger":"acct:rep:read",
 }
 
 
@@ -774,6 +774,56 @@ def non_reported_syndromic_report(db: Session,params: dict):
     return columns,rows,{"unreported_issues":len(rows),"patients":len({row["patient_uuid"] for row in rows}),"reportable_codes":len(reportable)}
 
 
+def patient_ledger_report(db: Session,user: User,params: dict):
+    """Patient ledger with encounter charges, applied A/R and standalone unapplied credits."""
+    patient_id=params.get("_patient_id")
+    if not patient_id:raise HTTPException(status_code=422,detail="Patient ledger requires patient_uuid")
+    patient=db.get(Patient,patient_id);today=datetime.now(timezone.utc).date();date_from=params.get("date_from") or today-timedelta(days=365);date_to=params.get("date_to") or today
+    start,end=bounds(date_from,date_to);scope=facility_scope(db,user);allowed_legacy=set(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope),Facility.legacy_facility_id.is_not(None)))) if scope is not None else None
+    query=select(Encounter).where(Encounter.patient_id==patient_id,Encounter.occurred_at>=start,Encounter.occurred_at<end)
+    if params.get("_facility_id"):query=query.where(or_(Encounter.facility_id==params["_facility_id"],Encounter.legacy_facility_id==params.get("_legacy_facility_id")))
+    elif scope is not None:query=query.where(or_(Encounter.facility_id.in_(scope),Encounter.legacy_facility_id.in_(allowed_legacy)))
+    encounters=list(db.scalars(query.order_by(Encounter.occurred_at,Encounter.id)));encounter_ids=[item.id for item in encounters]
+    procedure_types={item.key for item in db.scalars(select(BillingCodeType).where(BillingCodeType.procedure.is_(True)))}
+    charges={encounter_id:[] for encounter_id in encounter_ids}
+    if encounter_ids:
+        for charge in db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),Charge.active.is_(True)).order_by(Charge.billed_at,Charge.id)):
+            raw_provider=(charge.legacy_payload or {}).get("provider_id");provider=int(raw_provider) if str(raw_provider or "").isdigit() else 0
+            if charge.code_system not in procedure_types or (params.get("provider_legacy_id") and provider!=params["provider_legacy_id"]):continue
+            charges[charge.encounter_id].append(charge)
+    encounters=[item for item in encounters if charges[item.id]];encounter_ids=[item.id for item in encounters]
+    activities={encounter_id:[] for encounter_id in encounter_ids}
+    if encounter_ids:
+        for activity in db.scalars(select(ReceivableActivity).where(ReceivableActivity.encounter_id.in_(encounter_ids),ReceivableActivity.deleted_at.is_(None)).order_by(ReceivableActivity.legacy_sequence,ReceivableActivity.id)):activities[activity.encounter_id].append(activity)
+    payer_rows=list(db.scalars(select(Payer)));payers={item.id:item.name for item in payer_rows};legacy_payers={item.legacy_payer_id for item in payer_rows if item.legacy_payer_id is not None};rows=[];total_units=0;total_charges=Decimal("0");total_payments=Decimal("0");total_adjustments=Decimal("0");total_balance=Decimal("0")
+    columns=["line_type","patient_uuid","legacy_patient_id","patient","date_of_birth","encounter_uuid","legacy_encounter_id","encounter_date","encounter_reason","encounter_provider","code","modifier","description","billed_date","payer","payment_type","units","charge","unapplied_applied","payment","adjustment","balance_effect","encounter_balance"]
+    for encounter in encounters:
+        enc_balance=Decimal("0");enc_units=0;enc_charges=Decimal("0");enc_payments=Decimal("0");enc_adjustments=Decimal("0")
+        common={"patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid,"patient":" ".join(filter(None,(patient.first_name,patient.middle_name,patient.last_name))),"date_of_birth":value(patient.date_of_birth),"encounter_uuid":encounter.uuid,"legacy_encounter_id":encounter.legacy_encounter_id,"encounter_date":value(encounter.occurred_at),"encounter_reason":encounter.chief_complaint,"encounter_provider":encounter.provider_name}
+        for charge in charges[encounter.id]:
+            payload=charge.legacy_payload or {};payer_id=int(payload.get("payer_id") or 0) if str(payload.get("payer_id") or "").isdigit() else 0;amount=charge.unit_price;units=charge.units or 1;enc_units+=units;enc_charges+=amount;enc_balance+=amount
+            rows.append(common|{"line_type":"charge","code":charge.code,"modifier":charge.modifier,"description":charge.description,"billed_date":value(charge.billed_at.date()) if charge.billed_at else None,"payer":"Insurance" if payer_id in legacy_payers else "Self","payment_type":None,"units":units,"charge":value(amount),"unapplied_applied":None,"payment":None,"adjustment":None,"balance_effect":value(amount),"encounter_balance":value(enc_balance)})
+        for activity in activities[encounter.id]:
+            payment=activity.pay_amount;adjustment=activity.adjustment_amount;effect=-(payment+adjustment);enc_payments+=payment;enc_adjustments+=adjustment;enc_balance+=effect
+            payer=payers.get(activity.payer_id) or ("Patient" if activity.payer_type==0 else "Unnamed insurance company")
+            description=" - ".join(filter(None,(activity.payment_method_label or activity.payment_method,activity.payment_reference)))
+            if activity.memo:description+=(" " if description else "")+f"[{activity.memo}]"
+            rows.append(common|{"line_type":"payment","code":activity.code,"modifier":activity.modifier,"description":description or activity.follow_up_note,"billed_date":value(activity.posted_at.date()),"payer":payer,"payment_type":activity.account_code,"units":None,"charge":None,"unapplied_applied":None,"payment":value(payment) if payment else None,"adjustment":value(adjustment) if adjustment else None,"balance_effect":value(effect),"encounter_balance":value(enc_balance)})
+        total_units+=enc_units;total_charges+=enc_charges;total_payments+=enc_payments;total_adjustments+=enc_adjustments;total_balance+=enc_balance
+    applied_by_session={}
+    for activity in db.scalars(select(ReceivableActivity).where(ReceivableActivity.patient_id==patient_id,ReceivableActivity.deleted_at.is_(None),ReceivableActivity.legacy_session_id.is_not(None))):applied_by_session[activity.legacy_session_id]=applied_by_session.get(activity.legacy_session_id,Decimal("0"))+activity.pay_amount
+    session_query=select(ReceivableSession).where(ReceivableSession.patient_id==patient_id,ReceivableSession.created_at>=start,ReceivableSession.created_at<end)
+    for session in db.scalars(session_query.order_by(ReceivableSession.created_at,ReceivableSession.id)):
+        applied=applied_by_session.get(session.legacy_session_id,Decimal("0"));residual=session.pay_total-applied
+        if applied==0 or residual==0:continue
+        effect=-residual;total_payments+=residual;total_balance+=effect;payer=payers.get(session.payer_id) or "Patient"
+        description=" - ".join(filter(None,(session.payment_method_label or session.payment_method,session.reference)))
+        if session.description:description+=(": " if description else "")+session.description
+        if session.adjustment_code:description+=(" " if description else "")+f"[{session.adjustment_code}]"
+        rows.append({"line_type":"unapplied_credit","patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid,"patient":" ".join(filter(None,(patient.first_name,patient.middle_name,patient.last_name))),"date_of_birth":value(patient.date_of_birth),"encounter_uuid":None,"legacy_encounter_id":None,"encounter_date":None,"encounter_reason":None,"encounter_provider":None,"code":None,"modifier":None,"description":description,"billed_date":value(session.post_to_date or (session.created_at.date() if session.created_at else None)),"payer":payer,"payment_type":session.payment_type,"units":None,"charge":None,"unapplied_applied":value(applied),"payment":value(session.pay_total),"adjustment":None,"balance_effect":value(effect),"encounter_balance":None})
+    return columns,rows,{"lines":len(rows),"encounters":len(encounters),"units":total_units,"charges":value(total_charges),"payments":value(total_payments),"adjustments":value(total_adjustments),"balance":value(total_balance)}
+
+
 def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[list[str],list[dict],dict]:
     if key not in REPORT_PATHS: raise HTTPException(status_code=404,detail="Report not found")
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
@@ -789,6 +839,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "rwt_2026_report": return real_world_testing_2026_report(db,user,params)
     if key == "custom_report_range": return superbill_report(db,user,params)
     if key == "non_reported": return non_reported_syndromic_report(db,params)
+    if key == "pat_ledger": return patient_ledger_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]
