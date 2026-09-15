@@ -4,7 +4,7 @@ from hashlib import sha256
 import secrets
 from uuid import uuid4
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select
@@ -101,7 +101,9 @@ def current_staff_session(credentials: HTTPAuthorizationCredentials = Depends(be
     return session
 
 
-def current_user(session: AuthSession = Depends(current_staff_session), db: Session = Depends(get_db)) -> User:
+def current_user(request:Request,session: AuthSession = Depends(current_staff_session), db: Session = Depends(get_db)) -> User:
+    if session.smart_client_id is not None and not request.url.path.startswith("/fhir/"):
+        raise HTTPException(status_code=403,detail="SMART Backend Services tokens are restricted to FHIR")
     user = db.get(User, session.user_id) if session.user_id else None
     if not user or not user.active:
         raise HTTPException(status_code=401, detail="Invalid or expired credentials")
@@ -154,9 +156,18 @@ def user_has_permission(user: User, section: str, value: str, mode: str = "read"
 
 
 def require_permission(section: str, value: str, mode: str = "read") -> Callable[..., User]:
-    def permission_dependency(user: User = Depends(current_user)) -> User:
+    def permission_dependency(request:Request,session:AuthSession=Depends(current_staff_session),user: User = Depends(current_user)) -> User:
         if not user_has_permission(user, section, value, mode):
             raise HTTPException(status_code=403, detail="Permission denied")
+        if session.smart_client_id is not None:
+            parts=request.url.path.strip("/").split("/")
+            if len(parts)<2 or parts[0]!="fhir":raise HTTPException(status_code=403,detail="SMART Backend Services tokens are restricted to FHIR")
+            resource=parts[1];operation="s" if len(parts)==2 else "r";grants=session.smart_scopes or []
+            def covers(scope:str):
+                if not scope.startswith("system/") or "." not in scope:return False
+                target,actions=scope[7:].rsplit(".",1)
+                return target in {"*",resource} and operation in actions
+            if not any(covers(scope) for scope in grants):raise HTTPException(status_code=403,detail={"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"forbidden","diagnostics":f"Missing system/{resource}.{operation} scope"}]})
         return user
 
     return permission_dependency

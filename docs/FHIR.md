@@ -65,6 +65,10 @@ compartment and the demographics permission. Person represents an identity from
 the practitioner directory and links to the corresponding resolvable
 Practitioner resource; it supports bounded name, NPI and active-state searches.
 
-The development JWT is used as a bearer token. Production rollout must replace
-it with SMART on FHIR authorization, asymmetric token signing, scopes, launch
-context, and conformance/Inferno validation before connecting third parties.
+Staff sessions remain valid for first-party use. Pre-authorized third-party
+backend integrations use SMART App Launch 2.2 asymmetric client authentication,
+short-lived scope-bounded tokens, persistent assertion replay protection,
+introspection and revocation. SMART tokens are restricted to `/fhir/*` and are
+also bounded by the registered owner user's OpenRM permissions. See
+`SMART_BACKEND_SERVICES.md`. Interactive app launch, PKCE/OpenID Connect,
+patient/user context, Bulk Data export and formal Inferno validation remain.

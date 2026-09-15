@@ -692,6 +692,8 @@ class AuthSession(Base):
     identity_kind: Mapped[str] = mapped_column(String(20), index=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     portal_account_id: Mapped[int | None] = mapped_column(ForeignKey("portal_accounts.id"), nullable=True, index=True)
+    smart_client_id: Mapped[int | None] = mapped_column(ForeignKey("smart_clients.id"), nullable=True, index=True)
+    smart_scopes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     access_jti: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     refresh_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     previous_refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -702,6 +704,30 @@ class AuthSession(Base):
     revoke_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class SmartClient(Base):
+    """Pre-authorized asymmetric SMART Backend Services client."""
+    __tablename__ = "smart_clients"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    client_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    jwks: Mapped[dict] = mapped_column(JSON)
+    allowed_scopes: Mapped[list[str]] = mapped_column(JSON)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class SmartAssertionReplay(Base):
+    __tablename__ = "smart_assertion_replays"
+    __table_args__ = (UniqueConstraint("smart_client_id","jti",name="uq_smart_assertion_client_jti"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    smart_client_id: Mapped[int] = mapped_column(ForeignKey("smart_clients.id"), index=True)
+    jti: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class PasswordResetToken(Base):

@@ -642,6 +642,22 @@ class UserFacilityAccessCreate(BaseModel):
     warehouse_uuid: str | None = None
 
 
+class SmartClientCreate(BaseModel):
+    name: str = Field(min_length=1,max_length=255)
+    client_id: str | None = Field(default=None,min_length=8,max_length=100,pattern="^[A-Za-z0-9._~-]+$")
+    jwks: dict
+    allowed_scopes: list[str] = Field(min_length=1,max_length=100)
+
+
+class SmartClientOut(BaseModel):
+    uuid: str
+    client_id: str
+    name: str
+    allowed_scopes: list[str]
+    active: bool
+    created_at: datetime
+
+
 class UserFacilityAccessOut(UserFacilityAccessCreate):
     uuid: str
     facility_name: str

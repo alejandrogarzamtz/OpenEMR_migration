@@ -4,6 +4,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from .config import settings
 from .db import get_db
 from .models import Appointment, AuditEvent, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ClinicalItem, Coverage, Document, Encounter, Facility, Immunization, LabOrder, LabResult, Patient, PatientRelatedPerson, Payer, Practitioner, Prescription, QuestionnaireDefinition, QuestionnaireResponse, User, VitalSet
 from .security import appointment_user, clinical_user, patient_demographics_user
@@ -47,7 +48,8 @@ def metadata():
     status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
     directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]},{"type":"Person","interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
     resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
-    return {"resourceType":"CapabilityStatement","status":"active","date":"2026-09-14","kind":"instance","fhirVersion":"4.0.1","format":["json"],"rest":[{"mode":"server","security":{"cors":True,"service":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/restful-security-service","code":"OAuth"}]}]},"resource":resources}]}
+    token_url=f"{settings.api_public_url.rstrip('/')}/oauth2/default/token"
+    return {"resourceType":"CapabilityStatement","status":"active","date":"2026-09-15","kind":"instance","fhirVersion":"4.0.1","format":["json"],"rest":[{"mode":"server","security":{"cors":True,"service":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/restful-security-service","code":"SMART-on-FHIR"}]}],"extension":[{"url":"http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris","extension":[{"url":"token","valueUri":token_url}]}]},"resource":resources}]}
 
 
 @router.get("/Patient/{patient_uuid}")

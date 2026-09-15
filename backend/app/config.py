@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     simplified_demographics: bool = False
     ippf_specific: bool = False
     public_web_url: str = "http://localhost:5173"
+    api_public_url: str = "http://localhost:8000"
     jwt_issuer: str = "openemr-next"
     jwt_audience: str = "openemr-next-api"
     cors_origins: str = "http://localhost:5173"
