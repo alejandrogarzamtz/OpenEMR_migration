@@ -1,41 +1,60 @@
-# SMART Backend Services
+# SMART App Launch
 
-OpenRM implements the asymmetric backend-services profile from SMART App
-Launch 2.2 for pre-authorized, headless FHIR integrations. Discovery is
-available at `GET /fhir/.well-known/smart-configuration`.
+OpenRM implements SMART App Launch 2.2 for interactive applications and
+pre-authorized backend services. Discovery is available at
+`GET /fhir/.well-known/smart-configuration`.
 
-An administrator registers a client name, stable client ID, public JWKS and
-the exact `system/Resource.r`, `.s`, or `.rs` scopes it may request. Only RSA
-or EC public keys using RS384 or ES384 are accepted. Private keys are never
-uploaded to OpenRM. Registration, token issuance and client revocation are
-audited.
+## Interactive applications
 
-The client signs a one-time JWT assertion and posts it to
-`/oauth2/default/token` with:
+Public applications use Authorization Code with mandatory PKCE S256. Redirect
+URIs are compared exactly; authorization requests, launch handles and codes
+expire after five minutes; launch handles and codes are single-use; and the
+client's `state` and OIDC `nonce` are preserved and validated by the protocol.
+Standalone, EHR and patient-portal launches are supported.
 
-- `grant_type=client_credentials`
-- one or more pre-authorized `system/` scopes
-- `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`
-- `client_assertion=<signed JWT>`
+Interactive permissions use SMART v2 `user/Resource.rs` and
+`patient/Resource.rs` scopes. Patient scopes are enforced against the selected
+launch compartment for both searches and individual reads. EHR launches can
+bind a patient and encounter. Patient launches are restricted to the portal
+identity's own record or an active representative grant.
 
-The assertion must use a registered `kid`, identify the client in both `iss`
-and `sub`, target the advertised token URL in `aud`, expire within five
-minutes, and contain `iat`, `exp`, and a unique `jti`. Assertion replay is
-persistently rejected. Issued access tokens live for at most five minutes,
-cannot access `/api/*`, and are checked against both the registered client
-scope and the owning OpenRM user's permissions on every FHIR request.
+Requests for `openid fhirUser` receive an RS256 ID Token with issuer, audience,
+nonce, stable subject and a resolvable Practitioner or Patient `fhirUser` URL.
+The public signing key is exposed by `/oauth2/default/jwks`; OIDC discovery is
+available from both `/fhir/.well-known/openid-configuration` and the issuer-based
+`/.well-known/openid-configuration/fhir` path.
 
-`POST /oauth2/default/introspect` and `POST /oauth2/default/revoke` require a
-new signed client assertion. Disabling a client immediately revokes all its
-active sessions. OAuth responses prohibit caching.
+OpenRM does not advertise `offline_access`, so interactive refresh tokens are
+intentionally not issued. Applications obtain a new authorization after the
+five-minute access token expires or is revoked.
 
-Set `API_PUBLIC_URL` to the externally reachable HTTPS origin before
-registration or production use. The value becomes the exact token audience;
-reverse-proxy rewriting must preserve it. TLS termination and private-key
-custody are deployment responsibilities.
+## Backend services
 
-Interactive EHR/patient launch, authorization-code + PKCE, OpenID Connect,
-patient/user launch context, and Bulk Data export are separate remaining
-profiles and are not advertised by this backend-only implementation.
+Administrators register a client ID, public JWKS and exact `system/Resource.r`,
+`.s` or `.rs` scopes. Only RSA or EC public keys using RS384 or ES384 are
+accepted; private key material is rejected. The client authenticates at
+`/oauth2/default/token` with `client_credentials` and a one-time
+`private_key_jwt` assertion whose `iss` and `sub` equal the client ID and whose
+`aud` is the advertised token endpoint. Persistent `jti` replay protection,
+introspection and revocation are enforced.
 
-Specification: [SMART App Launch 2.2 Backend Services](https://hl7.org/fhir/smart-app-launch/backend-services.html).
+Every SMART token is restricted to `/fhir/*`, remains bounded by the owning
+OpenRM user's ACL and is checked against its granted SMART scopes. Disabling a
+client immediately revokes all active sessions. OAuth responses prohibit
+caching.
+
+## Administration and deployment
+
+The React administration workspace registers backend or interactive clients.
+Interactive registrations contain exact redirect URIs, a launch URI, supported
+launch types and least-privilege scopes. Authenticated staff and portal flows
+create launch handles through `POST /api/v1/smart/launches`.
+
+Set `API_PUBLIC_URL` to the externally reachable HTTPS origin. For stable OIDC
+signatures, mount an access-restricted PEM RSA private key and configure
+`SMART_OIDC_PRIVATE_KEY_PATH` plus `SMART_OIDC_KEY_ID`. Production refuses to
+issue OIDC tokens without that key; development generates an ephemeral 3072-bit
+key when no path is configured. TLS termination, signing-key
+rotation and external deployment-profile validation remain operator duties.
+
+Specification: [SMART App Launch 2.2](https://hl7.org/fhir/smart-app-launch/STU2.2/).

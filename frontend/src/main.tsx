@@ -27,6 +27,7 @@ import { ReportWorkspace } from "./features/reports/ReportWorkspace";
 import { CommunicationWorkspace } from "./features/communications/CommunicationWorkspace";
 import { PortalApp } from "./features/communications/PortalApp";
 import { SecurityWorkspace } from "./features/security/SecurityWorkspace";
+import { SmartAuthorizeApp } from "./features/smart/SmartAuthorizeApp";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 type Item = { uuid:string; title:string; status:string; code?:string; reaction?:string; dosage?:string };
@@ -201,5 +202,5 @@ function App(){
     </main>
   </div>;
 }
-const root = window.location.pathname.startsWith("/portal") ? <PortalApp baseUrl={API}/> : window.location.pathname.startsWith("/reset-password") ? <PasswordRecovery/> : <App/>;
+const root = window.location.pathname.startsWith("/smart/authorize") ? <SmartAuthorizeApp baseUrl={API}/> : window.location.pathname.startsWith("/portal") ? <PortalApp baseUrl={API}/> : window.location.pathname.startsWith("/reset-password") ? <PasswordRecovery/> : <App/>;
 createRoot(document.getElementById("root")!).render(<React.StrictMode>{root}</React.StrictMode>);

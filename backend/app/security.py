@@ -156,7 +156,7 @@ def user_has_permission(user: User, section: str, value: str, mode: str = "read"
 
 
 def require_permission(section: str, value: str, mode: str = "read") -> Callable[..., User]:
-    def permission_dependency(request:Request,session:AuthSession=Depends(current_staff_session),user: User = Depends(current_user)) -> User:
+    def permission_dependency(request:Request,session:AuthSession=Depends(current_staff_session),user: User = Depends(current_user),db:Session=Depends(get_db)) -> User:
         if not user_has_permission(user, section, value, mode):
             raise HTTPException(status_code=403, detail="Permission denied")
         if session.smart_client_id is not None:
@@ -164,13 +164,37 @@ def require_permission(section: str, value: str, mode: str = "read") -> Callable
             if len(parts)<2 or parts[0]!="fhir":raise HTTPException(status_code=403,detail="SMART Backend Services tokens are restricted to FHIR")
             resource=parts[1];operation="s" if len(parts)==2 else "r";grants=session.smart_scopes or []
             def covers(scope:str):
-                if not scope.startswith("system/") or "." not in scope:return False
-                target,actions=scope[7:].rsplit(".",1)
-                return target in {"*",resource} and operation in actions
-            if not any(covers(scope) for scope in grants):raise HTTPException(status_code=403,detail={"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"forbidden","diagnostics":f"Missing system/{resource}.{operation} scope"}]})
+                if "/" not in scope or "." not in scope:return False
+                context,tail=scope.split("/",1);target,actions=tail.rsplit(".",1)
+                return context in {"system","user","patient"} and target in {"*",resource} and operation in actions
+            if not any(covers(scope) for scope in grants):raise HTTPException(status_code=403,detail={"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"forbidden","diagnostics":f"Missing SMART {resource}.{operation} scope"}]})
+            patient_scoped=any(scope.startswith("patient/") and covers(scope) for scope in grants) and not any(scope.startswith(("system/","user/")) and covers(scope) for scope in grants)
+            if patient_scoped and not smart_patient_access(db,request,session,resource,parts[2] if len(parts)>2 else None):raise HTTPException(status_code=403,detail={"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"forbidden","diagnostics":"Resource is outside the authorized patient context"}]})
         return user
 
     return permission_dependency
+
+
+def smart_patient_access(db:Session,request:Request,session:AuthSession,resource:str,resource_id:str|None)->bool:
+    patient_id=session.smart_patient_id
+    if not patient_id:return False
+    patient=db.get(Patient,patient_id)
+    if not patient:return False
+    if resource_id is None:
+        reference=request.query_params.get("_id") if resource=="Patient" else request.query_params.get("patient")
+        return bool(reference and reference.rstrip("/").rsplit("/",1)[-1]==patient.uuid)
+    if resource=="Patient":return resource_id==patient.uuid
+    from .models import Appointment, CarePlan, CareTeam, ClinicalItem, Coverage, Document, Encounter, Immunization, LabOrder, LabResult, PatientRelatedPerson, Prescription, QuestionnaireResponse, VitalSet
+    direct={"Condition":ClinicalItem,"AllergyIntolerance":ClinicalItem,"MedicationStatement":ClinicalItem,"Immunization":Immunization,"MedicationRequest":Prescription,"CarePlan":CarePlan,"Goal":CarePlan,"CareTeam":CareTeam,"Appointment":Appointment,"Encounter":Encounter,"Coverage":Coverage,"DocumentReference":Document,"Binary":Document,"ServiceRequest":LabOrder,"DiagnosticReport":LabOrder,"QuestionnaireResponse":QuestionnaireResponse,"RelatedPerson":PatientRelatedPerson}
+    model=direct.get(resource)
+    if model:return bool(db.scalar(select(model.id).where(model.uuid==resource_id,model.patient_id==patient_id)))
+    if resource=="Observation":
+        result=db.scalar(select(LabResult.id).join(LabOrder,LabResult.order_id==LabOrder.id).where(LabResult.uuid==resource_id,LabOrder.patient_id==patient_id))
+        if result:return True
+        for field in ("systolic","diastolic","heart_rate","respiratory_rate","temperature_c","oxygen_saturation","weight_kg","height_cm","bmi"):
+            suffix=f"-{field}"
+            if resource_id.endswith(suffix):return bool(db.scalar(select(VitalSet.id).where(VitalSet.uuid==resource_id[:-len(suffix)],VitalSet.patient_id==patient_id)))
+    return False
 
 
 # Legacy phpGACL-compatible section/value names. Route modules use these

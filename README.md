@@ -365,7 +365,7 @@ Start with these documents:
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged
   delivery approach;
 - [FHIR Notes](docs/FHIR.md) — current standards implementation and limitations.
-- [SMART Backend Services](docs/SMART_BACKEND_SERVICES.md) — asymmetric client registration, scopes, token lifecycle, and deployment requirements.
+- [SMART App Launch](docs/SMART_BACKEND_SERVICES.md) — interactive and backend authorization, scopes, identity, token lifecycle, and deployment requirements.
 
 ## Contributing
 

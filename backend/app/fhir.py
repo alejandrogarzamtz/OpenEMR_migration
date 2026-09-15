@@ -47,9 +47,10 @@ def metadata():
     patient_resources.append({"type":"RelatedPerson","interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"name","type":"string"},{"name":"relationship","type":"token"},{"name":"active","type":"token"}]})
     status_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"patient","type":"reference"},{"name":"status","type":"token"}]} for name in ("Appointment","Encounter","CarePlan","Goal","CareTeam")]
     directory_resources=[{"type":name,"interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"active","type":"token"}]} for name in ("Organization","Location")]+[{"type":"Practitioner","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]},{"type":"Person","interaction":read_search,"searchParam":[{"name":"name","type":"string"},{"name":"identifier","type":"token"},{"name":"active","type":"token"}]}]
-    resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
-    token_url=f"{settings.api_public_url.rstrip('/')}/oauth2/default/token"
-    return {"resourceType":"CapabilityStatement","status":"active","date":"2026-09-15","kind":"instance","fhirVersion":"4.0.1","format":["json"],"rest":[{"mode":"server","security":{"cors":True,"service":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/restful-security-service","code":"SMART-on-FHIR"}]}],"extension":[{"url":"http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris","extension":[{"url":"token","valueUri":token_url}]}]},"resource":resources}]}
+    resources=[{"type":"Patient","interaction":read_search,"searchParam":[{"name":"_id","type":"token"},{"name":"family","type":"string"},{"name":"given","type":"string"}]},*patient_resources,*status_resources,*directory_resources]
+    base=settings.api_public_url.rstrip("/")
+    oauth_uris=[{"url":"authorize","valueUri":f"{base}/oauth2/default/authorize"},{"url":"token","valueUri":f"{base}/oauth2/default/token"},{"url":"revoke","valueUri":f"{base}/oauth2/default/revoke"}]
+    return {"resourceType":"CapabilityStatement","status":"active","date":"2026-09-15","kind":"instance","fhirVersion":"4.0.1","format":["json"],"rest":[{"mode":"server","security":{"cors":True,"service":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/restful-security-service","code":"SMART-on-FHIR"}]}],"extension":[{"url":"http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris","extension":oauth_uris}]},"resource":resources}]}
 
 
 @router.get("/Patient/{patient_uuid}")
@@ -58,8 +59,9 @@ def read_patient(patient_uuid: str, db: Session = Depends(get_db), user: User = 
 
 
 @router.get("/Patient")
-def search_patients(family: str | None = None, given: str | None = None, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
+def search_patients(family: str | None = None, given: str | None = None, resource_id:str|None=Query(default=None,alias="_id"), db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     query = select(Patient).where(Patient.merged_at.is_(None))
+    if resource_id: query = query.where(Patient.uuid == resource_id.rsplit("/",1)[-1])
     if family: query = query.where(Patient.last_name.ilike(f"%{family}%"))
     if given: query = query.where(Patient.first_name.ilike(f"%{given}%"))
     patients = list(db.scalars(query.limit(100))); db.add(AuditEvent(actor_id=user.id, action="fhir-search", resource_type="Patient")); db.commit(); return bundle("Patient", [patient_resource(x) for x in patients])

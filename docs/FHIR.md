@@ -65,10 +65,10 @@ compartment and the demographics permission. Person represents an identity from
 the practitioner directory and links to the corresponding resolvable
 Practitioner resource; it supports bounded name, NPI and active-state searches.
 
-Staff sessions remain valid for first-party use. Pre-authorized third-party
-backend integrations use SMART App Launch 2.2 asymmetric client authentication,
-short-lived scope-bounded tokens, persistent assertion replay protection,
-introspection and revocation. SMART tokens are restricted to `/fhir/*` and are
-also bounded by the registered owner user's OpenRM permissions. See
-`SMART_BACKEND_SERVICES.md`. Interactive app launch, PKCE/OpenID Connect,
-patient/user context, Bulk Data export and formal Inferno validation remain.
+Staff sessions remain valid for first-party use. Third-party applications use
+SMART App Launch 2.2 standalone, EHR, patient or asymmetric backend launch with
+PKCE, OIDC and patient/user/system scopes. SMART tokens are restricted to
+`/fhir/*`, patient scopes are compartment-bound, and all access remains bounded
+by the registered owner user's OpenRM permissions. See
+`SMART_BACKEND_SERVICES.md`. Bulk Data and formal deployment-profile validation
+remain part of the wider FHIR API work.

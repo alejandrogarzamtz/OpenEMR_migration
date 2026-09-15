@@ -694,6 +694,8 @@ class AuthSession(Base):
     portal_account_id: Mapped[int | None] = mapped_column(ForeignKey("portal_accounts.id"), nullable=True, index=True)
     smart_client_id: Mapped[int | None] = mapped_column(ForeignKey("smart_clients.id"), nullable=True, index=True)
     smart_scopes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    smart_patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    smart_encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True, index=True)
     access_jti: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     refresh_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     previous_refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -713,7 +715,11 @@ class SmartClient(Base):
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     client_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
-    jwks: Mapped[dict] = mapped_column(JSON)
+    client_kind: Mapped[str] = mapped_column(String(30), default="backend", index=True)
+    jwks: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    redirect_uris: Mapped[list[str]] = mapped_column(JSON, default=list)
+    launch_uri: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    launch_types: Mapped[list[str]] = mapped_column(JSON, default=list)
     allowed_scopes: Mapped[list[str]] = mapped_column(JSON)
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     active: Mapped[bool] = mapped_column(default=True, index=True)
@@ -728,6 +734,57 @@ class SmartAssertionReplay(Base):
     smart_client_id: Mapped[int] = mapped_column(ForeignKey("smart_clients.id"), index=True)
     jti: Mapped[str] = mapped_column(String(255))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class SmartLaunchContext(Base):
+    __tablename__ = "smart_launch_contexts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    smart_client_id: Mapped[int] = mapped_column(ForeignKey("smart_clients.id"), index=True)
+    identity_kind: Mapped[str] = mapped_column(String(20), index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True, index=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_portal_account_id: Mapped[int | None] = mapped_column(ForeignKey("portal_accounts.id"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SmartAuthorizationRequest(Base):
+    __tablename__ = "smart_authorization_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    request_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    smart_client_id: Mapped[int] = mapped_column(ForeignKey("smart_clients.id"), index=True)
+    launch_context_id: Mapped[int | None] = mapped_column(ForeignKey("smart_launch_contexts.id"), nullable=True)
+    redirect_uri: Mapped[str] = mapped_column(String(1000))
+    scopes: Mapped[list[str]] = mapped_column(JSON)
+    state: Mapped[str] = mapped_column(String(500))
+    audience: Mapped[str] = mapped_column(String(1000))
+    nonce: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    code_challenge: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SmartAuthorizationCode(Base):
+    __tablename__ = "smart_authorization_codes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    smart_client_id: Mapped[int] = mapped_column(ForeignKey("smart_clients.id"), index=True)
+    authorization_request_id: Mapped[int] = mapped_column(ForeignKey("smart_authorization_requests.id"), unique=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    portal_account_id: Mapped[int | None] = mapped_column(ForeignKey("portal_accounts.id"), nullable=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
+    redirect_uri: Mapped[str] = mapped_column(String(1000))
+    scopes: Mapped[list[str]] = mapped_column(JSON)
+    nonce: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    code_challenge: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PasswordResetToken(Base):

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     ippf_specific: bool = False
     public_web_url: str = "http://localhost:5173"
     api_public_url: str = "http://localhost:8000"
+    smart_oidc_private_key_path: str | None = None
+    smart_oidc_key_id: str = "openrm-smart-oidc"
     jwt_issuer: str = "openemr-next"
     jwt_audience: str = "openemr-next-api"
     cors_origins: str = "http://localhost:5173"

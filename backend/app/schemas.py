@@ -645,7 +645,11 @@ class UserFacilityAccessCreate(BaseModel):
 class SmartClientCreate(BaseModel):
     name: str = Field(min_length=1,max_length=255)
     client_id: str | None = Field(default=None,min_length=8,max_length=100,pattern="^[A-Za-z0-9._~-]+$")
-    jwks: dict
+    client_kind: str = Field(default="backend",pattern="^(backend|interactive)$")
+    jwks: dict | None = None
+    redirect_uris: list[str] = Field(default_factory=list,max_length=20)
+    launch_uri: str | None = Field(default=None,max_length=1000)
+    launch_types: list[str] = Field(default_factory=list,max_length=3)
     allowed_scopes: list[str] = Field(min_length=1,max_length=100)
 
 
@@ -653,9 +657,24 @@ class SmartClientOut(BaseModel):
     uuid: str
     client_id: str
     name: str
+    client_kind: str
+    redirect_uris: list[str]
+    launch_uri: str | None
+    launch_types: list[str]
     allowed_scopes: list[str]
     active: bool
     created_at: datetime
+
+
+class SmartLaunchCreate(BaseModel):
+    client_id: str = Field(min_length=8,max_length=100)
+    patient_uuid: str | None = None
+    encounter_uuid: str | None = None
+    identity_kind: str = Field(default="staff",pattern="^(staff|portal)$")
+
+
+class SmartAuthorizationApproval(BaseModel):
+    patient_uuid: str | None = None
 
 
 class UserFacilityAccessOut(UserFacilityAccessCreate):

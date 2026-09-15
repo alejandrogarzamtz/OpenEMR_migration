@@ -36,6 +36,8 @@ services:
       SECURE_COOKIES: ${SECURE_COOKIES:-false}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:5173}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:8000}
+      SMART_OIDC_PRIVATE_KEY_PATH: ${SMART_OIDC_PRIVATE_KEY_PATH:-}
+      SMART_OIDC_KEY_ID: ${SMART_OIDC_KEY_ID:-openrm-smart-oidc}
       BOOTSTRAP_ADMIN_EMAIL: admin@example.com
       BOOTSTRAP_ADMIN_PASSWORD: change-me-now
       CORS_ORIGINS: http://localhost:5173
