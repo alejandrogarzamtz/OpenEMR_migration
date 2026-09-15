@@ -18,7 +18,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `charts_checked_out` | MIGRATED — current checkout state derived from each patient's latest custody event, including named external custodians |
 | `clinical_reports` | MIGRATED |
 | `collections_report` | MIGRATED — integrated A/R responsibility, effective payer/policy selection, charges, product sales, payments, adjustments, aging buckets, patient and insurance modes, facility ACL, snapshots and CSV |
-| `cqm` | PENDING |
+| `cqm` | MIGRATED — filtered saved-calculation catalog; Standard, CQM 2011/2014 and historical report metadata; typed measure totals, immutable snapshots and CSV; results are only presented from persisted calculations |
 | `criteria.tab` | EMBEDDED / PENDING — criteria UI included by the legacy billing report, not an independently executable report; parity belongs to the unfinished billing-report builder |
 | `custom_report_range` | MIGRATED — printable patient Superbill with qualifying new-patient encounters, full demographics and subscriber coverage, active charge/provider fallback, copay reconciliation, facility ACL, snapshots and CSV |
 | `daily_summary_report` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 45 migrated, 3 pending/embedded**.
+Current accounting: **48 cataloged, 46 migrated, 2 embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be

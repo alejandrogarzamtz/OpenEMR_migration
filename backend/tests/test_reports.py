@@ -20,7 +20,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==45
+        assert sum(item["migrated"] for item in catalog.json())==46
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -49,7 +49,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         reader_headers={"Authorization":f"Bearer {reader_token}"}
         assert client.get(f"/api/v1/report-runs/{payload['uuid']}",headers=reader_headers).status_code==403
         assert client.get(f"/api/v1/report-runs/{payload['uuid']}/export.csv",headers=reader_headers).status_code==403
-        assert client.post("/api/v1/reports/cqm/runs",headers=headers,json={}).status_code==501
+        assert client.post("/api/v1/reports/cqm/runs",headers=headers,json={}).status_code==201
         assert client.post("/api/v1/reports/appointments_report/runs",headers=headers,json={"date_from":"2027-02-11","date_to":"2027-02-10"}).status_code==422
 
 
@@ -218,6 +218,18 @@ def test_amc_full_report_preserves_measure_math_and_patient_evidence():
         summary=client.post("/api/v1/reports/amc_full_report/runs",headers=headers,json={"quality_report_uuid":report_uuid,"include_details":False})
         assert summary.json()["rows"][1]["failed"]==5
         assert client.post("/api/v1/reports/amc_full_report/runs",headers=headers,json={}).status_code==422
+
+
+def test_cqm_lists_filters_and_opens_saved_calculations():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        with SessionLocal() as db:
+            report=QualityMeasureReport(legacy_report_id=99002,report_type="cqm_2014",status="complete",provider="7",data=[{"is_main":True,"id":"CMS122v3","pass_filter":8,"pass_target":6,"excluded":0,"percentage":"75"}],legacy_fields={});db.add(report);db.commit();report_uuid=report.uuid
+        listing=client.post("/api/v1/reports/cqm/runs",headers=headers,json={"quality_report_type":"cqm_2014"})
+        assert listing.status_code==201,listing.text
+        row=next(item for item in listing.json()["rows"] if item["quality_report_uuid"]==report_uuid);assert row["measure_count"]==1 and row["provider"]=="7"
+        opened=client.post("/api/v1/reports/cqm/runs",headers=headers,json={"quality_report_uuid":report_uuid})
+        assert opened.status_code==201 and opened.json()["rows"]==[{"measure_index":0,"measure_type":"main","measure_id":"CMS122v3","display_field":"CMS122v3","total_patients":0,"eligible":8,"excluded":0,"passed":6,"failed":2,"percentage":"75","itemized_test_id":None}]
 
 
 def test_report_execution_enforces_each_catalog_permission():

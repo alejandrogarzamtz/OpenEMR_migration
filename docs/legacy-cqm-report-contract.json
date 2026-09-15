@@ -1,0 +1,12 @@
+{
+  "source": "openemr-legacy/interface/reports/cqm.php",
+  "sha256": "8cba0e1e4c4b1882337b45d874913e40dd7588d012136c0bda698093e333c83a",
+  "required_tokens": [
+    "collectReportDatabase($report_id)",
+    "formatReportData($report_id",
+    "cqm_2011",
+    "cqm_2014",
+    "form_provider",
+    "form_pat_prov_rel"
+  ]
+}
