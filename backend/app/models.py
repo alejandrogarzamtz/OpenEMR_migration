@@ -1100,6 +1100,7 @@ class Coverage(Base):
     relationship: Mapped[str] = mapped_column(String(50), default="self")
     starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Claim(Base):

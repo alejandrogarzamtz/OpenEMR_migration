@@ -13,7 +13,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -692,6 +692,64 @@ def audit_integrity_report(db: Session, params: dict) -> tuple[list[str],list[di
     return columns,rows,{"scanned":len(events),"tampered":tampered,"unsealed":unsealed,"deleted":deleted,"integrity_failures":len(rows)}
 
 
+def superbill_report(db: Session,user: User,params: dict):
+    """Printable legacy Superbill: qualifying encounters, demographics, coverage, charges and copay."""
+    start=params.get("date_from");end=params.get("date_to")
+    if not start or not end:raise HTTPException(status_code=422,detail="Superbill requires date_from and date_to")
+    lower,upper=bounds(start,end);scope=facility_scope(db,user)
+    query=(select(ClinicalForm,Encounter,Patient).join(Encounter,Encounter.id==ClinicalForm.encounter_id).join(Patient,Patient.id==ClinicalForm.patient_id)
+        .where(ClinicalForm.title=="New Patient Encounter",ClinicalForm.authored_at>=lower,ClinicalForm.authored_at<upper,Patient.merged_into_id.is_(None)))
+    if params.get("_patient_id"):query=query.where(Patient.id==params["_patient_id"])
+    if scope is not None:query=query.where(Encounter.facility_id.in_(scope))
+    selected=list(db.execute(query.order_by(ClinicalForm.authored_at.desc(),ClinicalForm.id.desc())))
+    patient_fields=["title","fname","mname","lname","sex","ss","DOB","street","city","state","postal_code","country_code","occupation","phone_home","phone_biz","phone_contact","contact_relationship","hipaa_mail","hipaa_voice","hipaa_notice","hipaa_message"]
+    insurance_fields=["provider_name","plan_name","policy_number","group_number","subscriber_fname","subscriber_mname","subscriber_lname","subscriber_relationship","subscriber_ss","subscriber_DOB","subscriber_phone","subscriber_street","subscriber_postal_code","subscriber_city","subscriber_state","subscriber_country","subscriber_employer","subscriber_employer_street","subscriber_employer_city","subscriber_employer_postal_code","subscriber_employer_state","subscriber_employer_country"]
+    base_columns=["superbill_uuid","encounter_uuid","legacy_encounter_id","encounter_date","billing_facility","billing_facility_address","patient_uuid","legacy_patient_id"]
+    columns=base_columns+[f"patient_{field}" for field in patient_fields]+[f"{priority}_{field}" for priority in ("primary","secondary","tertiary") for field in insurance_fields]+["charge_date","provider","code_type","code","modifier","code_text","fee","encounter_subtotal","copay_paid","encounter_total","physician_signature"]
+    patient_ids={patient.id for _,_,patient in selected};encounter_ids={encounter.id for _,encounter,_ in selected}
+    coverage_history={}
+    if patient_ids:
+        for coverage,payer in db.execute(select(Coverage,Payer).join(Payer,Payer.id==Coverage.payer_id).where(Coverage.patient_id.in_(patient_ids)).order_by(Coverage.starts_on.nullsfirst(),Coverage.id)):
+            payload=dict(coverage.legacy_payload or {});payload["provider_name"]=payer.name
+            payload.setdefault("plan_name",coverage.plan_name);payload.setdefault("policy_number",coverage.policy_number);payload.setdefault("group_number",coverage.group_number);payload.setdefault("subscriber_relationship",coverage.relationship)
+            names=coverage.subscriber_name.split();payload.setdefault("subscriber_fname",names[0] if names else None);payload.setdefault("subscriber_lname",names[-1] if len(names)>1 else None)
+            current=coverage_history.setdefault((coverage.patient_id,coverage.priority),{})
+            for field in insurance_fields:
+                candidate=payload.get(field)
+                if candidate not in (None,""):current[field]=candidate
+    charges={encounter_id:[] for encounter_id in encounter_ids}
+    if encounter_ids:
+        for charge in db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),Charge.active.is_(True)).order_by(Charge.billed_at,Charge.id)):charges[charge.encounter_id].append(charge)
+    copays={encounter_id:Decimal("0") for encounter_id in encounter_ids}
+    if encounter_ids:
+        for activity in db.scalars(select(ReceivableActivity).where(ReceivableActivity.encounter_id.in_(encounter_ids),ReceivableActivity.payer_type==0,ReceivableActivity.account_code=="PCP",ReceivableActivity.deleted_at.is_(None))):copays[activity.encounter_id]+=activity.pay_amount
+    practitioners={item.legacy_user_id:" ".join(filter(None,(item.first_name,item.last_name))) for item in db.scalars(select(Practitioner).where(Practitioner.legacy_user_id.is_not(None)))}
+    facility_query=select(Facility).where(Facility.billing_location.is_(True),Facility.active.is_(True))
+    if scope is not None:facility_query=facility_query.where(Facility.id.in_(scope))
+    billing_facility=db.scalar(facility_query.order_by(Facility.id).limit(1))
+    facility_name=billing_facility.name if billing_facility else None
+    facility_address=", ".join(filter(None,((billing_facility.street if billing_facility else None),(billing_facility.city if billing_facility else None),(billing_facility.state if billing_facility else None),(billing_facility.postal_code if billing_facility else None)))) or None
+    rows=[];charge_total=Decimal("0");copay_total=Decimal("0")
+    normalized_patient={"fname":"first_name","mname":"middle_name","lname":"last_name","sex":"sex","DOB":"date_of_birth","street":"address_line_1","city":"city","state":"state","postal_code":"postal_code","country_code":"country_code","phone_home":"phone"}
+    for form,encounter,patient in selected:
+        patient_payload=dict(patient.legacy_payload or {})
+        for source,target in normalized_patient.items():
+            if patient_payload.get(source) in (None,""):patient_payload[source]=value(getattr(patient,target))
+        total=sum((charge.unit_price for charge in charges[encounter.id]),Decimal("0"));copay=abs(copays[encounter.id]);charge_total+=total;copay_total+=copay
+        base={"superbill_uuid":form.uuid,"encounter_uuid":encounter.uuid,"legacy_encounter_id":encounter.legacy_encounter_id,"encounter_date":value(form.authored_at),"billing_facility":facility_name,"billing_facility_address":facility_address,"patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid}
+        base.update({f"patient_{field}":patient_payload.get(field) for field in patient_fields})
+        for priority in ("primary","secondary","tertiary"):
+            payload=coverage_history.get((patient.id,priority),{})
+            base.update({f"{priority}_{field}":payload.get(field) for field in insurance_fields})
+        base.update({"encounter_subtotal":f"{total+copay:.2f}","copay_paid":f"{copay:.2f}","encounter_total":f"{total:.2f}","physician_signature":""})
+        detail=charges[encounter.id] or [None]
+        for charge in detail:
+            payload=charge.legacy_payload or {} if charge else {};raw_provider=payload.get("provider_id") if charge else None;provider_id=int(raw_provider) if str(raw_provider or "").isdigit() else 0
+            provider=practitioners.get(provider_id) if provider_id else (encounter.provider_name or practitioners.get(encounter.legacy_provider_id))
+            rows.append(base|{"charge_date":value(charge.billed_at) if charge else None,"provider":provider,"code_type":charge.code_system if charge else None,"code":charge.code if charge else None,"modifier":charge.modifier if charge else None,"code_text":charge.description if charge else None,"fee":f"{charge.unit_price:.2f}" if charge else None})
+    return columns,rows,{"superbills":len(selected),"charge_lines":sum(len(items) for items in charges.values()),"charges":f"{charge_total:.2f}","copay_paid":f"{copay_total:.2f}","subtotals":f"{charge_total+copay_total:.2f}"}
+
+
 def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[list[str],list[dict],dict]:
     if key not in REPORT_PATHS: raise HTTPException(status_code=404,detail="Report not found")
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
@@ -705,6 +763,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "prepayment_balance_report": return prepayment_balance_report(db,user,params)
     if key == "svc_code_financial_report": return service_code_financial_report(db,user,params)
     if key == "rwt_2026_report": return real_world_testing_2026_report(db,user,params)
+    if key == "custom_report_range": return superbill_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

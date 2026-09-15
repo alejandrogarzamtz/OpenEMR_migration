@@ -20,7 +20,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `collections_report` | MIGRATED — integrated A/R responsibility, effective payer/policy selection, charges, product sales, payments, adjustments, aging buckets, patient and insurance modes, facility ACL, snapshots and CSV |
 | `cqm` | PENDING |
 | `criteria.tab` | EMBEDDED / PENDING — criteria UI included by the legacy billing report, not an independently executable report; parity belongs to the unfinished billing-report builder |
-| `custom_report_range` | PENDING |
+| `custom_report_range` | MIGRATED — printable patient Superbill with qualifying new-patient encounters, full demographics and subscriber coverage, active charge/provider fallback, copay reconciliation, facility ACL, snapshots and CSV |
 | `daily_summary_report` | MIGRATED |
 | `destroyed_drugs_report` | MIGRATED |
 | `direct_message_log` | MIGRATED |
@@ -56,12 +56,20 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 36 migrated, 12 pending/embedded**.
+Current accounting: **48 cataloged, 37 migrated, 11 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
 represented as runnable reports. Their date/text/radio/dropdown criteria
 behavior will be verified with the parent billing-report builder.
+
+`custom_report_range` preserves the legacy New Patient Encounter selection and
+reverse chronological Superbill order, while treating the selected end date as
+the full calendar day instead of reproducing the legacy midnight-only SQL edge
+case. It emits the latest value for every displayed demographic and primary,
+secondary and tertiary subscriber field, retains complete source insurance
+rows, applies charge-level provider fallback, excludes inactive billing rows,
+reconciles live patient copays, and keeps encounters without charges printable.
 
 `cdr_log` preserves raw `value` and `new_value` text exactly, including empty
 or malformed historical JSON, so a report never rewrites clinical evidence.

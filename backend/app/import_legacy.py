@@ -702,14 +702,17 @@ def run(source_url: str, commit: bool = False) -> dict:
             target.add(Payer(legacy_payer_id=row["id"], name=clean(row["name"]), payer_identifier=clean(row["x12_receiver_id"]) or clean(row["cms_id"]), active=not bool(row["inactive"])))
             stats["payers"]["inserted"] += 1
         target.flush()
-        coverages = legacy.execute(text("SELECT id,pid,type,provider,plan_name,policy_number,group_number,subscriber_fname,subscriber_lname,subscriber_relationship,date,date_end FROM insurance_data ORDER BY id"))
+        coverages = legacy.execute(text("SELECT * FROM insurance_data ORDER BY id"))
         for row in coverages.mappings():
             stats["coverages"]["source"] += 1
-            if target.scalar(select(Coverage.id).where(Coverage.legacy_insurance_id == row["id"])): stats["coverages"]["existing"] += 1; continue
+            existing=target.scalar(select(Coverage).where(Coverage.legacy_insurance_id == row["id"]))
             patient=patient_for_legacy(target,row["pid"]); payer=target.scalar(select(Payer).where(Payer.legacy_payer_id==int(row["provider"]))) if str(row["provider"] or "").isdigit() else None
-            subscriber=" ".join(filter(None,(clean(row["subscriber_fname"]),clean(row["subscriber_lname"]))))
+            subscriber=" ".join(filter(None,(clean(row["subscriber_fname"]),clean(row.get("subscriber_mname")),clean(row["subscriber_lname"]))))
+            payload={key:json_value(value) for key,value in row.items()}
+            if existing:
+                existing.legacy_payload=payload;stats["coverages"]["existing"] += 1;continue
             if not patient or not payer or not clean(row["policy_number"]) or not subscriber: stats["coverages"]["rejected"] += 1; continue
-            target.add(Coverage(legacy_insurance_id=row["id"],patient_id=patient.id,payer_id=payer.id,priority=clean(row["type"]) or "primary",plan_name=clean(row["plan_name"]),policy_number=clean(row["policy_number"]),group_number=clean(row["group_number"]),subscriber_name=subscriber,relationship=clean(row["subscriber_relationship"]) or "self",starts_on=row["date"],ends_on=row["date_end"]))
+            target.add(Coverage(legacy_insurance_id=row["id"],patient_id=patient.id,payer_id=payer.id,priority=clean(row["type"]) or "primary",plan_name=clean(row["plan_name"]),policy_number=clean(row["policy_number"]),group_number=clean(row["group_number"]),subscriber_name=subscriber,relationship=clean(row["subscriber_relationship"]) or "self",starts_on=row["date"],ends_on=row["date_end"],legacy_payload=payload))
             stats["coverages"]["inserted"] += 1
         target.flush()
         if "code_types" in legacy_tables:
