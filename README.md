@@ -113,6 +113,9 @@ end-to-end healthcare workflows:
 - ACL-protected configurable HTML/PDF patient reports covering demographics, contacts,
   clinical history, encounters, forms, laboratory results, document metadata,
   insurance and claims, with private delivery and audited evidence hashes;
+- a multidimensional clinical cohort report with demographic, provider/facility,
+  consent, diagnosis, medication, laboratory, procedure, history, service and
+  immunization filters, reproducible snapshots and authenticated CSV export;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

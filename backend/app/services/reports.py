@@ -1,18 +1,19 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from itertools import product
 
 from fastapi import HTTPException
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, Payer, Pharmacy, Prescription, Referral, ReportRun, SecureMessage, ServiceCode, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, Pharmacy, Prescription, ProcedureOrderLine, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -66,6 +67,111 @@ def value(item):
 
 def rows_from(result, columns):
     return [{column:value(row[index]) for index,column in enumerate(columns)} for row in result]
+
+
+def clinical_report(db: Session,user: User,params: dict):
+    """Reproduce the legacy clinical cohort report without its unsafe SQL concatenation."""
+    today=datetime.now(timezone.utc).date();start=params.get("date_from") or date(today.year,1,1);end=params.get("date_to") or today
+    def dated(item):
+        if item is None:return False
+        day=item.date() if isinstance(item,datetime) else item
+        return (start is None or day>=start) and (end is None or day<=end) and day<=today
+    def matches(raw,pattern):
+        if not pattern:return True
+        expression="".join(".*" if part=="%" else "." if part=="_" else __import__("re").escape(part) for part in str(pattern))
+        return __import__("re").fullmatch(expression,str(raw or ""),__import__("re").I) is not None
+    query=select(Patient).where(Patient.merged_into_id.is_(None))
+    if params.get("_patient_id"):query=query.where(Patient.id==params["_patient_id"])
+    if params.get("gender"):query=query.where(Patient.sex==params["gender"])
+    if params.get("race"):query=query.where(Patient.race==params["race"])
+    if params.get("ethnicity"):query=query.where(Patient.ethnicity==params["ethnicity"])
+    patients=list(db.scalars(query.order_by(Patient.legacy_pid,Patient.id)));patient_ids=[x.id for x in patients]
+    assignments={}
+    if patient_ids:
+        for item in db.scalars(select(PatientProviderAssignment).where(PatientProviderAssignment.patient_id.in_(patient_ids),PatientProviderAssignment.role=="primary").order_by(PatientProviderAssignment.assigned_at.desc().nullslast(),PatientProviderAssignment.id.desc())):
+            current=assignments.get(item.patient_id)
+            if current is None or (item.status=="active" and current.status!="active"):assignments[item.patient_id]=item
+    requested_facility=params.get("_facility_id");scope=facility_scope(db,user)
+    def allowed_patient(patient):
+        age=today.year-patient.date_of_birth.year-((today.month,today.day)<(patient.date_of_birth.month,patient.date_of_birth.day))
+        if params.get("age_from") is not None and age<params["age_from"]:return False
+        if params.get("age_to") is not None and age>params["age_to"]:return False
+        assignment=assignments.get(patient.id);facility_id=assignment.facility_id if assignment else None
+        if requested_facility is not None and facility_id!=requested_facility:return False
+        if scope is not None and facility_id not in scope:return False
+        payload=patient.legacy_payload or {};communication=params.get("communication")
+        flags={"allow_sms":patient.allow_sms,"allow_email":patient.allow_email,"allow_voice":str(payload.get("hipaa_voice") or "").upper()=="YES","allow_mail":str(payload.get("hipaa_mail") or "").upper()=="YES"}
+        if communication and not flags.get(communication,False):return False
+        if params.get("include_communication") and not any(flags.values()):return False
+        return True
+    patients=[x for x in patients if allowed_patient(x)];patient_ids=[x.id for x in patients]
+    def grouped(rows,key=lambda x:x.patient_id):
+        result={}
+        for row in rows:result.setdefault(key(row),[]).append(row)
+        return result
+    items=grouped(db.scalars(select(ClinicalItem).where(ClinicalItem.patient_id.in_(patient_ids))).all()) if patient_ids else {}
+    prescriptions=grouped(db.scalars(select(Prescription).where(Prescription.patient_id.in_(patient_ids))).all()) if patient_ids else {}
+    products_by_legacy={x.legacy_drug_id:x for x in db.scalars(select(InventoryProduct).where(InventoryProduct.legacy_drug_id.is_not(None)))}
+    labs={}
+    if patient_ids:
+        for result,order in db.execute(select(LabResult,LabOrder).join(LabOrder,LabResult.order_id==LabOrder.id).where(LabOrder.patient_id.in_(patient_ids))):labs.setdefault(order.patient_id,[]).append((result,order))
+    procedures={}
+    if patient_ids:
+        for order,line in db.execute(select(LabOrder,ProcedureOrderLine).outerjoin(ProcedureOrderLine,ProcedureOrderLine.order_id==LabOrder.id).where(LabOrder.patient_id.in_(patient_ids))):procedures.setdefault(order.patient_id,[]).append((order,line))
+    encounter_ids={order.encounter_id for values in procedures.values() for order,_ in values if order.encounter_id};encounter_uuids={x.id:x.uuid for x in db.scalars(select(Encounter).where(Encounter.id.in_(encounter_ids)))} if encounter_ids else {}
+    histories=grouped(db.scalars(select(SocialHistory).where(SocialHistory.patient_id.in_(patient_ids))).all()) if patient_ids else {}
+    services={}
+    if patient_ids:
+        for charge,encounter in db.execute(select(Charge,Encounter).join(Encounter,Charge.encounter_id==Encounter.id).where(Charge.patient_id.in_(patient_ids))):services.setdefault(charge.patient_id,[]).append((charge,encounter))
+    immunizations=grouped(db.scalars(select(Immunization).where(Immunization.patient_id.in_(patient_ids))).all()) if patient_ids else {}
+    kind=params.get("clinical_type");use_diagnosis=bool(params.get("diagnosis") or params.get("include_allergies") or params.get("include_problems"));use_rx=bool(params.get("drug_name") or params.get("include_prescriptions"));use_labs=bool(params.get("lab_result") or params.get("include_lab_results"));use_imm=bool(params.get("immunization"))
+    columns=["patient_uuid","legacy_patient_id","patient_name","age","sex","race","ethnicity","provider","facility","communications"]
+    dimensions=[]
+    if use_diagnosis:columns += ["diagnosis_date","diagnosis_category","diagnosis_code","diagnosis_name"];dimensions.append("diagnosis")
+    if use_rx:columns += ["prescription_modified","drug","route","dosage","form_id","interval_id","size","unit_id","refills","quantity","ndc","rxnorm"];dimensions.append("prescription")
+    if use_labs:columns += ["result_date","result_facility","result_code","result_name","result_unit","result","result_range","abnormal","comments","document_id"];dimensions.append("lab")
+    if kind=="Procedure":columns += ["order_date","procedure_code","procedure_standard_code","procedure_name","priority","order_status","encounter_id","instructions","activity","control_id"];dimensions.append("procedure")
+    if kind=="Medical History":columns += ["history_date","tobacco","alcohol","recreational_drugs"];dimensions.append("history")
+    if kind=="Service Codes":columns += ["service_date","service_code","service_description","encounter_id"];dimensions.append("service")
+    if use_imm:columns += ["immunization_date","cvx_code","immunization","dose","dose_unit","site","notes"];dimensions.append("immunization")
+    output=[]
+    for patient in patients:
+        age=today.year-patient.date_of_birth.year-((today.month,today.day)<(patient.date_of_birth.month,patient.date_of_birth.day));assignment=assignments.get(patient.id);payload=patient.legacy_payload or {}
+        communication_flags=[label for label,enabled in (("email",patient.allow_email),("sms",patient.allow_sms),("mail",str(payload.get("hipaa_mail") or "").upper()=="YES"),("voice",str(payload.get("hipaa_voice") or "").upper()=="YES")) if enabled]
+        base={"patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid,"patient_name":f"{patient.first_name} {patient.last_name}","age":age,"sex":patient.sex,"race":patient.race,"ethnicity":patient.ethnicity,"provider":assignment.practitioner_name if assignment else None,"facility":assignment.facility_name if assignment else None,"communications":", ".join(communication_flags)}
+        choices=[]
+        for dimension in dimensions:
+            values=[]
+            if dimension=="diagnosis":
+                categories={"allergy"} if params.get("include_allergies") and not params.get("include_problems") else {"problem"} if params.get("include_problems") and not params.get("include_allergies") else {"problem","allergy"}
+                values=[{"diagnosis_date":x.created_at,"diagnosis_category":x.category,"diagnosis_code":x.code,"diagnosis_name":x.title} for x in items.get(patient.id,[]) if x.category in categories and dated(x.created_at) and (not params.get("diagnosis") or matches(x.code,params["diagnosis"]) or matches(x.title,f"%{params['diagnosis']}%"))]
+            elif dimension=="prescription":
+                values=[{"prescription_modified":x.modified_at or x.prescribed_at,"drug":x.drug_name,"route":x.route,"dosage":x.dosage,"form_id":x.form_legacy_id,"interval_id":x.interval_legacy_id,"size":x.size,"unit_id":x.unit_legacy_id,"refills":x.refills,"quantity":x.quantity,"ndc":products_by_legacy[x.drug_legacy_id].ndc_number if x.drug_legacy_id in products_by_legacy else None,"rxnorm":x.rxnorm_code} for x in prescriptions.get(patient.id,[]) if dated(x.modified_at or x.prescribed_at) and matches(x.drug_name,params.get("drug_name") or "%")]
+            elif dimension=="lab":
+                values=[{"result_date":x.observed_at,"result_facility":x.facility,"result_code":x.code,"result_name":x.name,"result_unit":x.unit,"result":x.value,"result_range":x.reference_range,"abnormal":x.interpretation,"comments":x.comments,"document_id":x.legacy_document_id} for x,_ in labs.get(patient.id,[]) if dated(x.observed_at) and matches(x.value,params.get("lab_result") or "%")]
+            elif dimension=="procedure":
+                values=[{"order_date":order.ordered_at,"procedure_code":line.code if line else order.code,"procedure_standard_code":line.standard_code if line else None,"procedure_name":line.name if line else order.name,"priority":order.priority,"order_status":order.status,"encounter_id":encounter_uuids.get(order.encounter_id),"instructions":order.instructions,"activity":order.activity,"control_id":order.control_id} for order,line in procedures.get(patient.id,[]) if dated(order.ordered_at)]
+            elif dimension=="history":
+                candidates=[x for x in histories.get(patient.id,[]) if dated(x.recorded_at) and any((x.tobacco,x.alcohol,x.recreational_drugs))];candidates.sort(key=lambda x:(x.recorded_at or datetime.min.replace(tzinfo=timezone.utc),x.id),reverse=True)
+                values=[{"history_date":x.recorded_at,"tobacco":x.tobacco,"alcohol":x.alcohol,"recreational_drugs":x.recreational_drugs} for x in candidates[:1]]
+            elif dimension=="service":
+                requested=(params.get("service_code") or "").split(":")[-1]
+                values=[{"service_date":x.billed_at or encounter.occurred_at,"service_code":x.code,"service_description":x.description,"encounter_id":encounter.uuid} for x,encounter in services.get(patient.id,[]) if dated(x.billed_at or encounter.occurred_at) and (not requested or x.code==requested)]
+            else:
+                values=[{"immunization_date":x.administered_at,"cvx_code":x.cvx_code,"immunization":x.vaccine_name,"dose":x.dose,"dose_unit":x.dose_unit,"site":x.site,"notes":x.note} for x in immunizations.get(patient.id,[]) if dated(x.administered_at) and (matches(x.vaccine_name,f"%{params['immunization']}%") or matches(x.cvx_code,f"%{params['immunization']}%"))]
+            choices.append(values)
+        if dimensions and any(not values for values in choices):continue
+        combinations=product(*choices) if choices else [()]
+        for combination in combinations:
+            row=dict(base)
+            for detail in combination:row.update({key:value(val) for key,val in detail.items()})
+            output.append(row)
+    sort_keys=[]
+    if params.get("sort_patient_name"):sort_keys.append("patient_name")
+    if params.get("sort_patient_age"):sort_keys.append("age")
+    sort_keys += ["legacy_patient_id"]
+    output.sort(key=lambda row:tuple((row.get(key) is None,str(row.get(key) or "")) for key in sort_keys))
+    return columns,output,{"rows":len(output),"patients":len({row["patient_uuid"] for row in output})}
 
 
 def appointment_scope(query, db: Session, user: User):
@@ -210,6 +316,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key not in REPORT_PATHS: raise HTTPException(status_code=404,detail="Report not found")
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
+    if key == "clinical_reports": return clinical_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

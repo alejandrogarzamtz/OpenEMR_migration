@@ -669,11 +669,33 @@ class ReportRunCreate(BaseModel):
     only_auto_blocked: bool = False
     code_type_id: int | None = Field(default=None, ge=1)
     include_uncategorized: bool = False
+    clinical_type: str | None = Field(default=None, pattern="^(Procedure|Medical History|Service Codes)$")
+    age_from: int | None = Field(default=None, ge=0, le=150)
+    age_to: int | None = Field(default=None, ge=0, le=150)
+    gender: str | None = Field(default=None, max_length=100)
+    race: str | None = Field(default=None, max_length=100)
+    ethnicity: str | None = Field(default=None, max_length=100)
+    diagnosis: str | None = Field(default=None, max_length=250)
+    include_allergies: bool = False
+    include_problems: bool = False
+    drug_name: str | None = Field(default=None, max_length=250)
+    include_prescriptions: bool = False
+    include_ndc: bool = False
+    lab_result: str | None = Field(default=None, max_length=250)
+    include_lab_results: bool = False
+    service_code: str | None = Field(default=None, max_length=250)
+    immunization: str | None = Field(default=None, max_length=250)
+    communication: str | None = Field(default=None, pattern="^(allow_sms|allow_voice|allow_mail|allow_email)$")
+    include_communication: bool = False
+    sort_patient_name: bool = False
+    sort_patient_age: bool = False
 
     @model_validator(mode="after")
     def validate_range(self):
         if self.date_from and self.date_to and self.date_to < self.date_from:
             raise ValueError("date_to must be on or after date_from")
+        if self.age_from is not None and self.age_to is not None and self.age_to < self.age_from:
+            raise ValueError("age_to must be on or after age_from")
         return self
 
 
@@ -1119,6 +1141,7 @@ class ProcedureOrderLineOut(BaseModel):
     do_not_send: bool
     title: str | None = None
     procedure_type: str | None = None
+    standard_code: str | None = None
     transport: str | None = None
     date_end: datetime | None = None
     reason_code: str | None = None
@@ -1218,7 +1241,8 @@ class ChargeCreate(BaseModel):
     code: str = Field(max_length=20)
     description: str = Field(max_length=255)
     units: int = Field(default=1, ge=1, le=999)
-    unit_price: Decimal = Field(gt=0, decimal_places=2)
+    unit_price: Decimal = Field(ge=0, decimal_places=2)
+    billed_at: datetime | None = None
 
 
 class ChargeOut(ChargeCreate):
@@ -1295,6 +1319,7 @@ class ImmunizationCreate(BaseModel):
     route: str | None = Field(default=None, max_length=100)
     site: str | None = Field(default=None, max_length=100)
     dose: str | None = Field(default=None, max_length=50)
+    dose_unit: str | None = Field(default=None, max_length=50)
     status: str = Field(default="completed", pattern="^(completed|not-done|entered-in-error)$")
     refusal_reason: str | None = Field(default=None, max_length=255)
     note: str | None = None

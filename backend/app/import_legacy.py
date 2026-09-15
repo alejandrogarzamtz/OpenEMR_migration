@@ -565,6 +565,10 @@ def run(source_url: str, commit: bool = False) -> dict:
             stats["patient_flow_events"]["inserted"] += 1
         target.flush()
         order_lines = list(legacy.execute(text("SELECT * FROM procedure_order_code ORDER BY procedure_order_id,procedure_order_seq")).mappings())
+        procedure_standards = {}
+        if "procedure_type" in legacy_tables:
+            for definition in legacy.execute(text("SELECT procedure_code,lab_id,standard_code FROM procedure_type ORDER BY procedure_type_id")).mappings():
+                procedure_standards.setdefault((clean(definition["procedure_code"]), definition["lab_id"] or 0), clean(definition["standard_code"]))
         first_lines = {}
         for line in order_lines: first_lines.setdefault(line["procedure_order_id"], line)
         orders = legacy.execute(text("SELECT * FROM procedure_order ORDER BY procedure_order_id"))
@@ -599,7 +603,7 @@ def run(source_url: str, commit: bool = False) -> dict:
             line=target.scalar(select(ProcedureOrderLine).where(ProcedureOrderLine.order_id==order.id,ProcedureOrderLine.sequence==row["procedure_order_seq"]))
             values=dict(code=clean(row["procedure_code"]) or "",name=clean(row["procedure_name"]) or "",source=clean(row["procedure_source"]),
                 diagnoses=clean(row["diagnoses"]),do_not_send=bool(row["do_not_send"]),title=clean(row["procedure_order_title"]),
-                procedure_type=clean(row["procedure_type"]),transport=clean(row["transport"]),date_end=row["date_end"],
+                procedure_type=clean(row["procedure_type"]),standard_code=procedure_standards.get((clean(row["procedure_code"]), order.lab_legacy_id or 0)),transport=clean(row["transport"]),date_end=row["date_end"],
                 reason_code=clean(row["reason_code"]),reason_description=clean(row["reason_description"]),reason_date_low=row["reason_date_low"],
                 reason_date_high=row["reason_date_high"],reason_status=clean(row["reason_status"]),legacy_payload={key:json_value(value) for key,value in row.items()})
             if line:
@@ -674,14 +678,18 @@ def run(source_url: str, commit: bool = False) -> dict:
             target.add(Coverage(legacy_insurance_id=row["id"],patient_id=patient.id,payer_id=payer.id,priority=clean(row["type"]) or "primary",plan_name=clean(row["plan_name"]),policy_number=clean(row["policy_number"]),group_number=clean(row["group_number"]),subscriber_name=subscriber,relationship=clean(row["subscriber_relationship"]) or "self",starts_on=row["date"],ends_on=row["date_end"]))
             stats["coverages"]["inserted"] += 1
         target.flush()
-        charges=legacy.execute(text("SELECT id,pid,encounter,code_type,code,code_text,units,fee,activity FROM billing ORDER BY id"))
+        charges=legacy.execute(text("SELECT * FROM billing ORDER BY id"))
         for row in charges.mappings():
             stats["charges"]["source"] += 1
-            if target.scalar(select(Charge.id).where(Charge.legacy_billing_id==row["id"])): stats["charges"]["existing"] += 1; continue
+            existing=target.scalar(select(Charge).where(Charge.legacy_billing_id==row["id"]))
             patient=patient_for_legacy(target,row["pid"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
-            if not patient or not encounter or not row["activity"] or not clean(row["code"]) or not row["fee"]: stats["charges"]["rejected"] += 1; continue
-            target.add(Charge(legacy_billing_id=row["id"],patient_id=patient.id,encounter_id=encounter.id,code_system=clean(row["code_type"]) or "CPT",code=clean(row["code"]),description=clean(row["code_text"]) or clean(row["code"]),units=row["units"] or 1,unit_price=row["fee"]))
-            stats["charges"]["inserted"] += 1
+            if not patient or not encounter or not row["activity"] or not clean(row["code"]): stats["charges"]["rejected"] += 1; continue
+            values=dict(patient_id=patient.id,encounter_id=encounter.id,code_system=clean(row["code_type"]) or "CPT",code=clean(row["code"]),description=clean(row["code_text"]) or clean(row["code"]),units=row["units"] or 1,unit_price=row["fee"] or 0,billed_at=row["date"],legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["charges"]["existing"] += 1
+            else:
+                target.add(Charge(legacy_billing_id=row["id"],**values));stats["charges"]["inserted"] += 1
         target.flush()
         claims=legacy.execute(text("SELECT patient_id,encounter_id,version,payer_id,status,bill_time FROM claims ORDER BY patient_id,encounter_id,version"))
         for row in claims.mappings():
@@ -702,15 +710,23 @@ def run(source_url: str, commit: bool = False) -> dict:
                 if not clean(row["code"]):stats["service_codes"]["rejected"]+=1;continue
                 prices=[{"level":price["pr_level"],"title":price_levels.get(price["pr_level"]),"amount":json_value(price["pr_price"])} for price in legacy.execute(text("SELECT pr_level,pr_price FROM prices WHERE pr_id=:id AND pr_selector='' ORDER BY pr_level"),{"id":row["id"]}).mappings()]
                 target.add(ServiceCode(legacy_code_id=row["id"],code_type_id=row["code_type"],code=clean(row["code"]),modifier=clean(row["modifier"]) or "",units=row["units"] or 0,description=clean(row["code_text"]) or clean(row["code"]),category_code=clean(row["superbill"]),category_title=category_titles.get(row["superbill"]),related_codes=clean(row["related_code"]),prices=prices,active=bool(row["active"]),legacy_payload={field:json_value(value) for field,value in row.items()}));stats["service_codes"]["inserted"]+=1
-        immunizations=legacy.execute(text("SELECT id,patient_id,administered_date,cvx_code,manufacturer,lot_number,route,administration_site,amount_administered,amount_administered_unit,completion_status,refusal_reason,note,encounter_id FROM immunizations ORDER BY id"))
+        cvx_names={}
+        if "codes" in legacy_tables and "code_types" in legacy_tables:
+            for row in legacy.execute(text("SELECT c.code,c.code_text,c.code_text_short FROM codes c JOIN code_types ct ON ct.ct_id=c.code_type WHERE ct.ct_key='CVX' ORDER BY c.id")).mappings():
+                cvx_names.setdefault(clean(row["code"]),(clean(row["code_text"]),clean(row["code_text_short"])))
+        immunizations=legacy.execute(text("SELECT * FROM immunizations ORDER BY id"))
         for row in immunizations.mappings():
             stats["immunizations"]["source"]+=1
-            if target.scalar(select(Immunization.id).where(Immunization.legacy_immunization_id==row["id"])): stats["immunizations"]["existing"]+=1; continue
+            existing=target.scalar(select(Immunization).where(Immunization.legacy_immunization_id==row["id"]))
             patient=patient_for_legacy(target,row["patient_id"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])) if row["encounter_id"] else None; cvx=clean(row["cvx_code"])
             if not patient or not row["administered_date"] or not cvx: stats["immunizations"]["rejected"]+=1; continue
-            dose=" ".join(filter(None,(str(row["amount_administered"]) if row["amount_administered"] else None,clean(row["amount_administered_unit"])))) or None
-            target.add(Immunization(legacy_immunization_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,administered_at=row["administered_date"],cvx_code=cvx,vaccine_name=f"CVX {cvx}",manufacturer=clean(row["manufacturer"]),lot_number=clean(row["lot_number"]),route=clean(row["route"]),site=clean(row["administration_site"]),dose=dose,status=clean(row["completion_status"]) or "completed",refusal_reason=clean(row["refusal_reason"]),note=clean(row["note"])))
-            stats["immunizations"]["inserted"]+=1
+            amount=str(row["amount_administered"]) if row["amount_administered"] is not None else None;name=cvx_names.get(cvx,(None,None))[0] or f"CVX {cvx}"
+            values=dict(patient_id=patient.id,encounter_id=encounter.id if encounter else None,administered_at=row["administered_date"],cvx_code=cvx,vaccine_name=name,manufacturer=clean(row["manufacturer"]),lot_number=clean(row["lot_number"]),route=clean(row["route"]),site=clean(row["administration_site"]),dose=amount,dose_unit=clean(row["amount_administered_unit"]),status=clean(row["completion_status"]) or "completed",refusal_reason=clean(row["refusal_reason"]),note=clean(row["note"]),legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["immunizations"]["existing"]+=1
+            else:
+                target.add(Immunization(legacy_immunization_id=row["id"],**values));stats["immunizations"]["inserted"]+=1
         vitals=legacy.execute(text("SELECT id,pid,date,bps,bpd,weight,height,temperature,pulse,respiration,oxygen_saturation,BMI,note FROM form_vitals WHERE activity=1 ORDER BY id"))
         for row in vitals.mappings():
             stats["vitals"]["source"]+=1

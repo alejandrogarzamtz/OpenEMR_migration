@@ -960,6 +960,7 @@ class ProcedureOrderLine(Base):
     do_not_send: Mapped[bool] = mapped_column(default=False)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     procedure_type: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    standard_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
     transport: Mapped[str | None] = mapped_column(String(31), nullable=True)
     date_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reason_code: Mapped[str | None] = mapped_column(String(31), nullable=True)
@@ -1108,6 +1109,8 @@ class Charge(Base):
     description: Mapped[str] = mapped_column(String(255))
     units: Mapped[int] = mapped_column(default=1)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    billed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ServiceCode(Base):
@@ -1188,9 +1191,11 @@ class Immunization(Base):
     route: Mapped[str | None] = mapped_column(String(100), nullable=True)
     site: Mapped[str | None] = mapped_column(String(100), nullable=True)
     dose: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    dose_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="completed")
     refusal_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class VitalSet(Base):

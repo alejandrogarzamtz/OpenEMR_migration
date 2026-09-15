@@ -16,7 +16,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `cdr_log` | MIGRATED — lossless before/after decision payloads, legacy and normalized patient/user/facility identity, alert labels, inclusive date filters, facility isolation, totals and CSV |
 | `chart_location_activity` | MIGRATED — patient-scoped, date-filtered append-only physical chart location/custody history with totals and CSV |
 | `charts_checked_out` | MIGRATED — current checkout state derived from each patient's latest custody event, including named external custodians |
-| `clinical_reports` | PENDING |
+| `clinical_reports` | MIGRATED |
 | `collections_report` | PENDING |
 | `cqm` | PENDING |
 | `criteria.tab` | EMBEDDED / PENDING — criteria UI included by the legacy billing report, not an independently executable report; parity belongs to the unfinished billing-report builder |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 27 migrated, 21 pending/embedded**.
+Current accounting: **48 cataloged, 28 migrated, 20 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -73,12 +73,17 @@ coverage effective on that encounter date, or under `-- No Insurance --`.
 Copay-coded and zero-value lines are excluded, encounter counts remain visits,
 and each patient contributes once to the patient distribution denominator.
 
-`clinical_reports` remains pending after source-level review. Lossless,
-versioned social history, complete procedure-order lines and report/result
-provenance, and detailed prescription/eRx fields are now available;
-patient-provider facility assignments now also have a normalized, historical
-import contract. Its data prerequisites are complete; the remaining work is the
-multi-dimensional query/filter contract, golden fixtures and React presentation.
+`clinical_reports` now reproduces the legacy cohort dimensions for demographics,
+primary provider/facility, communication consent, diagnoses, prescriptions,
+laboratory results, procedure lines, most-recent social history, service codes
+and immunizations. Date semantics, SQL-style wildcards, combinatorial rows,
+facility ACL, deterministic ordering, immutable snapshots, authenticated CSV,
+validation, golden fixtures and the React filter/table workflow are covered.
+
+The migration also retains the source billing date and complete billing row, the
+immunization amount/unit and complete immunization row, and the procedure type's
+standard code so these report dimensions are not reconstructed from weaker
+encounter or display-label approximations.
 
 `appt_encounter_report` remains pending after source-level review. Its legacy
 error detection depends on billing authorization, justification, billed flags,
