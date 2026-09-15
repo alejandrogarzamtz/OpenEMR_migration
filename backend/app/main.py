@@ -79,7 +79,7 @@ def create_encounter(body: EncounterCreate, db: Session = Depends(get_db), user:
         if not appointment:
             raise HTTPException(status_code=404, detail="Appointment not found for patient")
         appointment.status = "arrived"
-    item = Encounter(patient_id=patient.id, appointment_id=appointment.id if appointment else None, **body.model_dump(exclude={"patient_uuid", "appointment_uuid"}))
+    item = Encounter(patient_id=patient.id, appointment_id=appointment.id if appointment else None, facility_id=appointment.facility_id if appointment else None, legacy_facility_id=appointment.legacy_facility_id if appointment else None, facility_name=appointment.facility_name if appointment else None, legacy_provider_id=appointment.legacy_provider_id if appointment else None, provider_name=appointment.provider_name if appointment else None, **body.model_dump(exclude={"patient_uuid", "appointment_uuid"}))
     db.add(item); db.flush(); db.add(AuditEvent(actor_id=user.id, action="create", resource_type="encounter", resource_id=item.uuid)); db.commit(); db.refresh(item)
     return encounter_out(item,patient.uuid,appointment.uuid if appointment else None,db)
 
@@ -261,16 +261,16 @@ def create_charge(patient_uuid: str, body: ChargeCreate, db: Session = Depends(g
 @app.get("/api/v1/patients/{patient_uuid}/charges", response_model=list[ChargeOut])
 def list_unclaimed_charges(patient_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     patient = patient_by_uuid(db, patient_uuid)
-    rows = db.execute(select(Charge, Encounter.uuid).join(Encounter).where(Charge.patient_id == patient.id, Charge.claim_id.is_(None)).order_by(Charge.id)).all()
+    rows = db.execute(select(Charge, Encounter.uuid).join(Encounter).where(Charge.patient_id == patient.id, Charge.claim_id.is_(None),Charge.active.is_(True)).order_by(Charge.id)).all()
     db.add(AuditEvent(actor_id=user.id, action="search", resource_type="charge", resource_id=patient.uuid)); db.commit()
-    return [ChargeOut(uuid=charge.uuid, encounter_uuid=encounter_uuid, code_system=charge.code_system, code=charge.code, description=charge.description, units=charge.units, unit_price=charge.unit_price) for charge,encounter_uuid in rows]
+    return [ChargeOut(uuid=charge.uuid, encounter_uuid=encounter_uuid, **{key:getattr(charge,key) for key in ("code_system","code","description","units","unit_price","billed_at","modifier","authorized","billed","justification","active")}) for charge,encounter_uuid in rows]
 
 
 def serialize_claim(db: Session, claim: Claim) -> ClaimOut:
     encounter = db.get(Encounter, claim.encounter_id); coverage = db.get(Coverage, claim.coverage_id) if claim.coverage_id else None
-    charges = list(db.scalars(select(Charge).where(Charge.claim_id == claim.id))); payments = list(db.scalars(select(ClaimPayment).where(ClaimPayment.claim_id == claim.id)))
+    charges = list(db.scalars(select(Charge).where(Charge.claim_id == claim.id,Charge.active.is_(True)))); payments = list(db.scalars(select(ClaimPayment).where(ClaimPayment.claim_id == claim.id)))
     paid = sum((payment.amount for payment in payments), Decimal("0.00"))
-    return ClaimOut(uuid=claim.uuid, encounter_uuid=encounter.uuid, coverage_uuid=coverage.uuid if coverage else None, status=claim.status, total=claim.total, paid=paid, balance=claim.total-paid, charges=[ChargeOut(uuid=x.uuid, encounter_uuid=encounter.uuid, code_system=x.code_system, code=x.code, description=x.description, units=x.units, unit_price=x.unit_price) for x in charges], payments=payments, created_at=claim.created_at)
+    return ClaimOut(uuid=claim.uuid, encounter_uuid=encounter.uuid, coverage_uuid=coverage.uuid if coverage else None, status=claim.status, total=claim.total, paid=paid, balance=claim.total-paid, charges=[ChargeOut(uuid=x.uuid, encounter_uuid=encounter.uuid, **{key:getattr(x,key) for key in ("code_system","code","description","units","unit_price","billed_at","modifier","authorized","billed","justification","active")}) for x in charges], payments=payments, created_at=claim.created_at)
 
 
 @app.post("/api/v1/patients/{patient_uuid}/claims", response_model=ClaimOut, status_code=201)
@@ -280,7 +280,7 @@ def create_claim(patient_uuid: str, body: ClaimCreate, db: Session = Depends(get
     if body.coverage_uuid:
         coverage = db.scalar(select(Coverage).where(Coverage.uuid == body.coverage_uuid, Coverage.patient_id == patient.id))
         if not coverage: raise HTTPException(status_code=404, detail="Coverage not found for patient")
-    charges = list(db.scalars(select(Charge).where(Charge.uuid.in_(body.charge_uuids), Charge.patient_id == patient.id, Charge.encounter_id == encounter.id, Charge.claim_id.is_(None))))
+    charges = list(db.scalars(select(Charge).where(Charge.uuid.in_(body.charge_uuids), Charge.patient_id == patient.id, Charge.encounter_id == encounter.id, Charge.claim_id.is_(None),Charge.active.is_(True))))
     if len(charges) != len(set(body.charge_uuids)): raise HTTPException(status_code=422, detail="Charges must be unclaimed and belong to encounter")
     total = sum((charge.unit_price * charge.units for charge in charges), Decimal("0.00"))
     claim = Claim(patient_id=patient.id, encounter_id=encounter.id, coverage_id=coverage.id if coverage else None, total=total)

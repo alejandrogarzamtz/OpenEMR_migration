@@ -17,4 +17,9 @@ describe("ReportWorkspace",()=>{
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Clinical Reports"));fireEvent.change(screen.getByLabelText("Drug"),{target:{value:"Suma%"}});fireEvent.click(screen.getByLabelText("Prescriptions"));fireEvent.change(screen.getByLabelText("Report option"),{target:{value:"Procedure"}});fireEvent.click(screen.getByText("Run report"));await screen.findByText("Clinical Cohort");
     const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.drug_name).toBe("Suma%");expect(request.include_prescriptions).toBe(true);expect(request.clinical_type).toBe("Procedure");
   });
+  it("submits appointment reconciliation scope and summary mode",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"appt_encounter_report",title:"Appointments and Encounters",category:"financial",permission:"acct:rep_a:read",legacy_path:"interface/reports/appt_encounter_report.php",migrated:true}]).mockResolvedValueOnce({uuid:"r3",report_key:"appt_encounter_report",parameters:{},columns:["provider","encounters"],rows:[{provider:"Doctor One",encounters:2}],totals:{encounters:2},row_count:1,checksum:"abcdef0123456789",created_at:"2026-01-01T00:00:00Z"});
+    render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Appointments and Encounters"));fireEvent.change(screen.getByLabelText("Facility UUID"),{target:{value:"00000000-0000-0000-0000-000000000701"}});fireEvent.click(screen.getByLabelText("Provider totals only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("Doctor One");
+    const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.facility_uuid).toBe("00000000-0000-0000-0000-000000000701");expect(request.include_details).toBe(false);
+  });
 });

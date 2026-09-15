@@ -10,7 +10,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `amc_full_report` | PENDING |
 | `amc_tracking` | PENDING |
 | `appointments_report` | MIGRATED |
-| `appt_encounter_report` | PENDING |
+| `appt_encounter_report` | MIGRATED — full-outer appointment/encounter reconciliation, billing diagnostics, copays, practitioner totals, facility ACL, snapshots and CSV |
 | `audit_log_tamper_report` | MIGRATED |
 | `background_services` | MIGRATED — ordered service registry with active/manual scheduling, live lease status, last/next run semantics, totals and CSV |
 | `cdr_log` | MIGRATED — lossless before/after decision payloads, legacy and normalized patient/user/facility identity, alert labels, inclusive date filters, facility isolation, totals and CSV |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 28 migrated, 20 pending/embedded**.
+Current accounting: **48 cataloged, 29 migrated, 19 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -85,11 +85,14 @@ immunization amount/unit and complete immunization row, and the procedure type's
 standard code so these report dimensions are not reconstructed from weaker
 encounter or display-label approximations.
 
-`appt_encounter_report` remains pending after source-level review. Its legacy
-error detection depends on billing authorization, justification, billed flags,
-modifiers and patient copays that the current normalized charge/payment model
-does not yet preserve. It must be completed with the broader financial-ledger
-phase rather than represented by a lossy appointment/encounter join.
+`appt_encounter_report` performs a full-outer reconciliation so appointments
+without visits and visits without appointments remain visible. It preserves the
+legacy code-type fee/justification rules, charge authorization and billed flags,
+modifiers, complete billing rows and patient copays from active `ar_activity`
+PCP entries. Results include stable modern identifiers, explicit diagnostic
+messages, practitioner subtotals and grand totals, facility ACL, immutable
+snapshots and CSV. Encounter provider/facility snapshots and complete source
+rows are rehydrated on repeat imports rather than only applied to new records.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,

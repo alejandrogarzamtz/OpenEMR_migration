@@ -851,6 +851,14 @@ class Encounter(Base):
     status: Mapped[str] = mapped_column(String(30), default="open")
     chief_complaint: Mapped[str | None] = mapped_column(Text, nullable=True)
     clinical_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    practitioner_id: Mapped[int | None] = mapped_column(ForeignKey("practitioners.id"), nullable=True, index=True)
+    legacy_provider_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    provider_name: Mapped[str | None] = mapped_column(String(511), nullable=True)
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
+    legacy_facility_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    facility_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    authorized: Mapped[bool | None] = mapped_column(nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ClinicalItem(Base):
@@ -1111,6 +1119,48 @@ class Charge(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     billed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    modifier: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    authorized: Mapped[bool] = mapped_column(default=True)
+    billed: Mapped[bool] = mapped_column(default=False, index=True)
+    justification: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+
+
+class BillingCodeType(Base):
+    __tablename__ = "billing_code_types"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(15), unique=True, index=True)
+    legacy_type_id: Mapped[int] = mapped_column(unique=True, index=True)
+    sequence: Mapped[int] = mapped_column(default=0)
+    fee: Mapped[bool] = mapped_column(default=False)
+    justification_type: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    diagnosis: Mapped[bool] = mapped_column(default=False)
+    procedure: Mapped[bool] = mapped_column(default=False)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    label: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class ReceivableActivity(Base):
+    __tablename__ = "receivable_activities"
+    __table_args__ = (UniqueConstraint("legacy_patient_id", "legacy_encounter_id", "legacy_sequence", name="uq_receivable_legacy_activity"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(index=True)
+    legacy_encounter_id: Mapped[int] = mapped_column(index=True)
+    legacy_sequence: Mapped[int] = mapped_column()
+    payer_type: Mapped[int] = mapped_column(default=0)
+    account_code: Mapped[str] = mapped_column(String(15), default="")
+    code_system: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    modifier: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    pay_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    adjustment_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ServiceCode(Base):
@@ -1306,6 +1356,8 @@ class ClinicalForm(Base):
     signed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     released_to_patient_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     released_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    source_formdir: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    registry_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ClinicalFormDocumentLink(Base):

@@ -116,6 +116,9 @@ end-to-end healthcare workflows:
 - a multidimensional clinical cohort report with demographic, provider/facility,
   consent, diagnosis, medication, laboratory, procedure, history, service and
   immunization filters, reproducible snapshots and authenticated CSV export;
+- appointment/encounter reconciliation that identifies missing visits and
+  appointments, billing authorization/justification/fee errors and copays with
+  facility isolation, practitioner totals and reproducible exports;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

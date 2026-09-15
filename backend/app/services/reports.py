@@ -7,13 +7,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, ChartLocationEvent, Charge, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, Pharmacy, Prescription, ProcedureOrderLine, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, Pharmacy, Prescription, ProcedureOrderLine, ReceivableActivity, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -122,7 +122,7 @@ def clinical_report(db: Session,user: User,params: dict):
     histories=grouped(db.scalars(select(SocialHistory).where(SocialHistory.patient_id.in_(patient_ids))).all()) if patient_ids else {}
     services={}
     if patient_ids:
-        for charge,encounter in db.execute(select(Charge,Encounter).join(Encounter,Charge.encounter_id==Encounter.id).where(Charge.patient_id.in_(patient_ids))):services.setdefault(charge.patient_id,[]).append((charge,encounter))
+        for charge,encounter in db.execute(select(Charge,Encounter).join(Encounter,Charge.encounter_id==Encounter.id).where(Charge.patient_id.in_(patient_ids),Charge.active.is_(True))):services.setdefault(charge.patient_id,[]).append((charge,encounter))
     immunizations=grouped(db.scalars(select(Immunization).where(Immunization.patient_id.in_(patient_ids))).all()) if patient_ids else {}
     kind=params.get("clinical_type");use_diagnosis=bool(params.get("diagnosis") or params.get("include_allergies") or params.get("include_problems"));use_rx=bool(params.get("drug_name") or params.get("include_prescriptions"));use_labs=bool(params.get("lab_result") or params.get("include_lab_results"));use_imm=bool(params.get("immunization"))
     columns=["patient_uuid","legacy_patient_id","patient_name","age","sex","race","ethnicity","provider","facility","communications"]
@@ -172,6 +172,66 @@ def clinical_report(db: Session,user: User,params: dict):
     sort_keys += ["legacy_patient_id"]
     output.sort(key=lambda row:tuple((row.get(key) is None,str(row.get(key) or "")) for key in sort_keys))
     return columns,output,{"rows":len(output),"patients":len({row["patient_uuid"] for row in output})}
+
+
+def appointment_encounter_report(db: Session,user: User,params: dict):
+    """Full-outer appointment/encounter reconciliation with legacy billing diagnostics."""
+    today=datetime.now(timezone.utc).date();start=params.get("date_from") or today;end=params.get("date_to") or start
+    scope=facility_scope(db,user);requested=params.get("_facility_id");requested_legacy=params.get("_legacy_facility_id")
+    allowed_legacy=set(db.scalars(select(Facility.legacy_facility_id).where(Facility.id.in_(scope),Facility.legacy_facility_id.is_not(None)))) if scope is not None else None
+    def in_facility(normalized,legacy):
+        if requested is not None:return normalized==requested or (requested_legacy is not None and legacy==requested_legacy)
+        if scope is None:return True
+        return normalized in scope or (allowed_legacy is not None and legacy in allowed_legacy)
+    appointments=[item for item in db.scalars(select(Appointment).where(func.date(Appointment.starts_at)>=start,func.date(Appointment.starts_at)<=end).order_by(Appointment.starts_at,Appointment.id)) if item.status!="no-show" and item.legacy_status!="?" and in_facility(item.facility_id,item.legacy_facility_id)]
+    encounters=[item for item in db.scalars(select(Encounter).where(func.date(Encounter.occurred_at)>=start,func.date(Encounter.occurred_at)<=end).order_by(Encounter.occurred_at,Encounter.id)) if in_facility(item.facility_id,item.legacy_facility_id)]
+    encounters_by_patient={}
+    for item in encounters:encounters_by_patient.setdefault(item.patient_id,[]).append(item)
+    pairs=[];matched=set()
+    for appointment in appointments:
+        candidates=[item for item in encounters_by_patient.get(appointment.patient_id,[]) if item.appointment_id==appointment.id or item.occurred_at.date()==appointment.starts_at.date()]
+        if candidates:
+            for encounter in candidates:pairs.append((appointment,encounter));matched.add(encounter.id)
+        else:pairs.append((appointment,None))
+    pairs.extend((None,item) for item in encounters if item.id not in matched)
+    patient_ids={item.patient_id for pair in pairs for item in pair if item};patients={item.id:item for item in db.scalars(select(Patient).where(Patient.id.in_(patient_ids)))} if patient_ids else {}
+    encounter_ids={item.id for _,item in pairs if item};charges={};copays={}
+    if encounter_ids:
+        for item in db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),Charge.active.is_(True))):charges.setdefault(item.encounter_id,[]).append(item)
+        for item in db.scalars(select(ReceivableActivity).where(ReceivableActivity.encounter_id.in_(encounter_ids),ReceivableActivity.deleted_at.is_(None),ReceivableActivity.payer_type==0,ReceivableActivity.account_code=="PCP")):copays[item.encounter_id]=copays.get(item.encounter_id,Decimal("0"))+item.pay_amount
+    code_types={item.key:item for item in db.scalars(select(BillingCodeType))}
+    service_codes={(item.code_type_id,item.code,item.modifier or ""):item for item in db.scalars(select(ServiceCode))} if settings.ippf_specific else {}
+    gcac_forms=set(db.scalars(select(ClinicalForm.encounter_id).where(ClinicalForm.encounter_id.in_(encounter_ids),ClinicalForm.source_formdir=="LBFgcac"))) if settings.ippf_specific and encounter_ids else set()
+    columns=["provider","date","appointment_uuid","encounter_uuid","patient","public_id","patient_uuid","legacy_patient_id","legacy_encounter_id","charges","copays","billed","errors"]
+    rows=[];provider_totals={}
+    for appointment,encounter in pairs:
+        patient=patients[(encounter or appointment).patient_id];errors=[];amount=Decimal("0");is_billed=True;saw_unbilled=False;gcac_related=False
+        for charge in charges.get(encounter.id if encounter else None,[]):
+            definition=code_types.get(charge.code_system);fee_type=definition.fee if definition else not charge.code_system.upper().startswith(("ICD","DSM"))
+            justification_type=definition.justification_type if definition else ("diagnosis" if charge.code_system.upper() in {"CPT4","HCPCS"} else None)
+            if fee_type:
+                amount+=charge.unit_price
+                if not charge.billed:is_billed=False;saw_unbilled=True
+                if charge.unit_price==0 and not settings.ippf_specific:errors.append("Missing Fee")
+            elif charge.unit_price!=0:errors.append("Fee is not allowed")
+            if not settings.simplified_demographics and not charge.authorized:errors.append("Needs Auth")
+            if justification_type and not charge.justification:errors.append("Needs Justify")
+            if settings.ippf_specific and fee_type and definition:
+                catalog=service_codes.get((definition.legacy_type_id,charge.code,charge.modifier or ""))
+                if catalog:gcac_related=gcac_related or any(token.startswith("IPPF:25222") for token in (catalog.related_codes or "").split(";"))
+        if encounter is None:errors.append("No visit")
+        if gcac_related and encounter and encounter.id not in gcac_forms:errors.append("GCAC visit form is missing")
+        if saw_unbilled:errors.append("Not billed")
+        if amount==0:is_billed=False
+        provider=(encounter.provider_name if encounter else None) or "Unknown"
+        copay=copays.get(encounter.id if encounter else None,Decimal("0"));when=appointment.starts_at if appointment else encounter.occurred_at
+        row={"provider":provider,"date":value(when),"appointment_uuid":appointment.uuid if appointment else None,"encounter_uuid":encounter.uuid if encounter else None,"patient":f"{patient.first_name} {patient.last_name}","public_id":(patient.legacy_payload or {}).get("pubpid") or patient.uuid,"patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid,"legacy_encounter_id":encounter.legacy_encounter_id if encounter else None,"charges":value(amount),"copays":value(copay),"billed":"Y" if is_billed else "","errors":"; ".join(errors)}
+        rows.append(row);totals=provider_totals.setdefault(provider,{"encounters":0,"charges":Decimal("0"),"copays":Decimal("0")});totals["encounters"]+=int(encounter is not None);totals["charges"]+=amount;totals["copays"]+=copay
+    rows.sort(key=lambda row:(row["provider"],row["date"],row["patient_uuid"],row["encounter_uuid"] or ""))
+    provider_summary=[{"provider":provider,"encounters":totals["encounters"],"charges":value(totals["charges"]),"copays":value(totals["copays"])} for provider,totals in sorted(provider_totals.items())]
+    totals={"encounters":sum(item["encounters"] for item in provider_totals.values()),"charges":value(sum((item["charges"] for item in provider_totals.values()),Decimal("0"))),"copays":value(sum((item["copays"] for item in provider_totals.values()),Decimal("0"))),"errors":sum(bool(row["errors"]) for row in rows),"providers":provider_summary}
+    if not params.get("include_details",True):return ["provider","encounters","charges","copays"],provider_summary,totals
+    return columns,rows,totals
 
 
 def appointment_scope(query, db: Session, user: User):
@@ -255,7 +315,7 @@ def insurance_allocation(db: Session, user: User, params: dict) -> tuple[list[st
     columns=["insurance","charges","visits","patients","patient_percent"]
     if not encounters:return columns,[],{"charges":"0.00","visits":0,"patients":0}
     encounter_ids=[item.id for item in encounters]
-    charge_rows=list(db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),func.upper(Charge.code_system)!="COPAY",Charge.unit_price!=0)))
+    charge_rows=list(db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),Charge.active.is_(True),func.upper(Charge.code_system)!="COPAY",Charge.unit_price!=0)))
     charges_by_encounter={item.id:Decimal("0") for item in encounters}
     for charge in charge_rows:charges_by_encounter[charge.encounter_id]+=charge.unit_price*charge.units
     patient_ids={item.patient_id for item in encounters if charges_by_encounter[item.id]}
@@ -317,6 +377,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
     if key == "clinical_reports": return clinical_report(db,user,params)
+    if key == "appt_encounter_report": return appointment_encounter_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

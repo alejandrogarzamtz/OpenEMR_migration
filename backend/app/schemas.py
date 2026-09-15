@@ -689,6 +689,7 @@ class ReportRunCreate(BaseModel):
     include_communication: bool = False
     sort_patient_name: bool = False
     sort_patient_age: bool = False
+    include_details: bool = True
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -1243,6 +1244,11 @@ class ChargeCreate(BaseModel):
     units: int = Field(default=1, ge=1, le=999)
     unit_price: Decimal = Field(ge=0, decimal_places=2)
     billed_at: datetime | None = None
+    modifier: str | None = Field(default=None, max_length=12)
+    authorized: bool = True
+    billed: bool = False
+    justification: str | None = Field(default=None, max_length=255)
+    active: bool = True
 
 
 class ChargeOut(ChargeCreate):

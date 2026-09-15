@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     portal_billing_enabled: bool = True
     payment_provider: str = Field(default="disabled", pattern="^(disabled|test)$")
     billing_currency: str = Field(default="USD", min_length=3, max_length=3)
+    simplified_demographics: bool = False
+    ippf_specific: bool = False
     public_web_url: str = "http://localhost:5173"
     jwt_issuer: str = "openemr-next"
     jwt_audience: str = "openemr-next-api"

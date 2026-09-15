@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, Referral, SecureMessage, ServiceCode, SocialHistory, User, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, ReceivableActivity, Referral, SecureMessage, ServiceCode, SocialHistory, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -199,7 +199,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "charges", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_activities", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -508,14 +508,24 @@ def run(source_url: str, commit: bool = False) -> dict:
             diagnosis = clean(row["diagnosis"]); system, code = (diagnosis.split(":", 1) if diagnosis and ":" in diagnosis else (None, diagnosis))
             target.add(ClinicalItem(legacy_list_id=row["id"], patient_id=patient.id, category=TYPE_MAP[row["type"]], title=title, code_system=system, code=code, status="active" if row["activity"] else "inactive", onset_date=row["begdate"].date() if row["begdate"] else None, end_date=row["enddate"].date() if row["enddate"] else None, note=clean(row["comments"]), reaction=clean(row["reaction"]), severity=clean(row["severity_al"])))
             stats["clinical_items"]["inserted"] += 1
-        encounters = legacy.execute(text("SELECT id,pid,encounter,date,reason,class_code FROM form_encounter ORDER BY id"))
+        encounter_authorizations={}
+        for registry in legacy.execute(text("SELECT pid,encounter,authorized FROM forms WHERE formdir='newpatient' AND deleted=0 ORDER BY id")).mappings():
+            encounter_authorizations[(registry["pid"],registry["encounter"])]=bool(registry["authorized"])
+        encounters = legacy.execute(text("SELECT * FROM form_encounter ORDER BY id"))
         for row in encounters.mappings():
             stats["encounters"]["source"] += 1
-            if target.scalar(select(Encounter.id).where(Encounter.legacy_encounter_id == row["encounter"])): stats["encounters"]["existing"] += 1; continue
+            existing=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"]))
             patient = patient_for_legacy(target, row["pid"])
-            if not patient or not row["date"]: continue
-            target.add(Encounter(legacy_encounter_id=row["encounter"], patient_id=patient.id, occurred_at=row["date"], type=clean(row["class_code"]) or "AMB", chief_complaint=clean(row["reason"])))
-            stats["encounters"]["inserted"] += 1
+            if not patient or not row["date"]:stats["encounters"]["rejected"]+=1;continue
+            practitioner=target.scalar(select(Practitioner).where(Practitioner.legacy_user_id==row["provider_id"])) if row["provider_id"] else None
+            facility=target.scalar(select(Facility).where(Facility.legacy_facility_id==row["facility_id"])) if row["facility_id"] else None
+            appointment=target.scalar(select(Appointment).where(Appointment.patient_id==patient.id,func.date(Appointment.starts_at)==row["date"].date()).order_by(Appointment.starts_at,Appointment.id))
+            values=dict(patient_id=patient.id,appointment_id=appointment.id if appointment else None,occurred_at=row["date"],type=clean(row["class_code"]) or "AMB",chief_complaint=clean(row["reason"]),practitioner_id=practitioner.id if practitioner else None,legacy_provider_id=row["provider_id"] or None,provider_name=" ".join(filter(None,(practitioner.first_name,practitioner.last_name))) if practitioner else None,facility_id=facility.id if facility else None,legacy_facility_id=row["facility_id"] or None,facility_name=clean(row["facility"]) or (facility.name if facility else None),authorized=encounter_authorizations.get((row["pid"],row["encounter"])),legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["encounters"]["existing"]+=1
+            else:
+                target.add(Encounter(legacy_encounter_id=row["encounter"],**values));stats["encounters"]["inserted"] += 1
         target.flush()
         trackers = legacy.execute(text("SELECT * FROM patient_tracker ORDER BY id"))
         for row in trackers.mappings():
@@ -678,25 +688,48 @@ def run(source_url: str, commit: bool = False) -> dict:
             target.add(Coverage(legacy_insurance_id=row["id"],patient_id=patient.id,payer_id=payer.id,priority=clean(row["type"]) or "primary",plan_name=clean(row["plan_name"]),policy_number=clean(row["policy_number"]),group_number=clean(row["group_number"]),subscriber_name=subscriber,relationship=clean(row["subscriber_relationship"]) or "self",starts_on=row["date"],ends_on=row["date_end"]))
             stats["coverages"]["inserted"] += 1
         target.flush()
+        if "code_types" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM code_types ORDER BY ct_seq,ct_key")).mappings():
+                stats["billing_code_types"]["source"]+=1
+                existing=target.scalar(select(BillingCodeType).where(BillingCodeType.key==row["ct_key"]))
+                values=dict(legacy_type_id=row["ct_id"],sequence=row["ct_seq"] or 0,fee=bool(row["ct_fee"]),justification_type=clean(row["ct_just"]),diagnosis=bool(row["ct_diag"]),procedure=bool(row["ct_proc"]),active=bool(row["ct_active"]),label=clean(row["ct_label"]),legacy_payload={key:json_value(value) for key,value in row.items()})
+                if existing:
+                    for key,value in values.items():setattr(existing,key,value)
+                    stats["billing_code_types"]["existing"]+=1
+                else:
+                    target.add(BillingCodeType(key=row["ct_key"],**values));stats["billing_code_types"]["inserted"]+=1
+            target.flush()
         charges=legacy.execute(text("SELECT * FROM billing ORDER BY id"))
         for row in charges.mappings():
             stats["charges"]["source"] += 1
             existing=target.scalar(select(Charge).where(Charge.legacy_billing_id==row["id"]))
             patient=patient_for_legacy(target,row["pid"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
-            if not patient or not encounter or not row["activity"] or not clean(row["code"]): stats["charges"]["rejected"] += 1; continue
-            values=dict(patient_id=patient.id,encounter_id=encounter.id,code_system=clean(row["code_type"]) or "CPT",code=clean(row["code"]),description=clean(row["code_text"]) or clean(row["code"]),units=row["units"] or 1,unit_price=row["fee"] or 0,billed_at=row["date"],legacy_payload={key:json_value(value) for key,value in row.items()})
+            if not patient or not encounter or not clean(row["code"]): stats["charges"]["rejected"] += 1; continue
+            values=dict(patient_id=patient.id,encounter_id=encounter.id,code_system=clean(row["code_type"]) or "CPT",code=clean(row["code"]),description=clean(row["code_text"]) or clean(row["code"]),units=row["units"] or 1,unit_price=row["fee"] or 0,billed_at=row["date"],modifier=clean(row["modifier"]),authorized=bool(row["authorized"]),billed=bool(row["billed"]),justification=clean(row["justify"]),active=bool(row["activity"]),legacy_payload={key:json_value(value) for key,value in row.items()})
             if existing:
                 for key,value in values.items():setattr(existing,key,value)
                 stats["charges"]["existing"] += 1
             else:
                 target.add(Charge(legacy_billing_id=row["id"],**values));stats["charges"]["inserted"] += 1
         target.flush()
+        if "ar_activity" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM ar_activity ORDER BY pid,encounter,sequence_no")).mappings():
+                stats["receivable_activities"]["source"]+=1
+                existing=target.scalar(select(ReceivableActivity).where(ReceivableActivity.legacy_patient_id==row["pid"],ReceivableActivity.legacy_encounter_id==row["encounter"],ReceivableActivity.legacy_sequence==row["sequence_no"]))
+                patient=patient_for_legacy(target,row["pid"]);encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
+                values=dict(patient_id=patient.id if patient else None,encounter_id=encounter.id if encounter else None,payer_type=row["payer_type"],account_code=clean(row["account_code"]) or "",code_system=clean(row["code_type"]),code=clean(row["code"]),modifier=clean(row["modifier"]),pay_amount=row["pay_amount"] or 0,adjustment_amount=row["adj_amount"] or 0,posted_at=row["post_time"],deleted_at=row["deleted"],legacy_payload={key:json_value(value) for key,value in row.items()})
+                if existing:
+                    for key,value in values.items():setattr(existing,key,value)
+                    stats["receivable_activities"]["existing"]+=1
+                else:
+                    target.add(ReceivableActivity(legacy_patient_id=row["pid"],legacy_encounter_id=row["encounter"],legacy_sequence=row["sequence_no"],**values));stats["receivable_activities"]["inserted"]+=1
+            target.flush()
         claims=legacy.execute(text("SELECT patient_id,encounter_id,version,payer_id,status,bill_time FROM claims ORDER BY patient_id,encounter_id,version"))
         for row in claims.mappings():
             stats["claims"]["source"] += 1; key=f"{row['patient_id']}:{row['encounter_id']}:{row['version']}"
             if target.scalar(select(Claim.id).where(Claim.legacy_claim_key==key)): stats["claims"]["existing"] += 1; continue
             patient=patient_for_legacy(target,row["patient_id"]); encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter_id"])); coverage=target.scalar(select(Coverage).where(Coverage.patient_id==patient.id,Coverage.payer_id==target.scalar(select(Payer.id).where(Payer.legacy_payer_id==row["payer_id"])))) if patient and row["payer_id"] else None
-            claim_charges=list(target.scalars(select(Charge).where(Charge.patient_id==patient.id,Charge.encounter_id==encounter.id,Charge.claim_id.is_(None)))) if patient and encounter else []
+            claim_charges=list(target.scalars(select(Charge).where(Charge.patient_id==patient.id,Charge.encounter_id==encounter.id,Charge.claim_id.is_(None),Charge.active.is_(True)))) if patient and encounter else []
             if not patient or not encounter or not claim_charges: stats["claims"]["rejected"] += 1; continue
             total=sum((x.unit_price*x.units for x in claim_charges),0); claim=Claim(legacy_claim_key=key,patient_id=patient.id,encounter_id=encounter.id,coverage_id=coverage.id if coverage else None,status="submitted" if row["bill_time"] else "draft",total=total,submitted_at=row["bill_time"]); target.add(claim); target.flush()
             for charge in claim_charges: charge.claim_id=claim.id
@@ -806,11 +839,13 @@ def run(source_url: str, commit: bool = False) -> dict:
             target.flush()
         # OpenEMR's `forms` registry points to both core and installed/custom form tables.
         # Reflecting only tables that actually exist preserves every registered form payload.
-        forms = legacy.execute(text("SELECT id,date,encounter,form_name,form_id,pid,authorized,deleted,formdir FROM forms ORDER BY id"))
+        forms = legacy.execute(text("SELECT * FROM forms ORDER BY id"))
         known_types = {"soap": "soap", "ros": "ros", "physical_exam": "physical_exam", "clinic_note": "clinic_note"}
         for row in forms.mappings():
             stats["clinical_forms"]["source"] += 1; legacy_key = f"forms:{row['id']}"
-            if target.scalar(select(ClinicalForm.id).where(ClinicalForm.legacy_form_key == legacy_key)): stats["clinical_forms"]["existing"] += 1; continue
+            existing=target.scalar(select(ClinicalForm).where(ClinicalForm.legacy_form_key == legacy_key))
+            if existing:
+                existing.source_formdir=clean(row["formdir"]);existing.registry_payload={key:json_value(value) for key,value in row.items()};stats["clinical_forms"]["existing"] += 1;continue
             patient = patient_for_legacy(target, row["pid"]); encounter = target.scalar(select(Encounter).where(Encounter.legacy_encounter_id == row["encounter"]))
             formdir = clean(row["formdir"]) or "custom"; table_name = f"form_{formdir}"
             if not patient or not encounter or row["deleted"] or table_name not in legacy_tables: stats["clinical_forms"]["rejected"] += 1; continue
@@ -820,7 +855,7 @@ def run(source_url: str, commit: bool = False) -> dict:
             if not payload_rows: stats["clinical_forms"]["rejected"] += 1; continue
             content = {"rows": [{key: json_value(value) for key, value in payload.items()} for payload in payload_rows]}
             if formdir == "soap": content = {key: json_value(payload_rows[0].get(key)) for key in ("subjective", "objective", "assessment", "plan")}
-            target.add(ClinicalForm(legacy_form_key=legacy_key, patient_id=patient.id, encounter_id=encounter.id, form_type=known_types.get(formdir, "custom"), title=clean(row["form_name"]) or formdir.replace("_", " ").title(), content=content, status="signed" if row["authorized"] else "draft", authored_at=row["date"] or encounter.occurred_at))
+            target.add(ClinicalForm(legacy_form_key=legacy_key, patient_id=patient.id, encounter_id=encounter.id, form_type=known_types.get(formdir, "custom"), title=clean(row["form_name"]) or formdir.replace("_", " ").title(), content=content, status="signed" if row["authorized"] else "draft", authored_at=row["date"] or encounter.occurred_at,source_formdir=formdir,registry_payload={key:json_value(value) for key,value in row.items()}))
             stats["clinical_forms"]["inserted"] += 1
         target.flush()
         if "clinical_notes_documents" in legacy_tables and "form_clinical_notes" in legacy_tables:
