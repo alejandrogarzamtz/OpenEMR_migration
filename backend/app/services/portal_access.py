@@ -10,7 +10,7 @@ from ..db import get_db
 from ..models import Patient, PortalAccessGrant, PortalAccount
 from ..security import current_portal_account
 
-PORTAL_SCOPES = frozenset({"appointments", "records", "documents", "forms", "messages", "billing"})
+PORTAL_SCOPES = frozenset({"appointments", "records", "documents", "forms", "messages", "billing", "questionnaires", "notifications"})
 
 
 @dataclass(frozen=True)

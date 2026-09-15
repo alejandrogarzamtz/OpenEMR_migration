@@ -965,6 +965,7 @@ class CommunicationDelivery(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     legacy_email_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_notification_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
     message_id: Mapped[int | None] = mapped_column(ForeignKey("secure_messages.id"), nullable=True)
     channel: Mapped[str] = mapped_column(String(20), index=True)
@@ -979,6 +980,71 @@ class CommunicationDelivery(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(default=0)
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+    __table_args__ = (UniqueConstraint("portal_account_id","patient_id",name="uq_notification_preference_context"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    portal_account_id: Mapped[int] = mapped_column(ForeignKey("portal_accounts.id"), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    email_enabled: Mapped[bool] = mapped_column(default=False)
+    sms_enabled: Mapped[bool] = mapped_column(default=False)
+    in_app_enabled: Mapped[bool] = mapped_column(default=True)
+    message_events: Mapped[bool] = mapped_column(default=True)
+    appointment_events: Mapped[bool] = mapped_column(default=True)
+    result_events: Mapped[bool] = mapped_column(default=True)
+    questionnaire_events: Mapped[bool] = mapped_column(default=True)
+    timezone_name: Mapped[str] = mapped_column(String(64), default="UTC")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PortalNotification(Base):
+    __tablename__ = "portal_notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    portal_account_id: Mapped[int] = mapped_column(ForeignKey("portal_accounts.id"), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(30), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    body: Mapped[str] = mapped_column(Text)
+    action_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class StaffMessageThread(Base):
+    __tablename__ = "staff_message_threads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    subject: Mapped[str] = mapped_column(String(255))
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class StaffThreadParticipant(Base):
+    __tablename__ = "staff_thread_participants"
+    __table_args__ = (UniqueConstraint("thread_id","user_id",name="uq_staff_thread_participant"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("staff_message_threads.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StaffMessage(Base):
+    __tablename__ = "staff_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("staff_message_threads.id"), index=True)
+    sender_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class BackgroundService(Base):
@@ -1893,17 +1959,36 @@ class ClinicalSignature(Base):
 class QuestionnaireDefinition(Base):
     __tablename__ = "questionnaire_definitions"
     id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_questionnaire_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     code: Mapped[str] = mapped_column(String(50), index=True)
     version: Mapped[str] = mapped_column(String(30))
     title: Mapped[str] = mapped_column(String(255))
     questions: Mapped[list] = mapped_column(JSON)
     active: Mapped[bool] = mapped_column(default=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class QuestionnaireAssignment(Base):
+    __tablename__ = "questionnaire_assignments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    questionnaire_id: Mapped[int] = mapped_column(ForeignKey("questionnaire_definitions.id"), index=True)
+    assigned_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    response_id: Mapped[int | None] = mapped_column(ForeignKey("questionnaire_responses.id", use_alter=True), nullable=True, unique=True)
+    instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="assigned", index=True)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class QuestionnaireResponse(Base):
     __tablename__ = "questionnaire_responses"
     id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_response_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
     encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True)
@@ -1912,4 +1997,7 @@ class QuestionnaireResponse(Base):
     score: Mapped[int] = mapped_column()
     interpretation: Mapped[str] = mapped_column(String(100))
     authored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    author_portal_account_id: Mapped[int | None] = mapped_column(ForeignKey("portal_accounts.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="completed", index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)

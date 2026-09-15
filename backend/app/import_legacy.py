@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import AmcTrackingEvent, Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InsuranceType, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, PatientTransaction, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, QualityMeasureItem, QualityMeasureReport, ReceivableActivity, ReceivableSession, ReferenceOption, Referral, RegulatoryMetricEvent, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, User, VitalSet, Warehouse
+from .models import AmcTrackingEvent, Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InsuranceType, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, PatientTransaction, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, QualityMeasureItem, QualityMeasureReport, QuestionnaireDefinition, QuestionnaireResponse, ReceivableActivity, ReceivableSession, ReferenceOption, Referral, RegulatoryMetricEvent, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -121,6 +121,28 @@ def json_value(value):
     return value
 
 
+def parsed_json(value, fallback):
+    if isinstance(value, (dict, list)): return value
+    try:return json.loads(value) if value else fallback
+    except (TypeError, ValueError):return fallback
+
+
+def questionnaire_items(payload) -> list[dict]:
+    result=[]
+    type_map={"integer":"integer","boolean":"boolean","choice":"choice","open-choice":"choice","string":"string","text":"string"}
+    def visit(items):
+        for raw in items or []:
+            if raw.get("type") in {"group","display"}:visit(raw.get("item"));continue
+            kind=type_map.get(raw.get("type"))
+            if not kind:continue
+            item={"id":str(raw.get("linkId") or f"q{len(result)+1}"),"text":raw.get("text") or "Question","type":kind}
+            if kind=="integer":item.update(min=0,max=raw.get("maxValue",10))
+            if kind=="choice":item["options"]=[str(option.get("valueString") or option.get("valueCoding",{}).get("display") or option.get("valueCoding",{}).get("code")) for option in raw.get("answerOption",[]) if option]
+            result.append(item);visit(raw.get("item"))
+    visit(payload.get("item",[]) if isinstance(payload,dict) else [])
+    return result
+
+
 def import_social_history(row, target: Session) -> str:
     if target.scalar(select(SocialHistory.id).where(SocialHistory.legacy_history_id==row["id"])):
         return "existing"
@@ -199,7 +221,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "reference_options", "insurance_types", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "syndromic_submissions", "clinical_rule_logs", "amc_tracking_events", "quality_measure_reports", "quality_measure_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "patient_transactions", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_sessions", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers", "regulatory_metric_events")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "reference_options", "insurance_types", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "syndromic_submissions", "clinical_rule_logs", "amc_tracking_events", "quality_measure_reports", "quality_measure_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "patient_transactions", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_sessions", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "questionnaire_definitions", "questionnaire_responses", "background_services", "ip_login_trackers", "regulatory_metric_events")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -1143,6 +1165,34 @@ def run(source_url: str, commit: bool = False) -> dict:
                 delivery_status = "sent" if sent_at else "failed" if error else "pending"
                 target.add(CommunicationDelivery(legacy_email_id=row["id"], channel="email", recipient=recipient, subject=clean(row.get("subject")) or "Legacy message", body=clean(row.get("body")) or "", template_name=clean(row.get("template_name")), status=delivery_status, queued_at=row.get("datetime_queued") or datetime.now(timezone.utc), sent_at=sent_at, failed_at=row.get("datetime_error") if error else None, error_message=error, legacy_payload={key: json_value(value) for key, value in row.items()}))
                 stats["communication_deliveries"]["inserted"] += 1
+
+        if "notification_log" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM notification_log ORDER BY iLogId")).mappings():
+                stats["communication_deliveries"]["source"]+=1
+                if target.scalar(select(CommunicationDelivery.id).where(CommunicationDelivery.legacy_notification_id==row["iLogId"])):
+                    stats["communication_deliveries"]["existing"]+=1;continue
+                patient=patient_for_legacy(target,row.get("pid"));channel="sms" if str(row.get("type") or "").lower()=="sms" else "email";recipient=(patient.phone if channel=="sms" else patient.email) if patient else None
+                target.add(CommunicationDelivery(legacy_notification_id=row["iLogId"],patient_id=patient.id if patient else None,channel=channel,recipient=recipient or "legacy-recipient-unavailable",subject=clean(row.get("email_subject")) or "Legacy appointment notification",body=clean(row.get("message")) or "",status="sent",queued_at=row.get("dSentDateTime") or datetime.now(timezone.utc),sent_at=row.get("dSentDateTime") or datetime.now(timezone.utc),legacy_payload={key:json_value(value) for key,value in row.items()}));stats["communication_deliveries"]["inserted"]+=1
+
+        if "questionnaire_repository" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM questionnaire_repository ORDER BY id")).mappings():
+                stats["questionnaire_definitions"]["source"]+=1
+                if target.scalar(select(QuestionnaireDefinition.id).where(QuestionnaireDefinition.legacy_questionnaire_id==row["id"])):
+                    stats["questionnaire_definitions"]["existing"]+=1;continue
+                payload=parsed_json(row.get("questionnaire"),{});questions=questionnaire_items(payload);code=clean(row.get("code")) or clean(row.get("questionnaire_id")) or f"legacy-{row['id']}"
+                target.add(QuestionnaireDefinition(legacy_questionnaire_id=row["id"],code=code[:50],version=str(row.get("version") or 1),title=clean(row.get("name")) or clean(row.get("code_display")) or code,questions=questions,active=bool(row.get("active",1) and questions),legacy_payload={key:json_value(value) for key,value in row.items()}));stats["questionnaire_definitions"]["inserted"]+=1
+
+        if "questionnaire_response" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM questionnaire_response ORDER BY id")).mappings():
+                stats["questionnaire_responses"]["source"]+=1
+                if target.scalar(select(QuestionnaireResponse.id).where(QuestionnaireResponse.legacy_response_id==row["id"])):
+                    stats["questionnaire_responses"]["existing"]+=1;continue
+                patient=patient_for_legacy(target,row.get("patient_id"));definition=target.scalar(select(QuestionnaireDefinition).where(QuestionnaireDefinition.legacy_questionnaire_id==row.get("questionnaire_foreign_id")))
+                if not patient or not definition:
+                    stats["questionnaire_responses"]["rejected"]+=1;continue
+                encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row.get("encounter"))) if row.get("encounter") else None;author=target.scalar(select(User).where(User.legacy_user_id==row.get("creator_user_id"))) if row.get("creator_user_id") else None
+                answers=parsed_json(row.get("form_response"),{});answers=answers if isinstance(answers,dict) else {"legacy_answers":answers}
+                target.add(QuestionnaireResponse(legacy_response_id=row["id"],patient_id=patient.id,encounter_id=encounter.id if encounter else None,questionnaire_id=definition.id,answers=answers,score=int(row.get("form_score") or 0),interpretation=clean(row.get("status")) or "legacy",status=clean(row.get("status")) or "completed",authored_at=row.get("create_time") or datetime.now(timezone.utc),author_id=author.id if author else None,legacy_payload={key:json_value(value) for key,value in row.items()}));stats["questionnaire_responses"]["inserted"]+=1
 
         if "chart_tracker" in legacy_tables:
             user_names = {}

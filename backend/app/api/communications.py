@@ -64,6 +64,7 @@ from ..security import (
 )
 from ..services.patients import patient_by_uuid
 from ..services.portal_access import PortalPatientContext, require_portal_scope
+from ..services.notifications import notify_patient
 
 router = APIRouter(prefix="/api/v1", tags=["communications"])
 PORTAL_COOKIE = "portal_refresh_token"
@@ -155,18 +156,14 @@ def task_out(task: ClinicalTask, patient: Patient, encounter: Encounter | None, 
 
 
 def queue_patient_notice(db: Session, patient: Patient, message: SecureMessage) -> None:
-    if not patient.allow_email or not patient.email:
-        return
-    db.add(
-        CommunicationDelivery(
-            patient_id=patient.id,
-            message_id=message.id,
-            channel="email",
-            recipient=patient.email,
-            subject="New secure message",
-            body="A new secure message is available. Sign in to the patient portal to view it.",
-            template_name="secure-message-notice",
-        )
+    notify_patient(
+        db,
+        patient,
+        "message",
+        "New secure message",
+        "A new secure message is available. Sign in to the patient portal to view it.",
+        "/portal#messages",
+        message.id,
     )
 
 

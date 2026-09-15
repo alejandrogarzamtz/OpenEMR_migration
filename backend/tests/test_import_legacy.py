@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from sqlalchemy import select
 from app.db import SessionLocal
-from app.import_legacy import clean, event_datetime, import_clinical_rule_log, import_social_history, json_value, legacy_consent_decision, parse_legacy_person_name, stable_legacy_row_keys, valid_dob
+from app.import_legacy import clean, event_datetime, import_clinical_rule_log, import_social_history, json_value, legacy_consent_decision, parse_legacy_person_name, questionnaire_items, stable_legacy_row_keys, valid_dob
 from app.models import ClinicalRuleLog, SocialHistory
 
 
@@ -34,6 +34,11 @@ def test_legacy_multiset_row_keys_are_stable_and_preserve_duplicates():
     keys=[key for _,_,key in forward]
     assert keys==[key for _,_,key in reverse] and len(set(keys))==3
     assert keys[0].endswith(":1") and keys[1].endswith(":2")
+
+
+def test_legacy_fhir_questionnaire_items_become_portal_fields():
+    payload={"item":[{"linkId":"group","type":"group","item":[{"linkId":"q1","text":"How are you?","type":"choice","answerOption":[{"valueString":"Well"},{"valueString":"Unwell"}]}]},{"linkId":"q2","text":"Days","type":"integer","maxValue":30}]}
+    assert questionnaire_items(payload)==[{"id":"q1","text":"How are you?","type":"choice","options":["Well","Unwell"]},{"id":"q2","text":"Days","type":"integer","min":0,"max":30}]
 
 
 def test_cdr_import_is_lossless_for_unresolved_references_and_idempotent():

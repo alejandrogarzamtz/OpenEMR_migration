@@ -30,6 +30,7 @@ from ..schemas import AppointmentOut, ChargeOut, ClaimOut, ClinicalFormOut, Docu
 from ..security import clinical_user, communication_write_user, current_portal_account, password_hash
 from ..services.patients import patient_by_uuid
 from ..services.payments import payment_processor
+from ..services.notifications import notify_patient
 from ..services.portal_access import PortalPatientContext, PORTAL_SCOPES, active_grants, require_portal_scope
 from .appointments import appointment_out
 
@@ -315,6 +316,7 @@ def revoke_claim(patient_uuid: str, claim_uuid: str, db: Session = Depends(get_d
 def release_document(patient_uuid: str, document_uuid: str, db: Session = Depends(get_db), user: User = Depends(clinical_user)):
     patient, item = release_target(db, patient_uuid, "document", document_uuid)
     item.released_to_patient_at = datetime.now(timezone.utc); item.released_by_id = user.id
+    notify_patient(db,patient,"result","New document available","A new document is available in your patient portal.","/portal#records")
     staff_audit(db, user, patient.id, "release", "document", item.uuid); db.commit(); db.refresh(item)
     return item
 
@@ -332,6 +334,7 @@ def release_form(patient_uuid: str, form_uuid: str, db: Session = Depends(get_db
     if item.status != "signed" or item.signed_at is None:
         raise HTTPException(status_code=409, detail="Only signed clinical forms can be released")
     item.released_to_patient_at = datetime.now(timezone.utc); item.released_by_id = user.id
+    notify_patient(db,patient,"result","New visit form available","A signed visit form is available in your patient portal.","/portal#records")
     encounter = db.get(Encounter, item.encounter_id)
     staff_audit(db, user, patient.id, "release", "clinical_form", item.uuid); db.commit(); db.refresh(item)
     from ..services.clinical_signatures import form_signatures
@@ -355,6 +358,7 @@ def release_result(result_uuid: str, db: Session = Depends(get_db), user: User =
     if item.status not in {"final", "corrected"}:
         raise HTTPException(status_code=409, detail="Only final or corrected lab results can be released")
     item.released_to_patient_at = datetime.now(timezone.utc); item.released_by_id = user.id
+    patient=db.get(Patient,order.patient_id);notify_patient(db,patient,"result","New result available","A final result is available in your patient portal.","/portal#records")
     staff_audit(db, user, order.patient_id, "release", "lab_result", item.uuid); db.commit(); db.refresh(item)
     return item
 
@@ -368,10 +372,12 @@ def release_order_results(order_uuid: str, db: Session = Depends(get_db), user: 
     if not items:
         raise HTTPException(status_code=409, detail="The order has no final or corrected results to release")
     released_at = datetime.now(timezone.utc)
+    patient=db.get(Patient,order.patient_id)
     for item in items:
         item.released_to_patient_at = released_at
         item.released_by_id = user.id
         staff_audit(db, user, order.patient_id, "release", "lab_result", item.uuid)
+    notify_patient(db,patient,"result","New results available","New final results are available in your patient portal.","/portal#records")
     db.commit()
     return items
 

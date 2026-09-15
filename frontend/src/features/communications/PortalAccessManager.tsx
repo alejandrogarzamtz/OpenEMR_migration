@@ -4,7 +4,7 @@ import type { Patient } from "../patients/types";
 
 type Representative={uuid:string;username:string;display_name?:string};
 type Grant={uuid:string;patient_uuid:string;representative_name:string;relationship_code:string;scopes:string[];revoked_at?:string};
-const SCOPES=["appointments","records","documents","forms","messages","billing"];
+const SCOPES=["appointments","records","documents","forms","messages","billing","questionnaires","notifications"];
 
 export function PortalAccessManager({api,patients}:{api:ApiRequest;patients:Patient[]}){
   const [representatives,setRepresentatives]=useState<Representative[]>([]); const [grants,setGrants]=useState<Grant[]>([]); const [patientUuid,setPatientUuid]=useState(""); const [notice,setNotice]=useState("");

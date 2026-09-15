@@ -9,6 +9,7 @@ from ..models import Appointment, AuditEvent, Facility, Patient, User
 from ..schemas import AppointmentCreate, AppointmentFacilityOut, AppointmentOut, AppointmentUpdate
 from ..security import appointment_user, appointment_write_user
 from ..services.patients import patient_by_uuid
+from ..services.notifications import notify_patient
 from ..services.access import facility_scope, require_facility_access
 
 router = APIRouter(prefix="/api/v1/appointments", tags=["appointments"])
@@ -111,6 +112,7 @@ def create_appointment(
     ensure_no_conflict(db, item)
     db.add(item)
     db.flush()
+    notify_patient(db,patient,"appointment","Appointment update","An appointment update is available in your patient portal.","/portal#appointments")
     db.add(AuditEvent(actor_id=user.id, action="create", resource_type="appointment", resource_id=item.uuid))
     db.commit()
     db.refresh(item)
@@ -165,6 +167,7 @@ def update_appointment(
     if item.ends_at <= item.starts_at:
         raise HTTPException(status_code=422, detail="ends_at must be after starts_at")
     ensure_no_conflict(db, item, exclude_id=item.id)
+    notify_patient(db,db.get(Patient,item.patient_id),"appointment","Appointment update","An appointment update is available in your patient portal.","/portal#appointments")
     db.add(AuditEvent(actor_id=user.id, action="update", resource_type="appointment", resource_id=item.uuid, detail=",".join(sorted(changes))))
     db.commit()
     db.refresh(item)
@@ -182,6 +185,7 @@ def delete_appointment(
         raise HTTPException(status_code=404, detail="Appointment not found")
     require_appointment_access(db, user, item)
     item.status = "cancelled"
+    notify_patient(db,db.get(Patient,item.patient_id),"appointment","Appointment cancelled","An appointment cancellation is available in your patient portal.","/portal#appointments")
     db.add(AuditEvent(actor_id=user.id, action="cancel", resource_type="appointment", resource_id=item.uuid))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

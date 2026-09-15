@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     portal_documents_enabled: bool = True
     portal_forms_enabled: bool = True
     portal_billing_enabled: bool = True
+    portal_questionnaires_enabled: bool = True
+    portal_notifications_enabled: bool = True
+    notification_delivery_mode: str = Field(default="disabled", pattern="^(disabled|test)$")
     payment_provider: str = Field(default="disabled", pattern="^(disabled|test)$")
     billing_currency: str = Field(default="USD", min_length=3, max_length=3)
     simplified_demographics: bool = False

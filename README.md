@@ -164,8 +164,9 @@ end-to-end healthcare workflows:
 - separate staff and patient identities, secure patient-bound message threads,
   forced replacement of temporary portal passwords, lockout protection,
   non-enumerating one-time portal recovery, encrypted patient TOTP MFA with
-  one-use recovery codes, clinical tasks, consent-aware generic email notices,
-  and a durable outbox;
+  one-use recovery codes, clinical tasks, patient-completed assigned
+  questionnaires, notification preferences and inbox, staff group threads,
+  and a processable durable email/SMS outbox;
 - an isolated patient portal for owned appointments and explicitly released
   final laboratory results, documents, and signed visit forms, with revocation
   controls and identity-linked access auditing;
@@ -361,6 +362,8 @@ Start with these documents:
   token lifecycle, revocation, recovery, and production controls;
 - [Patient Portal](docs/PATIENT_PORTAL.md) — record publication, patient
   isolation, auditing, and deployment controls;
+- [Patient Engagement](docs/PATIENT_ENGAGEMENT.md) — questionnaires,
+  notifications, staff groups, and outbound-delivery boundaries;
 - [Portal Billing and Payments](docs/PAYMENTS.md) — statement release,
   idempotency, token handling, accounting, and processor boundaries;
 - [Integrations](docs/INTEGRATIONS.md) — external systems, configuration,

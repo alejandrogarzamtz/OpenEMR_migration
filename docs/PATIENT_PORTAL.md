@@ -67,6 +67,8 @@ PORTAL_RESULTS_ENABLED
 PORTAL_DOCUMENTS_ENABLED
 PORTAL_FORMS_ENABLED
 PORTAL_BILLING_ENABLED
+PORTAL_QUESTIONNAIRES_ENABLED
+PORTAL_NOTIFICATIONS_ENABLED
 ```
 
 All default to `true` in the development environment. Disabling an area makes
@@ -74,7 +76,7 @@ its portal route unavailable; it does not delete data or change release state.
 
 ## Current limitations
 
-Live payment-processor adapters, patient-entered questionnaires, configurable delayed-result
-release, bulk document archives, and notification preferences remain parity
+Live payment-processor and message-transport adapters, configurable delayed-result
+release, and bulk document archives remain parity
 work. The portal must not be described as a complete OpenEMR replacement until
 those workflows and their organization-specific policies are verified.
