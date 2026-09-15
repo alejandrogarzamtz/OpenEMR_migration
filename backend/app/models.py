@@ -1166,6 +1166,12 @@ class ReceivableActivity(Base):
     check_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     deposit_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    payment_method_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    follow_up_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    post_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payer_claim_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

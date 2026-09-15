@@ -125,6 +125,9 @@ end-to-end healthcare workflows:
 - front-office receipt reporting that preserves original receipt lines, groups
   patient/timestamp receipts, separates current and prior balances, and provides
   method subtotals under facility and practitioner access controls;
+- integrated A/R receipt summaries by effective payer, configured payment
+  method or check reference, with copays, adjustments, service/deposit date
+  semantics, procedure filters and detailed or aggregate exports;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

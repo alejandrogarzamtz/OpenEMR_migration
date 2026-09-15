@@ -46,7 +46,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `payment_processing_report` | PENDING |
 | `prepayment_balance_report` | PENDING |
 | `prescriptions_report` | MIGRATED |
-| `receipts_by_method_report` | PENDING |
+| `receipts_by_method_report` | MIGRATED — copays plus integrated A/R payments/adjustments by payer, configured method or check reference; service/deposit dates, procedure/provider/facility filters, detail/summary, snapshots and CSV |
 | `referrals_report` | MIGRATED — facility/date/status scoped referral-loop report with recipient organization, request/reply dates, patient identifiers and reason |
 | `report.script` | EMBEDDED / PENDING — shared JavaScript for the legacy billing criteria component, not an independently executable report; parity belongs to that parent workflow |
 | `report_results` | MIGRATED — date-filtered immutable run history with title, completion state, row count, actor, SHA-256 integrity checksum, snapshot totals and CSV |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 31 migrated, 17 pending/embedded**.
+Current accounting: **48 cataloged, 32 migrated, 16 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -110,6 +110,14 @@ balance amounts separately, retains the source, method and actor labels, and
 provides method and grand totals. Encounter joins intentionally exclude legacy
 prepayments without a visit, matching the source report, and facility/provider
 scope is enforced before grouping.
+
+`receipts_by_method_report` combines active billed copays with non-voided
+integrated-A/R payments and adjustments only for registered encounters, as the
+legacy report does. It supports payment/deposit or invoice-date semantics,
+facility and charge-provider scope, procedure-code prefix matching, effective
+coverage policy display, and detailed or grouped output by payer, configured
+payment-method label or check reference. Source session labels and activity
+memo/follow-up/reason fields are typed while every original row remains intact.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,

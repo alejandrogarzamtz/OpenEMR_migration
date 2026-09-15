@@ -699,6 +699,9 @@ class ReportRunCreate(BaseModel):
     provider_legacy_id: int | None = Field(default=None, ge=1)
     with_debt_only: bool = False
     include_zero_balances: bool = False
+    receipt_report_by: str = Field(default="payer", pattern="^(payer|payment_method|check_number)$")
+    use_invoice_date: bool = False
+    procedure_code: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def validate_range(self):
