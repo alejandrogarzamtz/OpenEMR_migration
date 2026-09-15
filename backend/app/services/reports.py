@@ -13,7 +13,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -369,6 +369,148 @@ def ippf_daily_report(db: Session,user: User,params: dict):
     rows=list(data.values());columns=["method_code","method",*metrics]
     totals={metric:sum(row[metric] for row in rows) for metric in metrics};totals["methods"]=len(rows);totals["date"]=report_date.isoformat()
     return columns,rows,totals
+
+
+def _ippf_contraceptive_method(code: str) -> str | None:
+    import re
+    tests=[("Pills",r"^111101"),("Injectables",r"^11111[1-9]"),("Implants",r"^11112[1-9]"),("Patch",r"^111132"),("Vaginal Ring",r"^111133"),("Male Condoms",r"^112141"),("Female Condoms",r"^112142"),("Diaphragms/Caps",r"^11215[1-9]"),("Spermicides",r"^11216[1-9]"),("IUD",r"^11317[1-9]"),("Emergency Contraception",r"^145212"),("Female VSC",r"^121181.13"),("Male VSC",r"^122182.13"),("Awareness-Based",r"^131191.10")]
+    return next((title for title,pattern in tests if re.search(pattern,code)),None)
+
+
+def _ippf_abortion_method(code: str) -> str | None:
+    if code.startswith("2522231"):return "D&C"
+    if code.startswith("2522232"):return "D&E"
+    if code.startswith("2522233"):return "MVA"
+    if code.startswith("252224"):return "Medical"
+    if code.startswith(("252223","252224")):return "Other Surgical"
+    return None
+
+
+def _coded_values(raw: str | None,system: str) -> list[str]:
+    values=[]
+    for token in str(raw or "").split(";"):
+        kind,separator,code=token.partition(":")
+        if separator and kind==system and code:values.append(code)
+    return values
+
+
+def ippf_statistics_report(db: Session,user: User,params: dict):
+    """Multidimensional IPPF, Member Association and GCAC statistics engine."""
+    family=params.get("ippf_report_type") or "i";group=params.get("ippf_group_by") or {"i":"3","m":"101","g":"13"}[family];content=params.get("ippf_content") or "1"
+    allowed={"i":({"3","4","104","6","9","10"},{"1","3","5"}),"m":({"101","102","17","9","10","103","2"},{"1","2","4"}),"g":({"13","1","12","5","8","7","11","10","20"},{"1","2","4"})}
+    if group not in allowed[family][0] or content not in allowed[family][1]:raise HTTPException(status_code=422,detail="Invalid row/content combination for the selected IPPF report family")
+    today=datetime.now(timezone.utc).date();start=params.get("date_from") or date(1900,1,1);end=params.get("date_to") or today;scope=facility_scope(db,user);requested=params.get("_facility_id");requested_legacy=params.get("_legacy_facility_id")
+    def in_facility(encounter):
+        if requested is not None:return encounter.facility_id==requested or (requested_legacy is not None and encounter.legacy_facility_id==requested_legacy)
+        return scope is None or encounter.facility_id in scope
+    encounters=[item for item in db.scalars(select(Encounter).where(func.date(Encounter.occurred_at)>=start,func.date(Encounter.occurred_at)<=end).order_by(Encounter.patient_id,Encounter.occurred_at,Encounter.id)) if in_facility(item)]
+    encounter_map={item.id:item for item in encounters};patient_ids={item.patient_id for item in encounters};patients={item.id:item for item in db.scalars(select(Patient).where(Patient.id.in_(patient_ids),Patient.merged_into_id.is_(None)))} if patient_ids else {}
+    sex_filter=params.get("ippf_sex") or "all"
+    def sex_allowed(patient):return sex_filter=="all" or ("male" if str(patient.sex).lower()=="male" else "female")==sex_filter
+    service_codes={(item.code,item.modifier or ""):item for item in db.scalars(select(ServiceCode).where(ServiceCode.code_type_id==12,ServiceCode.active.is_(True)))}
+    ippf_descriptions={item.code:item.description for item in db.scalars(select(ServiceCode).where(ServiceCode.code_type_id==11))}
+    referral_definitions={item.code:item.related_codes for item in db.scalars(select(ServiceCode).where(ServiceCode.code_type_id==16,ServiceCode.active.is_(True)))}
+    forms_by_encounter={}
+    if encounter_map:
+        for form in db.scalars(select(ClinicalForm).where(ClinicalForm.encounter_id.in_(list(encounter_map)),ClinicalForm.source_formdir=="LBFgcac").order_by(ClinicalForm.authored_at,ClinicalForm.id)):forms_by_encounter.setdefault(form.encounter_id,[]).append(form.content or {})
+    def form_value(encounter_id,name,default="Indeterminate"):
+        for payload in reversed(forms_by_encounter.get(encounter_id,[])):
+            if payload.get(name):return str(payload[name])
+            for row in payload.get("rows",[]):
+                if row.get("field_id")==name and row.get("field_value"):return str(row["field_value"])
+        return default
+    display_fields=[item for item in (params.get("ippf_columns") or ["total"]) if item not in {"total","sex","age2","age9"}]
+    aggregates={};seen=set();dimension_values={field:set() for field in display_fields}
+    def registration(patient,key):
+        raw=(patient.legacy_payload or {}).get(key)
+        try:return date.fromisoformat(str(raw)[:10]) if raw else None
+        except ValueError:return None
+    def add(report_key,description,patient,when,quantity=1):
+        if not report_key or not patient or not sex_allowed(patient):return
+        marker=(report_key,patient.id)
+        if content=="2" and marker in seen:return
+        if content=="3" and (marker in seen or not (registration(patient,"contrastart") and start<=registration(patient,"contrastart")<=end)):return
+        if content=="4" and (marker in seen or not (registration(patient,"regdate") and start<=registration(patient,"regdate")<=end)):return
+        if content in {"2","3","4"}:seen.add(marker);quantity=1
+        row=aggregates.setdefault(report_key,{"group":report_key,"description":description or "","total":0,"women":0,"men":0,"age_0_24":0,"age_25_plus":0,"age_0_10":0,"age_11_14":0,"age_15_19":0,"age_20_24":0,"age_25_29":0,"age_30_34":0,"age_35_39":0,"age_40_44":0,"age_45_plus":0,"dimensions":{field:{} for field in display_fields}})
+        row["total"]+=quantity;row["men" if str(patient.sex).lower()=="male" else "women"]+=quantity
+        age=when.year-patient.date_of_birth.year-((when.month,when.day)<(patient.date_of_birth.month,patient.date_of_birth.day));row["age_0_24" if age<25 else "age_25_plus"]+=quantity
+        bucket="age_0_10" if age<11 else "age_11_14" if age<15 else "age_15_19" if age<20 else "age_20_24" if age<25 else "age_25_29" if age<30 else "age_30_34" if age<35 else "age_35_39" if age<40 else "age_40_44" if age<45 else "age_45_plus";row[bucket]+=quantity
+        payload=patient.legacy_payload or {}
+        for field in display_fields:
+            raw=getattr(patient,field,None) if hasattr(patient,field) else payload.get(field);label=str(raw or "Unspecified");row["dimensions"][field][label]=row["dimensions"][field].get(label,0)+quantity;dimension_values[field].add(label)
+    def code_group(code,definition,patient,encounter):
+        if group=="1":return ("SRH - Family Planning" if code.startswith("1") else "SRH Non Family Planning" if code.startswith("2") else None,"")
+        if group=="3":return ({"1":"SRH - Family Planning","2":"SRH Non Family Planning","3":"Non-SRH Medical","4":"Non-SRH Non-Medical"}.get(code[:1],"Invalid Service Codes"),"")
+        if group=="4":return code,ippf_descriptions.get(code,"")
+        if group=="104":return (code,ippf_descriptions.get(code,"")) if _ippf_contraceptive_method(code) else (None,"")
+        if group in {"6","7"}:return _ippf_contraceptive_method(code),""
+        if group=="13":
+            key=next((title for prefix,title in (("252221","Pre-Abortion Counseling"),("252222","Pre-Abortion Consultation"),("252223","Induced Abortion"),("252224","Medical Abortion"),("252225","Incomplete Abortion Treatment"),("252226","Post-Abortion Care"),("252227","Post-Abortion Counseling"),("25222","Other/Generic Abortion-Related")) if code.startswith(prefix)),None);return key,""
+        if group=="5":return _ippf_abortion_method(code),""
+        if group=="8":return (form_value(encounter.id,"client_status"),"") if code.startswith(("252225","252226","252227")) else (None,"")
+        if group=="12":return (form_value(encounter.id,"client_status"),"") if code.startswith("252221") else (None,"")
+        return None,""
+    referral_groups={"9","10","20"}
+    if content!="5" and group not in referral_groups and group!="11":
+        for charge in db.scalars(select(Charge).where(Charge.encounter_id.in_(list(encounter_map)),Charge.active.is_(True),Charge.code_system=="MA").order_by(Charge.patient_id,Charge.encounter_id,Charge.code,Charge.id)) if encounter_map else []:
+            encounter=encounter_map[charge.encounter_id];patient=patients.get(charge.patient_id);definition=service_codes.get((charge.code,charge.modifier or ""));codes=_coded_values(definition.related_codes if definition else None,"IPPF")
+            if family=="m":
+                key=definition.category_title if group=="101" and definition else charge.code if group=="102" else (patient.legacy_payload or {}).get("referral_source") if group=="103" else f"{patient.last_name}, {patient.first_name} {patient.middle_name or ''}".strip() if group=="17" else {"1":"Services","2":"Unique Clients","4":"Unique New Clients"}.get(content) if group=="2" else None
+                add(str(key or "Unspecified"),definition.description if group=="102" and definition else "",patient,encounter.occurred_at.date())
+            else:
+                for code in codes:
+                    key,description=code_group(code,definition,patient,encounter)
+                    if group=="7" and not forms_by_encounter.get(encounter.id):continue
+                    add(key,description,patient,encounter.occurred_at.date())
+    if group=="11":
+        for encounter in encounters:
+            patient=patients.get(encounter.patient_id)
+            for payload in forms_by_encounter.get(encounter.id,[]):
+                complications=payload.get("complications") or []
+                if isinstance(complications,str):complications=[item for item in complications.split("|") if item]
+                procedure=payload.get("in_ab_proc") or "Indeterminate"
+                for complication in complications:add(f"{procedure} / {complication}","",patient,encounter.occurred_at.date())
+    if content=="5":
+        products={item.id:item for item in db.scalars(select(InventoryProduct))}
+        for transaction in db.scalars(select(InventoryTransaction).where(InventoryTransaction.occurred_on>=start,InventoryTransaction.occurred_on<=end,InventoryTransaction.quantity!=0,InventoryTransaction.patient_id.is_not(None)).order_by(InventoryTransaction.patient_id,InventoryTransaction.encounter_id,InventoryTransaction.product_id,InventoryTransaction.id)):
+            patient=db.get(Patient,transaction.patient_id);encounter=db.get(Encounter,transaction.encounter_id) if transaction.encounter_id else None;product=products.get(transaction.product_id);raw=(product.legacy_payload or {}).get("related_code") if product else None;codes=_coded_values(raw,"IPPF")
+            if encounter:
+                for charge in db.scalars(select(Charge).where(Charge.encounter_id==encounter.id,Charge.active.is_(True),Charge.code_system=="MA").order_by(Charge.code)):
+                    definition=service_codes.get((charge.code,charge.modifier or ""));candidate=_coded_values(definition.related_codes if definition else None,"IPPF")
+                    contraceptive=next((code for code in candidate if _ippf_contraceptive_method(code)),None)
+                    if contraceptive:codes=[contraceptive];break
+            if not product or not patient or (product.cyp_factor<=0 and not codes) or (requested is not None and not encounter) or (encounter and not in_facility(encounter)):continue
+            code=next((item for item in codes if _ippf_contraceptive_method(item)),codes[0] if codes else "")
+            key,description=code_group(code,None,patient,encounter) if code else ("Unspecified","");add(key,description,patient,transaction.occurred_on,transaction.quantity)
+    if content!="5" and (group in referral_groups or (family=="g" and group=="1")):
+        for referral in db.scalars(select(Referral).where(Referral.referred_at<=datetime.combine(end,time.max,tzinfo=timezone.utc)).order_by(Referral.patient_id,Referral.referred_at,Referral.id)):
+            when=referral.replied_at if group=="20" else referral.referred_at
+            if not when or not start<=when.date()<=end:continue
+            fields=referral.legacy_fields or {};external=str(fields.get("refer_external") or ("1" if referral.recipient_practitioner_id is None else "0"))
+            if group=="9" and external=="1" or group in {"10","20"} and external!="1":continue
+            raw=fields.get("reply_related_code") if group=="20" else fields.get("refer_related_code");codes=_coded_values(raw,"IPPF")
+            if not codes:
+                for refcode in _coded_values(raw,"REF"):codes.extend(_coded_values(referral_definitions.get(refcode),"IPPF"))
+            patient=db.get(Patient,referral.patient_id)
+            if group=="1":
+                if any(code.startswith(("1","2")) for code in codes):add("SRH Referrals","",patient,when.date())
+            else:add(codes[0] if codes else "Unspecified",ippf_descriptions.get(codes[0],"") if codes else "",patient,when.date())
+    selected=params.get("ippf_columns") or ["total"];columns=["group"]
+    if group in {"4","102","9","10","20","104"}:columns.append("description")
+    if "total" in selected:columns.append("total")
+    if "sex" in selected:columns.extend(["women","men"])
+    if "age2" in selected:columns.extend(["age_0_24","age_25_plus"])
+    if "age9" in selected:columns.extend(["age_0_10","age_11_14","age_15_19","age_20_24","age_25_29","age_30_34","age_35_39","age_40_44","age_45_plus"])
+    for field in display_fields:
+        for label in sorted(dimension_values[field]):columns.append(f"{field}:{label}")
+    rows=[]
+    for key in sorted(aggregates):
+        item=aggregates[key];row={column:item.get(column,0) for column in columns}
+        for field in display_fields:
+            for label,count in item["dimensions"][field].items():row[f"{field}:{label}"]=count
+        rows.append(row)
+    return columns,rows,{"total":sum(item["total"] for item in aggregates.values()),"groups":len(rows),"report_family":family,"content":content}
 
 
 def appointment_encounter_report(db: Session,user: User,params: dict):
@@ -1029,6 +1171,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "patient_list_creation": return patient_list_creation_report(db,user,params)
     if key == "ippf_cyp_report": return ippf_cyp_report(db,user,params)
     if key == "ippf_daily": return ippf_daily_report(db,user,params)
+    if key == "ippf_statistics": return ippf_statistics_report(db,user,params)
     if key == "appt_encounter_report": return appointment_encounter_report(db,user,params)
     if key == "collections_report": return collections_report(db,user,params)
     if key == "front_receipts_report": return front_receipts_report(db,user,params)

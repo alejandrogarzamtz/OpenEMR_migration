@@ -35,7 +35,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `ip_tracker` | MIGRATED — cumulative/windowed failures, automatic and manual blocking, timing flag, protected reset/update, filters and CSV |
 | `ippf_cyp_report` | MIGRATED — typed CYP factors across active MA services and paid medication sales, encounter-date/facility scope, invoice identity, detail/summary totals, snapshots and CSV |
 | `ippf_daily` | MIGRATED — single-day/facility scoped clinic record; current contraceptive method, new/returning/contraceptive clients, eight named service counters, totals, snapshots and CSV |
-| `ippf_statistics` | PENDING |
+| `ippf_statistics` | MIGRATED — configurable IPPF, Member Association and GCAC families; legacy row/content combinations, service/product/referral attribution, sex/facility/date filters, total/sex/age/demographic dimensions, snapshots and CSV |
 | `message_list` | MIGRATED |
 | `non_reported` | MIGRATED — unsubmitted reportable ICD-9 issue detection, date/patient/code filters, scoped HL7 2.5.1 ADT export, durable submission exclusion, snapshots and CSV |
 | `pat_ledger` | MIGRATED — patient/date/facility/provider-scoped procedure ledger with encounter charges, live payments and adjustments, unapplied-credit reconciliation, balances, snapshots and CSV |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 42 migrated, 6 pending/embedded**.
+Current accounting: **48 cataloged, 43 migrated, 5 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be

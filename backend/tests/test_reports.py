@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, ServiceCode, User
+from app.models import Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, Referral, ServiceCode, User
 from app.security import password_hash
 
 
@@ -20,7 +20,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==42
+        assert sum(item["migrated"] for item in catalog.json())==43
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -149,6 +149,36 @@ def test_ippf_daily_counts_clients_visits_and_named_services_by_method():
         assert payload["totals"]["total_clients"]==1 and payload["totals"]["date"]=="2026-09-15"
         exported=client.get(f"/api/v1/report-runs/{payload['uuid']}/export.csv",headers=headers)
         assert exported.status_code==200 and exported.text.splitlines()[0].startswith("method_code,method,new_clients")
+
+
+def test_ippf_statistics_preserves_families_dimensions_products_and_referrals():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Statistics","last_name":"Fixture","date_of_birth":"2003-06-01","sex":"female","race":"community-a"}).json()
+        encounter=client.post("/api/v1/encounters",headers=headers,json={"patient_uuid":patient["uuid"],"occurred_at":"2026-08-10T09:00:00Z","type":"AMB"}).json()
+        with SessionLocal() as db:
+            db_patient=db.scalar(select(Patient).where(Patient.uuid==patient["uuid"]));db_encounter=db.scalar(select(Encounter).where(Encounter.uuid==encounter["uuid"]));db_patient.legacy_payload={"regdate":"2026-08-01","contrastart":"2026-08-10","referral_source":"Community partner"}
+            definition=ServiceCode(code_type_id=12,code="MA-STATS",modifier="",description="Injectable counseling",category_title="Family planning",related_codes="IPPF:111111;IPPF:2522211",active=True)
+            ippf=ServiceCode(code_type_id=11,code="111111",modifier="",description="Injectable contraceptive service",active=True)
+            product=InventoryProduct(name="Statistics contraceptive",cyp_factor=Decimal("0.2500"),legacy_payload={"related_code":"IPPF:112141"});db.add_all([definition,ippf,product]);db.flush()
+            db.add_all([Charge(patient_id=db_patient.id,encounter_id=db_encounter.id,code_system="MA",code="MA-STATS",description="Injectable counseling",units=1,unit_price=Decimal("0"),active=True),InventoryTransaction(product_id=product.id,patient_id=db_patient.id,encounter_id=db_encounter.id,transaction_type="dispense",occurred_on=date(2026,8,10),quantity=3,fee=Decimal("0")),Referral(patient_id=db_patient.id,recipient_name="External clinic",referred_at=db_encounter.occurred_at,reason="Family planning",legacy_fields={"refer_external":"1","refer_related_code":"IPPF:111111"})]);db.commit()
+        common={"date_from":"2026-08-01","date_to":"2026-08-31","ippf_report_type":"i","ippf_group_by":"6","ippf_columns":["total","sex","age2","race"]}
+        services=client.post("/api/v1/reports/ippf_statistics/runs",headers=headers,json=common|{"ippf_content":"1"})
+        assert services.status_code==201,services.text
+        payload=services.json();row=next(item for item in payload["rows"] if item["group"]=="Injectables")
+        assert row["total"]==1 and row["women"]==1 and row["age_0_24"]==1 and row["race:community-a"]==1
+        acceptors=client.post("/api/v1/reports/ippf_statistics/runs",headers=headers,json=common|{"ippf_content":"3"})
+        assert acceptors.json()["totals"]["total"]==1
+        products=client.post("/api/v1/reports/ippf_statistics/runs",headers=headers,json=common|{"ippf_content":"5","ippf_columns":["total"]})
+        assert products.json()["rows"]==[{"group":"Injectables","total":3}]
+        ma=client.post("/api/v1/reports/ippf_statistics/runs",headers=headers,json={"date_from":"2026-08-01","date_to":"2026-08-31","ippf_report_type":"m","ippf_group_by":"102","ippf_content":"2"})
+        assert ma.json()["rows"]==[{"group":"MA-STATS","description":"Injectable counseling","total":1}]
+        referral=client.post("/api/v1/reports/ippf_statistics/runs",headers=headers,json={"date_from":"2026-08-01","date_to":"2026-08-31","ippf_report_type":"i","ippf_group_by":"10","ippf_content":"1"})
+        assert referral.json()["rows"][0]["group"]=="111111"
+        invalid=client.post("/api/v1/reports/ippf_statistics/runs",headers=headers,json={"ippf_report_type":"m","ippf_group_by":"3","ippf_content":"1"})
+        assert invalid.status_code==422
+        exported=client.get(f"/api/v1/report-runs/{payload['uuid']}/export.csv",headers=headers)
+        assert exported.status_code==200 and "age_0_24" in exported.text.splitlines()[0]
 
 
 def test_report_execution_enforces_each_catalog_permission():

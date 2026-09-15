@@ -1,0 +1,15 @@
+{
+  "report_sha256": "a82a6275cf6bd26576edde6a3d2a90e6c1026efb1f61dc0e6ec9ae9c26ed11cf",
+  "required_tokens": [
+    "IPPF Statistics Report",
+    "Member Association Statistics Report",
+    "GCAC Statistics Report",
+    "function process_ippf_code",
+    "function process_ma_code",
+    "function process_referral",
+    "form_show[]",
+    "Age Category (9)",
+    "Contraceptive Products",
+    "Unique New Clients"
+  ]
+}

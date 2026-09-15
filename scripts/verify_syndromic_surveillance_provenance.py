@@ -14,7 +14,7 @@ if legacy_path.is_file():
 models=(root/"backend/app/models.py").read_text();importer=(root/"backend/app/import_legacy.py").read_text();reports=(root/"backend/app/services/reports.py").read_text();api=(root/"backend/app/api/reports.py").read_text()
 for token in ("class SyndromicSubmission","recorded_at: Mapped[datetime | None]","legacy_payload: Mapped[dict | None]"):
     assert token in models,f"syndromic persistence missing: {token}"
-for token in ("SELECT * FROM lists WHERE type IN","SELECT * FROM syndromic_surveillance ORDER BY id"):
+for token in ("WHERE l.type IN ('medical_problem','allergy','medication','contraceptive')","SELECT * FROM syndromic_surveillance ORDER BY id"):
     assert token in importer,f"syndromic import missing: {token}"
 for token in ("def non_reported_syndromic_report","ClinicalItem.code_system==\"ICD9\"","payload.get(\"reportable\")","SyndromicSubmission.clinical_item_id"):
     assert token in reports,f"syndromic report missing: {token}"

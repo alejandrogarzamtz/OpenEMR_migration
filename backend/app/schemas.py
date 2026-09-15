@@ -718,6 +718,11 @@ class ReportRunCreate(BaseModel):
     procedure_diagnosis: str | None = Field(default=None, max_length=250)
     patient_list_sort: str | None = Field(default=None, max_length=64)
     patient_list_sort_order: str = Field(default="asc", pattern="^(asc|desc)$")
+    ippf_report_type: str = Field(default="i", pattern="^(i|m|g)$")
+    ippf_group_by: str | None = Field(default=None, pattern="^(1|2|3|4|5|6|7|8|9|10|11|12|13|17|20|101|102|103|104)$")
+    ippf_content: str = Field(default="1", pattern="^(1|2|3|4|5)$")
+    ippf_sex: str = Field(default="all", pattern="^(female|male|all)$")
+    ippf_columns: list[str] = Field(default_factory=lambda:["total"], max_length=12)
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -727,6 +732,9 @@ class ReportRunCreate(BaseModel):
             raise ValueError("age_to must be on or after age_from")
         if self.occurred_from and self.occurred_to and self.occurred_to < self.occurred_from:
             raise ValueError("occurred_to must be on or after occurred_from")
+        allowed_ippf_columns={"total","sex","age2","age9","race","ethnicity","state","language","country_code","city","postal_code","gender_identity","sexual_orientation","referral_source"}
+        if any(item not in allowed_ippf_columns for item in self.ippf_columns):
+            raise ValueError("ippf_columns contains an unsupported demographic dimension")
         return self
 
 
