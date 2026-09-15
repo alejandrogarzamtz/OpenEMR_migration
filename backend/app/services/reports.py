@@ -7,13 +7,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -460,6 +460,37 @@ def payment_processing_report(db: Session,user: User,params: dict):
     return columns,rows,{"transactions":len(rows),"successful":sum(item.success for item in items),"failed":sum(not item.success for item in items),"reverted":sum(item.reverted for item in items),"amount":value(sum(amounts,Decimal("0"))),"encrypted_legacy_payloads":sum(not item.payload_readable for item in items)}
 
 
+def prepayment_balance_report(db: Session,user: User,params: dict):
+    """Open legacy prepayments whose received amount is not fully applied."""
+    del user
+    query=select(ReceivableSession).where(ReceivableSession.adjustment_code=="pre_payment",ReceivableSession.closed.is_(False))
+    if params.get("date_from"):query=query.where(ReceivableSession.check_date>=params["date_from"])
+    if params.get("date_to"):query=query.where(ReceivableSession.check_date<=params["date_to"])
+    if params.get("_patient_id"):query=query.where(ReceivableSession.patient_id==params["_patient_id"])
+    if params.get("parked_only"):query=query.where(ReceivableSession.global_amount!=0)
+    sessions=list(db.scalars(query));keys={(item.legacy_session_id,item.legacy_patient_id) for item in sessions}
+    applied={}
+    if keys:
+        activities=db.scalars(select(ReceivableActivity).where(ReceivableActivity.deleted_at.is_(None),ReceivableActivity.legacy_session_id.in_({key[0] for key in keys})))
+        for activity in activities:
+            key=(activity.legacy_session_id,activity.legacy_patient_id)
+            if key in keys:applied[key]=applied.get(key,Decimal("0"))+activity.pay_amount
+    patient_ids={item.patient_id for item in sessions if item.patient_id is not None}
+    patients={item.id:item for item in db.scalars(select(Patient).where(Patient.id.in_(patient_ids)))} if patient_ids else {}
+    columns=["patient","patient_uuid","legacy_patient_id","session_uuid","legacy_session_id","reference","check_date","days_open","received","applied","in_global","unapplied"]
+    rows=[];today=datetime.now(timezone.utc).date()
+    for item in sessions:
+        used=applied.get((item.legacy_session_id,item.legacy_patient_id),Decimal("0"));unapplied=item.pay_total-used
+        if unapplied<=Decimal("0.005"):continue
+        patient=patients.get(item.patient_id);name=""
+        if patient:
+            given=" ".join(part for part in (patient.first_name,patient.middle_name) if part);name=f"{patient.last_name}, {given}" if patient.last_name and given else patient.last_name or given
+        rows.append({"patient":name,"patient_uuid":patient.uuid if patient else None,"legacy_patient_id":item.legacy_patient_id,"session_uuid":item.uuid,"legacy_session_id":item.legacy_session_id,"reference":item.reference or "","check_date":value(item.check_date),"days_open":(today-item.check_date).days if item.check_date else 0,"received":value(item.pay_total),"applied":value(used),"in_global":value(item.global_amount),"unapplied":value(unapplied)})
+    rows.sort(key=lambda row:(-Decimal(row["unapplied"]),row["check_date"] is not None,row["check_date"] or "",row["legacy_session_id"]))
+    money=lambda field:value(sum((Decimal(row[field]) for row in rows),Decimal("0")))
+    return columns,rows,{"sessions":len(rows),"received":money("received"),"applied":money("applied"),"in_global":money("in_global"),"unapplied":money("unapplied")}
+
+
 def appointment_scope(query, db: Session, user: User):
     scope=facility_scope(db,user)
     if scope is None: return query
@@ -608,6 +639,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "front_receipts_report": return front_receipts_report(db,user,params)
     if key == "receipts_by_method_report": return receipts_by_method_report(db,user,params)
     if key == "payment_processing_report": return payment_processing_report(db,user,params)
+    if key == "prepayment_balance_report": return prepayment_balance_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

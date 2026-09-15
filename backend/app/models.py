@@ -1141,6 +1141,33 @@ class BillingCodeType(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class ReceivableSession(Base):
+    __tablename__ = "receivable_sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_session_id: Mapped[int] = mapped_column(unique=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(index=True)
+    payer_id: Mapped[int | None] = mapped_column(ForeignKey("payers.id"), nullable=True, index=True)
+    legacy_payer_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    legacy_user_id: Mapped[int | None] = mapped_column(nullable=True)
+    closed: Mapped[bool] = mapped_column(default=False, index=True)
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    check_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    deposit_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    pay_total: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    global_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    payment_type: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    adjustment_code: Mapped[str | None] = mapped_column(String(31), nullable=True, index=True)
+    post_to_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    payment_method_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class ReceivableActivity(Base):
     __tablename__ = "receivable_activities"
     __table_args__ = (UniqueConstraint("legacy_patient_id", "legacy_encounter_id", "legacy_sequence", name="uq_receivable_legacy_activity"),)

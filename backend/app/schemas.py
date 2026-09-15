@@ -708,6 +708,7 @@ class ReportRunCreate(BaseModel):
     payment_ticket: str | None = Field(default=None, max_length=100)
     payment_transaction_id: str | None = Field(default=None, max_length=100)
     payment_action: str | None = Field(default=None, pattern="^(Sale|credit|void)$")
+    parked_only: bool = False
 
     @model_validator(mode="after")
     def validate_range(self):

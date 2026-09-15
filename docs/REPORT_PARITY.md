@@ -44,7 +44,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `patient_list` | MIGRATED |
 | `patient_list_creation` | PENDING |
 | `payment_processing_report` | MIGRATED — gateway transaction audit, patient/service/ticket/transaction/action filters, success/error state, sale/reversal links, encrypted-source disclosure, snapshots and CSV; live Sphere void/credit requires a configured gateway |
-| `prepayment_balance_report` | PENDING |
+| `prepayment_balance_report` | MIGRATED — standalone prepayment sessions, live non-deleted allocations, open/unapplied threshold, optional check dates and patient, parked-global filter, exact monetary totals, snapshots and CSV |
 | `prescriptions_report` | MIGRATED |
 | `receipts_by_method_report` | MIGRATED — copays plus integrated A/R payments/adjustments by payer, configured method or check reference; service/deposit dates, procedure/provider/facility filters, detail/summary, snapshots and CSV |
 | `referrals_report` | MIGRATED — facility/date/status scoped referral-loop report with recipient organization, request/reply dates, patient identifiers and reason |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 33 migrated, 15 pending/embedded**.
+Current accounting: **48 cataloged, 34 migrated, 14 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be

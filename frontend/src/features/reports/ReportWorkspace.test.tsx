@@ -42,4 +42,9 @@ describe("ReportWorkspace",()=>{
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Payment Processing Report"));fireEvent.change(screen.getByLabelText("Service"),{target:{value:"sphere"}});fireEvent.change(screen.getByLabelText("Transaction ID"),{target:{value:"TRANS-1"}});fireEvent.change(screen.getByLabelText("Action"),{target:{value:"Sale"}});fireEvent.click(screen.getByText("Run report"));await screen.findByText("TRANS-1");
     const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.payment_service).toBe("sphere");expect(request.payment_transaction_id).toBe("TRANS-1");expect(request.payment_action).toBe("Sale");
   });
+  it("submits prepayment patient and parked-credit filters",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"prepayment_balance_report",title:"Prepayment Balance Report",category:"financial",permission:"acct:rep_a:read",legacy_path:"interface/reports/prepayment_balance_report.php",migrated:true}]).mockResolvedValueOnce({uuid:"r8",report_key:"prepayment_balance_report",parameters:{},columns:["reference","unapplied"],rows:[{reference:"PRE-1",unapplied:"70.00"}],totals:{unapplied:"70.00"},row_count:1,checksum:"abcdef0123456789",created_at:"2026-01-01T00:00:00Z"});
+    render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Prepayment Balance Report"));fireEvent.change(screen.getByLabelText("Patient UUID"),{target:{value:"00000000-0000-0000-0000-000000000951"}});fireEvent.click(screen.getByLabelText("Parked in global only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("PRE-1");
+    const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.patient_uuid).toContain("951");expect(request.parked_only).toBe(true);
+  });
 });
