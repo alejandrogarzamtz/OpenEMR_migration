@@ -1212,6 +1212,26 @@ class ClaimPayment(Base):
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class FrontOfficePayment(Base):
+    __tablename__ = "front_office_payments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_payment_id: Mapped[int] = mapped_column(unique=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    encounter_id: Mapped[int | None] = mapped_column(ForeignKey("encounters.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(index=True)
+    legacy_encounter_id: Mapped[int] = mapped_column(index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    actor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    method: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    current_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    previous_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    posted_current_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    posted_previous_amount: Mapped[Decimal] = mapped_column(Numeric(12,2), default=0)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class PaymentIntent(Base):
     __tablename__ = "payment_intents"
     __table_args__ = (UniqueConstraint("portal_account_id", "idempotency_key", name="uq_payment_intent_portal_idempotency"),)

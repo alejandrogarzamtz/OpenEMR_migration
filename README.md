@@ -122,6 +122,9 @@ end-to-end healthcare workflows:
 - integrated accounts-receivable collections reporting with patient/insurance
   responsibility, effective coverage, payment-session provenance, configurable
   aging buckets, facility scope, immutable snapshots and authenticated CSV;
+- front-office receipt reporting that preserves original receipt lines, groups
+  patient/timestamp receipts, separates current and prior balances, and provides
+  method subtotals under facility and practitioner access controls;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

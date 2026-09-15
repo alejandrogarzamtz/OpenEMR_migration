@@ -27,4 +27,9 @@ describe("ReportWorkspace",()=>{
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Collections Report"));fireEvent.change(screen.getByLabelText("Category"),{target:{value:"Due Ins"}});fireEvent.change(screen.getByLabelText("Age by"),{target:{value:"last_activity"}});fireEvent.change(screen.getByLabelText("Days per column"),{target:{value:"45"}});fireEvent.click(screen.getByLabelText("Positive debt only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("Example Health");
     const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.collection_category).toBe("Due Ins");expect(request.age_by).toBe("last_activity");expect(request.age_increment_days).toBe(45);expect(request.with_debt_only).toBe(true);
   });
+  it("submits front receipt facility and provider scope",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"front_receipts_report",title:"Front Receipts Report",category:"financial",permission:"acct:rep_a:read",legacy_path:"interface/reports/front_receipts_report.php",migrated:true}]).mockResolvedValueOnce({uuid:"r5",report_key:"front_receipts_report",parameters:{},columns:["patient","total"],rows:[{patient:"Receipt, Front",total:"55.00"}],totals:{total:"55.00"},row_count:1,checksum:"abcdef0123456789",created_at:"2026-01-01T00:00:00Z"});
+    render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Front Receipts Report"));fireEvent.change(screen.getByLabelText("Facility UUID"),{target:{value:"00000000-0000-0000-0000-000000000821"}});fireEvent.change(screen.getByLabelText("Provider legacy ID"),{target:{value:"824"}});fireEvent.click(screen.getByText("Run report"));await screen.findByText("Receipt, Front");
+    const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.facility_uuid).toContain("821");expect(request.provider_legacy_id).toBe(824);
+  });
 });

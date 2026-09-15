@@ -26,7 +26,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `direct_message_log` | MIGRATED |
 | `encounters_report` | MIGRATED |
 | `external_data` | MIGRATED — patient-scoped external encounters and procedures with dates, diagnosis/code text, provider/facility provenance, source identifiers, filters, totals and CSV |
-| `front_receipts_report` | PENDING |
+| `front_receipts_report` | MIGRATED — lossless receipt lines grouped by patient/timestamp, current and prior amounts, method/source/actor, method subtotals, facility/provider scope, snapshots and CSV |
 | `immunization_report` | MIGRATED |
 | `insurance_allocation_report` | MIGRATED — date- and facility-scoped primary-insurance distribution with non-copay charges, visits, unique-patient attribution, percentages, totals and CSV |
 | `inventory_activity` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 30 migrated, 18 pending/embedded**.
+Current accounting: **48 cataloged, 31 migrated, 17 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -102,6 +102,14 @@ all-balance modes; and computes configurable service-date or last-activity aging
 as of an explicit date. Payment-session payer, reference, check/deposit date and
 method are preserved as typed provenance while the complete source activity row
 remains retained. Broad report reads are constrained by facility grants.
+
+`front_receipts_report` preserves every source `payments` row independently of
+claim and integrated-A/R payments. It reproduces the legacy receipt identity by
+grouping rows on exact patient and timestamp, sums current-encounter and prior-
+balance amounts separately, retains the source, method and actor labels, and
+provides method and grand totals. Encounter joins intentionally exclude legacy
+prepayments without a visit, matching the source report, and facility/provider
+scope is enforced before grouping.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,
