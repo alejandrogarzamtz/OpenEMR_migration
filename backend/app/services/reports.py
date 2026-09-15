@@ -7,13 +7,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, RegulatoryMetricEvent, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, RegulatoryMetricEvent, ReportRun, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "non_reported", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -750,6 +750,30 @@ def superbill_report(db: Session,user: User,params: dict):
     return columns,rows,{"superbills":len(selected),"charge_lines":sum(len(items) for items in charges.values()),"charges":f"{charge_total:.2f}","copay_paid":f"{copay_total:.2f}","subtotals":f"{charge_total+copay_total:.2f}"}
 
 
+def non_reported_syndromic_report(db: Session,params: dict):
+    """Find reportable ICD-9 issues not yet recorded as sent to syndromic surveillance."""
+    requested=set(params.get("reportable_code_ids") or [])
+    reportable={}
+    for service,code_type in db.execute(select(ServiceCode,BillingCodeType).join(BillingCodeType,BillingCodeType.legacy_type_id==ServiceCode.code_type_id)):
+        payload=service.legacy_payload or {}
+        if not payload.get("reportable") or code_type.key.upper()!="ICD9" or (requested and service.legacy_code_id not in requested):continue
+        reportable.setdefault(service.code,(service,code_type))
+    submitted=set(db.scalars(select(SyndromicSubmission.clinical_item_id)))
+    query=select(ClinicalItem,Patient).join(Patient,Patient.id==ClinicalItem.patient_id).where(ClinicalItem.code_system=="ICD9",ClinicalItem.id.not_in(submitted),Patient.merged_into_id.is_(None))
+    start,end=bounds(params.get("date_from"),params.get("date_to"))
+    issue_date=func.coalesce(ClinicalItem.recorded_at,ClinicalItem.created_at)
+    if start:query=query.where(issue_date>=start)
+    if end:query=query.where(issue_date<end)
+    if params.get("_patient_id"):query=query.where(Patient.id==params["_patient_id"])
+    columns=["issue_uuid","legacy_issue_id","patient_uuid","legacy_patient_id","patient_name","diagnosis","issue_title","issue_date","begin_date","code_text","legacy_code_id","date_of_birth","sex","marital_status","language","address","country_code","phone_home","phone_business"]
+    rows=[]
+    for item,patient in db.execute(query.order_by(issue_date,ClinicalItem.id)):
+        if item.code not in reportable:continue
+        service,_=reportable[item.code];payload=patient.legacy_payload or {};recorded=item.recorded_at or item.created_at
+        rows.append({"issue_uuid":item.uuid,"legacy_issue_id":item.legacy_list_id,"patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid,"patient_name":" ".join(filter(None,(patient.first_name,patient.middle_name,patient.last_name))),"diagnosis":f"ICD9:{item.code}","issue_title":item.title,"issue_date":value(recorded),"begin_date":value(item.onset_date),"code_text":service.description,"legacy_code_id":service.legacy_code_id,"date_of_birth":value(patient.date_of_birth),"sex":patient.sex,"marital_status":payload.get("status"),"language":patient.language,"address":"^".join(str(part or "") for part in (patient.address_line_1,patient.postal_code,patient.city,patient.state)),"country_code":patient.country_code,"phone_home":patient.phone,"phone_business":payload.get("phone_biz")})
+    return columns,rows,{"unreported_issues":len(rows),"patients":len({row["patient_uuid"] for row in rows}),"reportable_codes":len(reportable)}
+
+
 def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[list[str],list[dict],dict]:
     if key not in REPORT_PATHS: raise HTTPException(status_code=404,detail="Report not found")
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
@@ -764,6 +788,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "svc_code_financial_report": return service_code_financial_report(db,user,params)
     if key == "rwt_2026_report": return real_world_testing_2026_report(db,user,params)
     if key == "custom_report_range": return superbill_report(db,user,params)
+    if key == "non_reported": return non_reported_syndromic_report(db,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

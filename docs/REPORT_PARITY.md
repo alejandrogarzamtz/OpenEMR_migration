@@ -37,7 +37,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `ippf_daily` | PENDING |
 | `ippf_statistics` | PENDING |
 | `message_list` | MIGRATED |
-| `non_reported` | PENDING |
+| `non_reported` | MIGRATED — unsubmitted reportable ICD-9 issue detection, date/patient/code filters, scoped HL7 2.5.1 ADT export, durable submission exclusion, snapshots and CSV |
 | `pat_ledger` | PENDING |
 | `patient_edu_web_lookup` | MIGRATED — configurable ordered resource catalog, validated single-placeholder HTTP(S) templates, URL-encoded audited searches, administration, React workflow, snapshot and CSV |
 | `patient_flow_board_report` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 37 migrated, 11 pending/embedded**.
+Current accounting: **48 cataloged, 38 migrated, 10 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -70,6 +70,14 @@ case. It emits the latest value for every displayed demographic and primary,
 secondary and tertiary subscriber field, retains complete source insurance
 rows, applies charge-level provider fallback, excludes inactive billing rows,
 reconciles live patient copays, and keeps encounters without charges printable.
+
+`non_reported` retains each source problem row and its original issue timestamp,
+joins only codes explicitly marked reportable, and excludes issues with a durable
+syndromic-submission record. Its authenticated HL7 export reproduces the legacy
+2.5.1 ADT A01, EVN, PID, PV1, OBX and DG1 contract, requires an authorized sending
+facility with NPI, escapes delimiters, records message control IDs, and prevents
+duplicate export from a stale report snapshot. As in the source workflow, the
+record proves generation/export under the `PH_SS-NoAck` profile, not receiver ACK.
 
 `cdr_log` preserves raw `value` and `new_value` text exactly, including empty
 or malformed historical JSON, so a report never rewrites clinical evidence.

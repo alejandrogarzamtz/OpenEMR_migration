@@ -1,0 +1,12 @@
+{
+  "report_sha256": "d17652e730e31475fcdd20e587a6d6839869020b1b48bf8d844f2d64becc81f2",
+  "required_tokens": [
+    "c.reportable=1",
+    "l.id not in (select lists_id from syndromic_surveillance)",
+    "l.diagnosis LIKE 'ICD9:%'",
+    "MSH|^~\\&|",
+    "ADT^A01^ADT_A01",
+    "PH_SS-NoAck^SS Sender^2.16.840.1.114222.4.10.3^ISO",
+    "insert into syndromic_surveillance"
+  ]
+}

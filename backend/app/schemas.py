@@ -710,6 +710,7 @@ class ReportRunCreate(BaseModel):
     payment_action: str | None = Field(default=None, pattern="^(Sale|credit|void)$")
     parked_only: bool = False
     financial_reporting_only: bool = False
+    reportable_code_ids: list[int] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
     def validate_range(self):

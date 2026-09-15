@@ -2,13 +2,14 @@ import csv
 import hashlib
 import io
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, Facility, Patient, ReportRun, User
+from ..models import AuditEvent, ClinicalItem, Facility, Patient, ReportRun, SyndromicSubmission, User
 from ..schemas import ReportCatalogItem, ReportRunCreate, ReportRunOut
 from ..security import current_user, user_has_permission
 from ..services.access import require_facility_access, require_warehouse_access
@@ -75,3 +76,42 @@ def export_report_csv(run_uuid: str,db: Session=Depends(get_db),user: User=Depen
     item=stored_run(db,user,run_uuid);stream=io.StringIO(newline="");writer=csv.DictWriter(stream,fieldnames=item.columns,extrasaction="ignore");writer.writeheader();writer.writerows(item.rows)
     db.add(AuditEvent(actor_id=user.id,action="export",resource_type="report",resource_id=item.uuid,detail="csv"));db.commit()
     return Response(stream.getvalue(),media_type="text/csv",headers={"Content-Disposition":f'attachment; filename="{item.report_key}-{item.uuid}.csv"',"X-Report-Checksum":item.checksum})
+
+
+def hl7_escape(value) -> str:
+    return str(value or "").replace("\\","\\E\\").replace("|","\\F\\").replace("^","\\S\\").replace("~","\\R\\").replace("&","\\T\\").replace("\r"," ").replace("\n"," ")
+
+
+@router.get("/report-runs/{run_uuid}/export.hl7")
+def export_syndromic_hl7(run_uuid: str,db: Session=Depends(get_db),user: User=Depends(current_user)):
+    run=stored_run(db,user,run_uuid)
+    if run.report_key!="non_reported":raise HTTPException(status_code=422,detail="HL7 export is only available for the non-reported syndromic report")
+    facility_uuid=run.parameters.get("facility_uuid")
+    if not facility_uuid:raise HTTPException(status_code=422,detail="A facility is required for syndromic HL7 export")
+    facility=db.scalar(select(Facility).where(Facility.uuid==facility_uuid))
+    if not facility:raise HTTPException(status_code=404,detail="Facility not found")
+    require_facility_access(db,user,facility.id)
+    if not facility.npi:raise HTTPException(status_code=422,detail="The sending facility requires an NPI")
+    issue_uuids=[str(row["issue_uuid"]) for row in run.rows];items={item.uuid:item for item in db.scalars(select(ClinicalItem).where(ClinicalItem.uuid.in_(issue_uuids)))} if issue_uuids else {}
+    submitted=set(db.scalars(select(SyndromicSubmission.clinical_item_id).where(SyndromicSubmission.clinical_item_id.in_([item.id for item in items.values()])))) if items else set()
+    if submitted:raise HTTPException(status_code=409,detail="One or more issues in this snapshot were already submitted; run the report again")
+    now=datetime.now(timezone.utc);stamp=now.strftime("%Y%m%d%H%M%S");filename=f"syn_sur_{now.strftime('%Y%m%d%H%M')}.hl7";segments=[]
+    for index,row in enumerate(run.rows,1):
+        item=items.get(str(row["issue_uuid"]))
+        if not item:raise HTTPException(status_code=409,detail="A clinical issue in this snapshot no longer exists")
+        control=f"{run.uuid[:8]}-{index}";sex={"male":"M","female":"F"}.get(str(row.get("sex") or "").lower(),"")
+        marital={"married":"M","single":"S","divorced":"D","widowed":"W","separated":"A","domestic partner":"P"}.get(str(row.get("marital_status") or "").lower(),"")
+        dob=str(row.get("date_of_birth") or "").replace("-","");begin=str(row.get("begin_date") or "").replace("-","").replace(":","").replace("T","")[:12]
+        code=str(row.get("diagnosis") or "").split(":",1)[-1].replace(".","")
+        segments.extend([
+            f"MSH|^~\\&|OPENRM|{hl7_escape(facility.name)}^{hl7_escape(facility.npi)}^NPI|||{stamp}||ADT^A01^ADT_A01|{control}|P^T|2.5.1|||||||||PH_SS-NoAck^SS Sender^2.16.840.1.114222.4.10.3^ISO",
+            f"EVN||{stamp}|||||{hl7_escape(facility.name)}^{hl7_escape(facility.npi)}^NPI",
+            f"PID|1||{hl7_escape(row.get('legacy_patient_id'))}^^^^MR||^^^^^^~^^^^^^S||{dob}|{sex}|||{hl7_escape(row.get('address'))}|||{hl7_escape(row.get('phone_home'))}||||{marital}",
+            f"PV1|1|||||||||||||||||{(stamp+'_'+str(row.get('legacy_patient_id') or ''))[:15]}^^^^VN|||||||||||||||||||||||||{begin}",
+            f"OBX|1|CWE|8661-1^^LN||^^^^^^^^{hl7_escape(row.get('issue_title'))}||||||F",
+            f"DG1|1||{hl7_escape(code)}^{hl7_escape(row.get('code_text'))}^I9CDX|||W",
+        ])
+        db.add(SyndromicSubmission(clinical_item_id=item.id,submitted_at=now,filename=filename,facility_id=facility.id,actor_id=user.id,message_control_id=control))
+    content="\r".join(segments)+("\r" if segments else "")
+    db.add(AuditEvent(actor_id=user.id,action="export",resource_type="report",resource_id=run.uuid,detail="hl7-syndromic"));db.commit()
+    return Response(content,media_type="text/plain",headers={"Content-Disposition":f'attachment; filename="{filename}"',"X-Report-Checksum":run.checksum})

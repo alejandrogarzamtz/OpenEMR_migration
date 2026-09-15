@@ -894,7 +894,23 @@ class ClinicalItem(Base):
     reaction: Mapped[str | None] = mapped_column(String(255), nullable=True)
     dosage: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SyndromicSubmission(Base):
+    __tablename__ = "syndromic_submissions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_submission_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    clinical_item_id: Mapped[int] = mapped_column(ForeignKey("clinical_items.id"), unique=True, index=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("facilities.id"), nullable=True, index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    message_control_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ClinicalRuleLog(Base):
