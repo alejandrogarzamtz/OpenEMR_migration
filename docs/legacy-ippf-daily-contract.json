@@ -1,0 +1,15 @@
+{
+  "report_sha256": "166f9f4a5c95a4b693f420d7cbe6eec4909e96b31435f2e409dc6713d14d1eab",
+  "required_tokens": [
+    "Clinic Daily Record",
+    "list_id = 'contrameth'",
+    "b.code_type = 'MA'",
+    "lists_ippf_con",
+    "lc.new_method",
+    "fe.facility_id = ?",
+    "255004",
+    "256101",
+    "375015",
+    "19911"
+  ]
+}

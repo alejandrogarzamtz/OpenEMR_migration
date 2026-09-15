@@ -13,7 +13,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -321,6 +321,54 @@ def ippf_cyp_report(db: Session,user: User,params: dict):
         key=(row["item"],row["cyp"]);current=grouped.setdefault(key,{"item":row["item"],"quantity":0,"cyp":row["cyp"],"result":Decimal("0")});current["quantity"]+=row["quantity"];current["result"]+=Decimal(row["result"])
     summary=[item|{"result":value(item["result"].quantize(cent))} for item in grouped.values()]
     return ["item","quantity","cyp","result"],summary,{"quantity":total_quantity,"cyp_result":value(total_result.quantize(cent)),"items":len(summary)}
+
+
+IPPF_DAILY_METHODS = [
+    ("con","Condom (Male or Female)"),("dia","Diaphragm"),("ec","Emergency Contraception"),
+    ("fab","Fertility Awareness Based"),("fc","Foam & Condom"),("pat","Hormonal Patch"),
+    ("imp","Implant"),("inj","Injectable"),("iud","IUCD"),("no","None"),("or","Oral"),
+    ("cap","Pessary/Cervicap Cap"),("sp","Spermicides"),("vsc","Voluntary Surgical Contraception"),("zzz","Unknown"),
+]
+
+
+def ippf_daily_report(db: Session,user: User,params: dict):
+    """Reproduce the IPPF clinic daily record by current contraceptive method."""
+    report_date=params.get("date_from") or datetime.now(timezone.utc).date();scope=facility_scope(db,user)
+    requested=params.get("_facility_id");requested_legacy=params.get("_legacy_facility_id")
+    def allowed(encounter):
+        if encounter.occurred_at.date()!=report_date:return False
+        if requested is not None:return encounter.facility_id==requested or (requested_legacy is not None and encounter.legacy_facility_id==requested_legacy)
+        return scope is None or encounter.facility_id in scope
+    encounters=[item for item in db.scalars(select(Encounter).order_by(Encounter.patient_id,Encounter.legacy_encounter_id,Encounter.id)) if allowed(item)]
+    encounter_map={item.id:item for item in encounters};encounter_ids=list(encounter_map)
+    charges=list(db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),Charge.active.is_(True),Charge.code_system=="MA").order_by(Charge.patient_id,Charge.encounter_id,Charge.code,Charge.id))) if encounter_ids else []
+    patient_ids={item.patient_id for item in charges};patients={item.id:item for item in db.scalars(select(Patient).where(Patient.id.in_(patient_ids)))} if patient_ids else {}
+    current_methods={}
+    if patient_ids:
+        methods=db.scalars(select(ClinicalItem).where(ClinicalItem.patient_id.in_(patient_ids),ClinicalItem.category=="contraceptive",ClinicalItem.status=="active").order_by(ClinicalItem.patient_id,ClinicalItem.onset_date.desc().nullslast(),ClinicalItem.id.desc()))
+        for item in methods:
+            if item.patient_id in current_methods or (item.onset_date and item.onset_date>report_date) or (item.end_date and item.end_date<=report_date):continue
+            current_methods[item.patient_id]=(item.code or "").split("|")[0] or "zzz"
+    metrics=["new_clients","old_clients","total_clients","contra_clients","pap_smear","preg_test","doctor_check","doctor_visit","advice","counseling_by_method","infertility_counseling","std_aids_counseling"]
+    data={key:{"method_code":key,"method":title}|{metric:0 for metric in metrics} for key,title in IPPF_DAILY_METHODS}
+    encountered={}
+    service_metrics={"255004":"pap_smear","256101":"preg_test","375008":"doctor_check","375015":"doctor_visit","375011":"advice","19916":"counseling_by_method","39916":"infertility_counseling","19911":"std_aids_counseling"}
+    for charge in charges:
+        patient=patients[charge.patient_id];method=current_methods.get(patient.id,"zzz")
+        if method not in data:data[method]={"method_code":method,"method":f"Unlisted method '{method}'"}|{metric:0 for metric in metrics}
+        row=data[method]
+        if patient.id not in encountered:
+            registered=(patient.legacy_payload or {}).get("regdate")
+            row["total_clients"]+=1;row["new_clients" if str(registered or "")[:10]==report_date.isoformat() else "old_clients"]+=1;encountered[patient.id]=set()
+        if charge.encounter_id not in encountered[patient.id]:
+            category=str((encounter_map[charge.encounter_id].legacy_payload or {}).get("pc_catid") or "")
+            if category=="10" and "contra" not in encountered[patient.id]:row["contra_clients"]+=1;encountered[patient.id].add("contra")
+            encountered[patient.id].add(charge.encounter_id)
+        metric=service_metrics.get(charge.code)
+        if metric:row[metric]+=1
+    rows=list(data.values());columns=["method_code","method",*metrics]
+    totals={metric:sum(row[metric] for row in rows) for metric in metrics};totals["methods"]=len(rows);totals["date"]=report_date.isoformat()
+    return columns,rows,totals
 
 
 def appointment_encounter_report(db: Session,user: User,params: dict):
@@ -980,6 +1028,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "clinical_reports": return clinical_report(db,user,params)
     if key == "patient_list_creation": return patient_list_creation_report(db,user,params)
     if key == "ippf_cyp_report": return ippf_cyp_report(db,user,params)
+    if key == "ippf_daily": return ippf_daily_report(db,user,params)
     if key == "appt_encounter_report": return appointment_encounter_report(db,user,params)
     if key == "collections_report": return collections_report(db,user,params)
     if key == "front_receipts_report": return front_receipts_report(db,user,params)

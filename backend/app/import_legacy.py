@@ -18,7 +18,7 @@ from .models import Appointment, BackgroundService, BillingCodeType, CarePlan, C
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
-TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication"}
+TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication", "contraceptive": "contraceptive"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
 LEGACY_CONSENT_PURPOSES = {
     "hipaa_allowemail": "email", "hipaa_allowsms": "sms", "hipaa_voice": "voice",
@@ -523,14 +523,21 @@ def run(source_url: str, commit: bool = False) -> dict:
             ))
             stats["appointments"]["inserted"] += 1
         target.flush()
-        items = legacy.execute(text("SELECT * FROM lists WHERE type IN ('medical_problem','allergy','medication') ORDER BY id"))
+        if "lists_ippf_con" in legacy_tables and "list_options" in legacy_tables:
+            item_query = """SELECT l.*,lc.new_method,lo.title AS method_title
+                FROM lists l LEFT JOIN lists_ippf_con lc ON l.type='contraceptive' AND lc.id=l.id
+                LEFT JOIN list_options lo ON lo.list_id='contrameth' AND lo.option_id=SUBSTRING_INDEX(lc.new_method,'|',1)
+                WHERE l.type IN ('medical_problem','allergy','medication','contraceptive') ORDER BY l.id"""
+        else:
+            item_query = "SELECT l.*,NULL AS new_method,NULL AS method_title FROM lists l WHERE type IN ('medical_problem','allergy','medication') ORDER BY id"
+        items = legacy.execute(text(item_query))
         for row in items.mappings():
             stats["clinical_items"]["source"] += 1
             existing=target.scalar(select(ClinicalItem).where(ClinicalItem.legacy_list_id == row["id"]))
-            patient = patient_for_legacy(target, row["pid"]); title = clean(row["title"])
+            patient = patient_for_legacy(target, row["pid"]); title = clean(row["method_title"]) or clean(row["title"])
             if not patient or not title: continue
             diagnosis = clean(row["diagnosis"]); system, code = (diagnosis.split(":", 1) if diagnosis and ":" in diagnosis else (None, diagnosis))
-            values=dict(patient_id=patient.id,category=TYPE_MAP[row["type"]],title=title,code_system=system,code=code,status="active" if row["activity"] else "inactive",onset_date=row["begdate"].date() if row["begdate"] else None,end_date=row["enddate"].date() if row["enddate"] else None,note=clean(row["comments"]),reaction=clean(row["reaction"]),severity=clean(row["severity_al"]),recorded_at=row["date"],legacy_payload={key:json_value(value) for key,value in row.items()})
+            values=dict(patient_id=patient.id,category=TYPE_MAP[row["type"]],title=clean(row["method_title"]) or title,code_system=system,code=clean(row["new_method"]) or code,status="active" if row["activity"] else "inactive",onset_date=row["begdate"].date() if row["begdate"] else None,end_date=row["enddate"].date() if row["enddate"] else None,note=clean(row["comments"]),reaction=clean(row["reaction"]),severity=clean(row["severity_al"]),recorded_at=row["date"],legacy_payload={key:json_value(value) for key,value in row.items()})
             if existing:
                 for key,value in values.items():setattr(existing,key,value)
                 stats["clinical_items"]["existing"] += 1

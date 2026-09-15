@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import Charge, ClinicalForm, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, ServiceCode, User
+from app.models import Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, ServiceCode, User
 from app.security import password_hash
 
 
@@ -20,7 +20,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==41
+        assert sum(item["migrated"] for item in catalog.json())==42
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -126,6 +126,29 @@ def test_ippf_cyp_report_combines_services_and_paid_drug_sales():
         assert {row["source"]:row["result"] for row in payload["rows"]}=={"service":"5.00","drug":"1.00"}
         summary=client.post("/api/v1/reports/ippf_cyp_report/runs",headers=headers,json={"date_from":"2026-07-01","date_to":"2026-07-01","include_details":False})
         assert summary.json()["columns"]==["item","quantity","cyp","result"] and summary.json()["row_count"]==2
+
+
+def test_ippf_daily_counts_clients_visits_and_named_services_by_method():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Daily","last_name":"Fixture","date_of_birth":"1994-03-02","sex":"female"}).json()
+        encounter=client.post("/api/v1/encounters",headers=headers,json={"patient_uuid":patient["uuid"],"occurred_at":"2026-09-15T09:00:00Z","type":"AMB"}).json()
+        with SessionLocal() as db:
+            db_patient=db.scalar(select(Patient).where(Patient.uuid==patient["uuid"]));db_encounter=db.scalar(select(Encounter).where(Encounter.uuid==encounter["uuid"]))
+            db_patient.legacy_payload={"regdate":"2026-09-15"};db_encounter.legacy_payload={"pc_catid":10}
+            db.add(ClinicalItem(patient_id=db_patient.id,category="contraceptive",title="Injectable",code="inj|or",status="active",onset_date=date(2026,1,1)))
+            db.add_all([
+                Charge(patient_id=db_patient.id,encounter_id=db_encounter.id,code_system="MA",code="255004",description="Pap smear",units=1,unit_price=Decimal("0"),active=True),
+                Charge(patient_id=db_patient.id,encounter_id=db_encounter.id,code_system="MA",code="19916",description="Counseling",units=1,unit_price=Decimal("0"),active=True),
+            ]);db.commit()
+        result=client.post("/api/v1/reports/ippf_daily/runs",headers=headers,json={"date_from":"2026-09-15"})
+        assert result.status_code==201,result.text
+        payload=result.json();injectable=next(row for row in payload["rows"] if row["method_code"]=="inj")
+        assert payload["row_count"]==15
+        assert {key:injectable[key] for key in ("new_clients","old_clients","total_clients","contra_clients","pap_smear","counseling_by_method")}=={"new_clients":1,"old_clients":0,"total_clients":1,"contra_clients":1,"pap_smear":1,"counseling_by_method":1}
+        assert payload["totals"]["total_clients"]==1 and payload["totals"]["date"]=="2026-09-15"
+        exported=client.get(f"/api/v1/report-runs/{payload['uuid']}/export.csv",headers=headers)
+        assert exported.status_code==200 and exported.text.splitlines()[0].startswith("method_code,method,new_clients")
 
 
 def test_report_execution_enforces_each_catalog_permission():
