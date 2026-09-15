@@ -1,52 +1,31 @@
 {
-  "GET /api/patient": {
-    "replacement": "GET /api/v1/patients",
-    "test": "backend/tests/test_api.py::test_patient_flow",
-    "status": "MIGRATED"
-  },
-  "POST /api/patient": {
-    "replacement": "POST /api/v1/patients",
-    "test": "backend/tests/test_api.py::test_extended_patient_demographics_and_consent_validation",
-    "status": "MIGRATED"
-  },
-  "PUT /api/patient/:puuid": {
-    "replacement": "PUT /api/v1/patients/{patient_uuid}",
-    "test": "backend/tests/test_api.py::test_extended_patient_demographics_and_consent_validation",
-    "status": "MIGRATED"
-  },
-  "GET /api/patient/:puuid": {
-    "replacement": "GET /api/v1/patients/{patient_uuid}",
-    "test": "backend/tests/test_api.py::test_patient_flow",
-    "status": "MIGRATED"
-  },
-  "GET /api/patient/:pid/appointment": {
-    "replacement": "GET /api/v1/appointments?patient_uuid={patient_uuid}",
-    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
-    "status": "MIGRATED"
-  },
-  "POST /api/patient/:pid/appointment": {
-    "replacement": "POST /api/v1/appointments",
-    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
-    "status": "MIGRATED"
-  },
-  "GET /api/appointment": {
-    "replacement": "GET /api/v1/appointments",
-    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
-    "status": "MIGRATED"
-  },
-  "GET /api/appointment/:eid": {
-    "replacement": "GET /api/v1/appointments/{appointment_uuid}",
-    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
-    "status": "MIGRATED"
-  },
-  "DELETE /api/patient/:pid/appointment/:eid": {
-    "replacement": "DELETE /api/v1/appointments/{appointment_uuid}",
-    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
-    "status": "MIGRATED"
-  },
-  "GET /api/patient/:pid/appointment/:eid": {
-    "replacement": "GET /api/v1/appointments/{appointment_uuid}",
-    "test": "backend/tests/test_api.py::test_appointment_resources_filters_lifecycle_and_conflicts",
-    "status": "MIGRATED"
-  }
+  "GET /api/facility": {"replacement":"GET /apis/default/api/facility","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/facility/:fuuid": {"replacement":"GET /apis/default/api/facility/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "POST /api/facility": {"replacement":"POST /apis/default/api/facility","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "PUT /api/facility/:fuuid": {"replacement":"PUT /apis/default/api/facility/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/patient": {"replacement":"GET /apis/default/api/patient","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "POST /api/patient": {"replacement":"POST /apis/default/api/patient","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "PUT /api/patient/:puuid": {"replacement":"PUT /apis/default/api/patient/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/patient/:puuid": {"replacement":"GET /apis/default/api/patient/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/patient/:puuid/encounter": {"replacement":"GET /apis/default/api/patient/{uuid}/encounter","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "POST /api/patient/:puuid/encounter": {"replacement":"POST /apis/default/api/patient/{uuid}/encounter","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "PUT /api/patient/:puuid/encounter/:euuid": {"replacement":"PUT /apis/default/api/patient/{uuid}/encounter/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/patient/:puuid/encounter/:euuid": {"replacement":"GET /apis/default/api/patient/{uuid}/encounter/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/practitioner": {"replacement":"GET /apis/default/api/practitioner","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/practitioner/:pruuid": {"replacement":"GET /apis/default/api/practitioner/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "POST /api/practitioner": {"replacement":"POST /apis/default/api/practitioner","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "PUT /api/practitioner/:pruuid": {"replacement":"PUT /apis/default/api/practitioner/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/patient/:pid/appointment": {"replacement":"GET /apis/default/api/patient/{uuid}/appointment","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "POST /api/patient/:pid/appointment": {"replacement":"POST /apis/default/api/patient/{uuid}/appointment","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/appointment": {"replacement":"GET /apis/default/api/appointment","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/appointment/:eid": {"replacement":"GET /apis/default/api/appointment/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "DELETE /api/patient/:pid/appointment/:eid": {"replacement":"DELETE /apis/default/api/patient/{uuid}/appointment/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/patient/:pid/appointment/:eid": {"replacement":"GET /apis/default/api/patient/{uuid}/appointment/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/version": {"replacement":"GET /apis/default/api/version","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /api/product": {"replacement":"GET /apis/default/api/product","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /portal/patient": {"replacement":"GET /apis/default/portal/patient","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /portal/patient/encounter": {"replacement":"GET /apis/default/portal/patient/encounter","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /portal/patient/encounter/:euuid": {"replacement":"GET /apis/default/portal/patient/encounter/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /portal/patient/appointment": {"replacement":"GET /apis/default/portal/patient/appointment","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"},
+  "GET /portal/patient/appointment/:auuid": {"replacement":"GET /apis/default/portal/patient/appointment/{uuid}","test":"backend/tests/test_openemr_compat.py","status":"MIGRATED"}
 }

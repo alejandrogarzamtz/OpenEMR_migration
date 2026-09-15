@@ -366,6 +366,7 @@ Start with these documents:
   delivery approach;
 - [FHIR Notes](docs/FHIR.md) — current standards implementation and limitations.
 - [SMART App Launch](docs/SMART_BACKEND_SERVICES.md) — interactive and backend authorization, scopes, identity, token lifecycle, and deployment requirements.
+- [OpenEMR API compatibility](docs/OPENEMR_API_COMPATIBILITY.md) — legacy Standard and Portal REST URLs, payload aliases, authorization, and route-level migration status.
 
 ## Contributing
 
