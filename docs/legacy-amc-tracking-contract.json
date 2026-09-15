@@ -1,0 +1,5 @@
+{
+  "report_sha256": "f87b9a7d7837695e557310d5c7b6becd1c94951fcb7157f7b238d0697da8c436",
+  "library_sha256": "fed0c2fcd01c4e9fd44216d4d7889e48365acdb4217f25df7246e4e5968f9a29",
+  "required_tokens": ["send_sum_amc", "send_sum_elec_amc", "provide_rec_pat_amc", "provide_sum_pat_amc", "amcTrackingRequest", "object_category", "object_id"]
+}

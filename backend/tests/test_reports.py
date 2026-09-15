@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, Referral, ServiceCode, User
+from app.models import AmcTrackingEvent, Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, Referral, ServiceCode, User
 from app.security import password_hash
 
 
@@ -20,7 +20,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==43
+        assert sum(item["migrated"] for item in catalog.json())==44
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -179,6 +179,28 @@ def test_ippf_statistics_preserves_families_dimensions_products_and_referrals():
         assert invalid.status_code==422
         exported=client.get(f"/api/v1/report-runs/{payload['uuid']}/export.csv",headers=headers)
         assert exported.status_code==200 and "age_0_24" in exported.text.splitlines()[0]
+
+
+def test_amc_tracking_lists_and_completes_referral_and_encounter_evidence():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"AMC","last_name":"Fixture","date_of_birth":"1980-01-01","sex":"female"}).json()
+        encounter=client.post("/api/v1/encounters",headers=headers,json={"patient_uuid":patient["uuid"],"occurred_at":"2026-09-01T09:00:00Z","type":"AMB"}).json()
+        with SessionLocal() as db:
+            db_patient=db.scalar(select(Patient).where(Patient.uuid==patient["uuid"]));db_encounter=db.scalar(select(Encounter).where(Encounter.uuid==encounter["uuid"]));db_encounter.legacy_encounter_id=7201
+            referral=Referral(legacy_transaction_id=7101,patient_id=db_patient.id,recipient_name="Care partner",referred_at=db_encounter.occurred_at,reason="Transition of care");db.add(referral);db.commit();db.refresh(referral);referral_uuid=referral.uuid
+        referral_run=client.post("/api/v1/reports/amc_tracking/runs",headers=headers,json={"date_from":"2026-09-01","date_to":"2026-09-01","amc_rule":"send_sum_amc"})
+        assert referral_run.status_code==201,referral_run.text
+        payload=referral_run.json();row=next(item for item in payload["rows"] if item["source_uuid"]==referral_uuid);assert row["completed"] is False and row["electronically"] is False
+        completed=client.patch(f"/api/v1/amc-tracking/send_sum_amc/{referral_uuid}",headers=headers,json={"completed":True,"electronically":True})
+        assert completed.status_code==200 and completed.json()["electronically"] is True
+        pending=client.post("/api/v1/reports/amc_tracking/runs",headers=headers,json={"date_from":"2026-09-01","date_to":"2026-09-01","amc_rule":"send_sum_amc"})
+        assert all(item["source_uuid"]!=referral_uuid for item in pending.json()["rows"])
+        history=client.post("/api/v1/reports/amc_tracking/runs",headers=headers,json={"date_from":"2026-09-01","date_to":"2026-09-01","amc_rule":"send_sum_amc","include_completed":True})
+        historical=next(item for item in history.json()["rows"] if item["source_uuid"]==referral_uuid);assert historical["completed"] is True and historical["electronically"] is True
+        encounter_run=client.post("/api/v1/reports/amc_tracking/runs",headers=headers,json={"date_from":"2026-09-01","date_to":"2026-09-01","amc_rule":"provide_sum_pat_amc"})
+        encounter_row=next(item for item in encounter_run.json()["rows"] if item["source_uuid"]==encounter["uuid"]);assert encounter_row["legacy_source_id"]==7201
+        with SessionLocal() as db:assert db.scalar(select(AmcTrackingEvent).where(AmcTrackingEvent.rule_id=="send_sum_elec_amc")).completed_at is not None
 
 
 def test_report_execution_enforces_each_catalog_permission():

@@ -295,6 +295,22 @@ class RegulatoryMetricEvent(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class AmcTrackingEvent(Base):
+    """Durable evidence for manual Automated Measure Calculation actions."""
+    __tablename__ = "amc_tracking_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36),unique=True,default=lambda:str(uuid4()),index=True)
+    rule_id: Mapped[str] = mapped_column(String(31),index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"),index=True)
+    object_category: Mapped[str] = mapped_column(String(255),default="",index=True)
+    legacy_object_id: Mapped[int] = mapped_column(default=0,index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc),index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),nullable=True,index=True)
+    summary_provided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),nullable=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"),nullable=True,index=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON,nullable=True)
+
+
 class AuditEventSeal(Base):
     """Independent checksum evidence retained even if its audit row is removed."""
 

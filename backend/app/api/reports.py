@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AuditEvent, ClinicalItem, Facility, Patient, ReportRun, SyndromicSubmission, User
-from ..schemas import ReportCatalogItem, ReportRunCreate, ReportRunOut
+from ..models import AmcTrackingEvent, AuditEvent, ClinicalItem, Encounter, Facility, Patient, Referral, ReportRun, SyndromicSubmission, User
+from ..schemas import AmcTrackingEventOut, AmcTrackingUpdate, ReportCatalogItem, ReportRunCreate, ReportRunOut
 from ..security import current_user, user_has_permission
 from ..services.access import require_facility_access, require_warehouse_access
 from ..services.reports import catalog, execute_report
@@ -58,6 +58,35 @@ def run_report(report_key: str,body: ReportRunCreate,db: Session=Depends(get_db)
     canonical=json.dumps({"report":report_key,"parameters":public_parameters,"columns":columns,"rows":rows,"totals":totals},sort_keys=True,separators=(",",":"))
     item=ReportRun(report_key=report_key,parameters=public_parameters,columns=columns,rows=rows,totals=totals,row_count=len(rows),checksum=hashlib.sha256(canonical.encode()).hexdigest(),actor_id=user.id)
     db.add(item);db.flush();db.add(AuditEvent(actor_id=user.id,action="run",resource_type="report",resource_id=item.uuid,detail=report_key));db.commit();db.refresh(item);return run_out(item)
+
+
+@router.patch("/amc-tracking/{rule_id}/{source_uuid}",response_model=AmcTrackingEventOut)
+def update_amc_tracking(rule_id: str,source_uuid: str,body: AmcTrackingUpdate,db: Session=Depends(get_db),user: User=Depends(current_user)):
+    authorize(user,"patients:med:read")
+    if rule_id not in {"send_sum_amc","provide_rec_pat_amc","provide_sum_pat_amc"}:raise HTTPException(status_code=404,detail="AMC rule not found")
+    if rule_id=="send_sum_amc":
+        source=db.scalar(select(Referral).where(Referral.uuid==source_uuid));category="transactions"
+        if not source:raise HTTPException(status_code=404,detail="Referral not found")
+        patient_id=source.patient_id;legacy_id=source.legacy_transaction_id or source.id
+    elif rule_id=="provide_sum_pat_amc":
+        source=db.scalar(select(Encounter).where(Encounter.uuid==source_uuid));category="form_encounter"
+        if not source:raise HTTPException(status_code=404,detail="Encounter not found")
+        patient_id=source.patient_id;legacy_id=source.legacy_encounter_id or source.id
+    else:
+        source=db.scalar(select(AmcTrackingEvent).where(AmcTrackingEvent.uuid==source_uuid,AmcTrackingEvent.rule_id==rule_id))
+        if not source:raise HTTPException(status_code=404,detail="Record request not found")
+        patient_id=source.patient_id;legacy_id=source.legacy_object_id;category=source.object_category
+    item=db.execute(select(AmcTrackingEvent).where(AmcTrackingEvent.rule_id==rule_id,AmcTrackingEvent.patient_id==patient_id,AmcTrackingEvent.object_category==category,AmcTrackingEvent.legacy_object_id==legacy_id).order_by(AmcTrackingEvent.id.desc())).scalars().first()
+    now=datetime.now(timezone.utc)
+    if not item:item=AmcTrackingEvent(rule_id=rule_id,patient_id=patient_id,object_category=category,legacy_object_id=legacy_id,created_at=now,actor_id=user.id);db.add(item);db.flush()
+    item.completed_at=now if body.completed else None;item.actor_id=user.id;electronic=False
+    if rule_id=="send_sum_amc":
+        electronic_item=db.execute(select(AmcTrackingEvent).where(AmcTrackingEvent.rule_id=="send_sum_elec_amc",AmcTrackingEvent.patient_id==patient_id,AmcTrackingEvent.object_category==category,AmcTrackingEvent.legacy_object_id==legacy_id).order_by(AmcTrackingEvent.id.desc())).scalars().first()
+        electronic=body.completed and body.electronically
+        if electronic_item:electronic_item.completed_at=now if electronic else None;electronic_item.actor_id=user.id
+        elif electronic:db.add(AmcTrackingEvent(rule_id="send_sum_elec_amc",patient_id=patient_id,object_category=category,legacy_object_id=legacy_id,created_at=now,completed_at=now,actor_id=user.id))
+    db.add(AuditEvent(actor_id=user.id,action="complete" if body.completed else "reopen",resource_type="amc-tracking",resource_id=item.uuid,detail=rule_id));db.commit();db.refresh(item)
+    return AmcTrackingEventOut(uuid=item.uuid,rule_id=item.rule_id,completed_at=item.completed_at,electronically=electronic)
 
 
 def stored_run(db: Session,user: User,run_uuid: str) -> ReportRun:

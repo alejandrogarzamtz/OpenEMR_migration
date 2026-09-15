@@ -723,6 +723,8 @@ class ReportRunCreate(BaseModel):
     ippf_content: str = Field(default="1", pattern="^(1|2|3|4|5)$")
     ippf_sex: str = Field(default="all", pattern="^(female|male|all)$")
     ippf_columns: list[str] = Field(default_factory=lambda:["total"], max_length=12)
+    amc_rule: str = Field(default="send_sum_amc",pattern="^(send_sum_amc|provide_rec_pat_amc|provide_sum_pat_amc)$")
+    include_completed: bool = False
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -748,6 +750,18 @@ class ReportRunOut(BaseModel):
     row_count: int
     checksum: str
     created_at: datetime
+
+
+class AmcTrackingUpdate(BaseModel):
+    completed: bool
+    electronically: bool = False
+
+
+class AmcTrackingEventOut(BaseModel):
+    uuid: str
+    rule_id: str
+    completed_at: datetime | None
+    electronically: bool = False
 
 
 class PatientEducationResourceCreate(BaseModel):

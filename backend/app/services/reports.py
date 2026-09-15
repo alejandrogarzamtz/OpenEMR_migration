@@ -7,13 +7,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, RegulatoryMetricEvent, ReportRun, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, User, audit_event_checksum
+from ..models import AmcTrackingEvent, Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, ReceivableSession, Referral, RegulatoryMetricEvent, ReportRun, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -511,6 +511,40 @@ def ippf_statistics_report(db: Session,user: User,params: dict):
             for label,count in item["dimensions"][field].items():row[f"{field}:{label}"]=count
         rows.append(row)
     return columns,rows,{"total":sum(item["total"] for item in aggregates.values()),"groups":len(rows),"report_family":family,"content":content}
+
+
+def amc_tracking_report(db: Session,user: User,params: dict):
+    """List AMC manual-action candidates and their durable completion evidence."""
+    rule=params.get("amc_rule") or "send_sum_amc";start=params.get("date_from");end=params.get("date_to");provider=params.get("provider_legacy_id");include_completed=params.get("include_completed",False)
+    patients=list(db.scalars(select(Patient).where(Patient.merged_into_id.is_(None)).order_by(Patient.legacy_pid,Patient.id)))
+    if provider:
+        assigned=set(db.scalars(select(PatientProviderAssignment.patient_id).where(PatientProviderAssignment.legacy_practitioner_id==provider,PatientProviderAssignment.role=="primary",PatientProviderAssignment.status=="active")));patients=[item for item in patients if item.id in assigned]
+    patient_map={item.id:item for item in patients};events=list(db.scalars(select(AmcTrackingEvent).where(AmcTrackingEvent.patient_id.in_(list(patient_map))).order_by(AmcTrackingEvent.created_at,AmcTrackingEvent.id))) if patient_map else []
+    event_map={}
+    for item in events:event_map[(item.rule_id,item.patient_id,item.object_category,item.legacy_object_id)]=item
+    def dated(raw):
+        day=raw.date() if isinstance(raw,datetime) else raw
+        return (start is None or day>=start) and (end is None or day<=end)
+    def row(patient,when,source_type,source_uuid,legacy_id,event):
+        completed=bool(event and event.completed_at);electronic=bool(event_map.get(("send_sum_elec_amc",patient.id,source_type,legacy_id)) and event_map[("send_sum_elec_amc",patient.id,source_type,legacy_id)].completed_at)
+        return {"patient_name":f"{patient.last_name}, {patient.first_name}","patient_uuid":patient.uuid,"legacy_patient_id":patient.legacy_pid,"date":value(when),"source_type":source_type,"source_uuid":source_uuid,"legacy_source_id":legacy_id,"completed":completed,"completed_at":value(event.completed_at) if event else None,"electronically":electronic}
+    rows=[]
+    if rule=="send_sum_amc":
+        for source in db.scalars(select(Referral).where(Referral.patient_id.in_(list(patient_map))).order_by(Referral.referred_at.desc(),Referral.id.desc())) if patient_map else []:
+            patient=patient_map[source.patient_id];legacy_id=source.legacy_transaction_id or source.id;event=event_map.get((rule,patient.id,"transactions",legacy_id))
+            if dated(source.referred_at) and (include_completed or not (event and event.completed_at)):rows.append(row(patient,source.referred_at,"transactions",source.uuid,legacy_id,event))
+    elif rule=="provide_sum_pat_amc":
+        for source in db.scalars(select(Encounter).where(Encounter.patient_id.in_(list(patient_map))).order_by(Encounter.occurred_at.desc(),Encounter.id.desc())) if patient_map else []:
+            patient=patient_map[source.patient_id];legacy_id=source.legacy_encounter_id or source.id;event=event_map.get((rule,patient.id,"form_encounter",legacy_id))
+            if dated(source.occurred_at) and (include_completed or not (event and event.completed_at)):rows.append(row(patient,source.occurred_at,"form_encounter",source.uuid,legacy_id,event))
+    else:
+        for event in reversed(events):
+            if event.rule_id!=rule or not dated(event.created_at) or (event.completed_at and not include_completed):continue
+            rows.append(row(patient_map[event.patient_id],event.created_at,event.object_category,event.uuid,event.legacy_object_id,event))
+    rows.sort(key=lambda item:(item["date"],item["legacy_patient_id"] or 0,item["legacy_source_id"]),reverse=True)
+    columns=["patient_name","patient_uuid","legacy_patient_id","date","source_type","source_uuid","legacy_source_id","completed","completed_at"]
+    if rule=="send_sum_amc":columns.append("electronically")
+    return columns,rows,{"candidates":len(rows),"completed":sum(bool(item["completed"]) for item in rows),"rule":rule}
 
 
 def appointment_encounter_report(db: Session,user: User,params: dict):
@@ -1172,6 +1206,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "ippf_cyp_report": return ippf_cyp_report(db,user,params)
     if key == "ippf_daily": return ippf_daily_report(db,user,params)
     if key == "ippf_statistics": return ippf_statistics_report(db,user,params)
+    if key == "amc_tracking": return amc_tracking_report(db,user,params)
     if key == "appt_encounter_report": return appointment_encounter_report(db,user,params)
     if key == "collections_report": return collections_report(db,user,params)
     if key == "front_receipts_report": return front_receipts_report(db,user,params)

@@ -8,7 +8,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | Legacy report key | Status |
 |---|---|
 | `amc_full_report` | PENDING |
-| `amc_tracking` | PENDING |
+| `amc_tracking` | MIGRATED — referral, patient-request and encounter candidates; date/provider filters, durable normal/electronic completion evidence, audited transitions, immutable snapshots and CSV |
 | `appointments_report` | MIGRATED |
 | `appt_encounter_report` | MIGRATED — full-outer appointment/encounter reconciliation, billing diagnostics, copays, practitioner totals, facility ACL, snapshots and CSV |
 | `audit_log_tamper_report` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 43 migrated, 5 pending/embedded**.
+Current accounting: **48 cataloged, 44 migrated, 4 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
