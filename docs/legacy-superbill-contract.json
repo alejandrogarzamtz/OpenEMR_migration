@@ -1,0 +1,19 @@
+{
+  "library_sha256": "6c5099cb87be580c35aa0c4ed218b48f9de1e5f0d6d0ea442cbd2592d11b7e22",
+  "report_sha256": "05470772b48b18502303685a630cdca7c50fa306e0977a43bb6753decace8994",
+  "required_library_tokens": [
+    "select * from patient_data",
+    "select *, ic.name as provider_name",
+    "b.provider_id != 0",
+    "b.provider_id  = 0",
+    "activity = '1'"
+  ],
+  "required_report_tokens": [
+    "form_name = 'New Patient Encounter'",
+    "getRecPatientData",
+    "getRecInsuranceData",
+    "getPatientBillingEncounter",
+    "getPatientCopay",
+    "Physician Signature"
+  ]
+}
