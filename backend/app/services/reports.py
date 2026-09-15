@@ -7,13 +7,13 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
+from ..models import Appointment, AuditEvent, AuditEventSeal, BackgroundService, BillingCodeType, ChartLocationEvent, Charge, ClinicalForm, ClinicalItem, ClinicalRuleLog, CommunicationDelivery, Coverage, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, IdentityAuditEvent, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientEducationResource, PatientFlowEpisode, PatientFlowEvent, PatientProviderAssignment, Payer, PaymentProcessingAudit, Pharmacy, Practitioner, Prescription, ProcedureOrderLine, ReceivableActivity, Referral, ReportRun, SecureMessage, ServiceCode, SocialHistory, User, audit_event_checksum
 from .access import facility_scope, warehouse_scope
 
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "sales_by_item", "services_by_category", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -415,6 +415,51 @@ def receipts_by_method_report(db: Session,user: User,params: dict):
     return columns,rows,totals
 
 
+def payment_processing_report(db: Session,user: User,params: dict):
+    """Gateway audit history with preserved reversal links and safe derived fields."""
+    now=datetime.now(timezone.utc);start=params.get("occurred_from") or now-timedelta(days=7);end=params.get("occurred_to") or now
+    query=select(PaymentProcessingAudit).where(PaymentProcessingAudit.occurred_at>start,PaymentProcessingAudit.occurred_at<end)
+    if params.get("_patient_id"):query=query.where(PaymentProcessingAudit.patient_id==params["_patient_id"])
+    if params.get("payment_service"):query=query.where(PaymentProcessingAudit.service==params["payment_service"])
+    if params.get("payment_ticket"):query=query.where(PaymentProcessingAudit.ticket==params["payment_ticket"])
+    if params.get("payment_transaction_id"):query=query.where(PaymentProcessingAudit.transaction_id==params["payment_transaction_id"])
+    if params.get("payment_action"):query=query.where(PaymentProcessingAudit.action_name==params["payment_action"])
+    items=list(db.scalars(query.order_by(PaymentProcessingAudit.occurred_at.desc(),PaymentProcessingAudit.id.desc())))
+    patient_ids={item.patient_id for item in items if item.patient_id};patients={item.id:item for item in db.scalars(select(Patient).where(Patient.id.in_(patient_ids)))} if patient_ids else {}
+    def nested(payload,*path):
+        current=payload or {}
+        for key in path:
+            if not isinstance(current,dict):return None
+            current=current.get(key)
+        return current
+    def error_for(item):
+        if item.success:return ""
+        payload=item.audit_payload
+        if payload is None:return "Encrypted legacy audit detail requires source installation keys"
+        if nested(payload,"get","cancel")=="cancel":return "Cancelled"
+        if item.action_name=="Sale":return " - ".join(filter(None,(str(nested(payload,"post","status_name") or ""),str(nested(payload,"post","description") or ""))))
+        if item.action_name in {"void","credit"}:
+            status=nested(payload,"post","status")
+            if status in {"baddata","error"}:return f"Aborted since unable to submit transaction: {status} {nested(payload,'post','error') or ''} {nested(payload,'post','offenders') or ''}".strip()
+            if payload.get("check_querystring_hash") is False:return "querystring hash was invalid"
+            if payload.get("token_request_error"):return f"Aborted since unable to obtain token: {payload['token_request_error']}"
+            if payload.get("error_custom"):return str(payload["error_custom"])
+            complete=payload.get("complete_transaction")
+            if isinstance(complete,dict) and complete.get("status")!="accepted":return "Unable to complete transaction: "+"; ".join(f"{key}:{val}" for key,val in complete.items() if key or val)
+        return ""
+    front_labels={"patient":"Patient Portal","clinic-phone":"Front Office by Phone","clinic-retail":"Front Office in Person"}
+    columns=["date","service","front","ticket","transaction_id","patient","patient_uuid","legacy_patient_id","action","success","amount","amount_text","error_message","reverted","revert_action","revert_date","revert_transaction_id","mapped_transaction_id","reversal_status","legacy_payload_status","audit_uuid"]
+    rows=[]
+    for item in items:
+        patient=patients.get(item.patient_id);front=nested(item.audit_payload,"get","front");reversal=""
+        if item.action_name=="Sale" and item.reverted:reversal=f"Reversed via {item.revert_action_name or 'unknown'} by {item.revert_transaction_id or 'unknown transaction'}"
+        elif item.action_name in {"void","credit"} and item.success:reversal=f"{item.action_name.title()} of {item.map_transaction_id or 'unknown transaction'}"
+        elif item.action_name=="Sale" and item.success:reversal="Gateway action required for void or credit"
+        rows.append({"date":value(item.occurred_at),"service":item.service,"front":front_labels.get(front,front or ""),"ticket":item.ticket,"transaction_id":item.transaction_id,"patient":f"{patient.last_name}, {patient.first_name}" if patient else None,"patient_uuid":patient.uuid if patient else None,"legacy_patient_id":item.legacy_patient_id,"action":item.action_name,"success":item.success,"amount":value(item.amount),"amount_text":item.amount_text,"error_message":error_for(item),"reverted":item.reverted,"revert_action":item.revert_action_name,"revert_date":value(item.reverted_at),"revert_transaction_id":item.revert_transaction_id,"mapped_transaction_id":item.map_transaction_id,"reversal_status":reversal,"legacy_payload_status":"readable-json" if item.payload_readable else "preserved-encrypted-source","audit_uuid":item.uuid})
+    amounts=[item.amount for item in items if item.amount is not None]
+    return columns,rows,{"transactions":len(rows),"successful":sum(item.success for item in items),"failed":sum(not item.success for item in items),"reverted":sum(item.reverted for item in items),"amount":value(sum(amounts,Decimal("0"))),"encrypted_legacy_payloads":sum(not item.payload_readable for item in items)}
+
+
 def appointment_scope(query, db: Session, user: User):
     scope=facility_scope(db,user)
     if scope is None: return query
@@ -562,6 +607,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key == "collections_report": return collections_report(db,user,params)
     if key == "front_receipts_report": return front_receipts_report(db,user,params)
     if key == "receipts_by_method_report": return receipts_by_method_report(db,user,params)
+    if key == "payment_processing_report": return payment_processing_report(db,user,params)
     if key == "audit_log_tamper_report": return audit_integrity_report(db,params)
     if key == "background_services":
         columns=["name","service","active","automatic","interval_minutes","currently_busy","last_run_started_at","next_scheduled_run","handler"]

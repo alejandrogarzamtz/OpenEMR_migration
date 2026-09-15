@@ -43,7 +43,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `patient_flow_board_report` | MIGRATED |
 | `patient_list` | MIGRATED |
 | `patient_list_creation` | PENDING |
-| `payment_processing_report` | PENDING |
+| `payment_processing_report` | MIGRATED — gateway transaction audit, patient/service/ticket/transaction/action filters, success/error state, sale/reversal links, encrypted-source disclosure, snapshots and CSV; live Sphere void/credit requires a configured gateway |
 | `prepayment_balance_report` | PENDING |
 | `prescriptions_report` | MIGRATED |
 | `receipts_by_method_report` | MIGRATED — copays plus integrated A/R payments/adjustments by payer, configured method or check reference; service/deposit dates, procedure/provider/facility filters, detail/summary, snapshots and CSV |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 32 migrated, 16 pending/embedded**.
+Current accounting: **48 cataloged, 33 migrated, 15 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -118,6 +118,15 @@ facility and charge-provider scope, procedure-code prefix matching, effective
 coverage policy display, and detailed or grouped output by payer, configured
 payment-method label or check reference. Source session labels and activity
 memo/follow-up/reason fields are typed while every original row remains intact.
+
+`payment_processing_report` preserves every `payment_processing_audit` column,
+including binary identifiers, original amount text, encrypted request/response
+evidence, reversal evidence and sale-to-reversal links. Typed filters and totals
+never expose the encrypted blob. Front labels and legacy error explanations are
+derived only when the source value is already readable JSON; otherwise the row
+explicitly reports that source installation keys are required. Live Sphere
+void/credit submission remains an external integration gate and is not implied
+by the migrated read-only report.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,

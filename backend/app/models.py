@@ -1259,6 +1259,35 @@ class PaymentIntent(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PaymentProcessingAudit(Base):
+    __tablename__ = "payment_processing_audits"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_uuid_hex: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    service: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(index=True)
+    success: Mapped[bool] = mapped_column(default=False, index=True)
+    action_name: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    amount_text: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(12,2), nullable=True)
+    ticket: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    map_legacy_uuid_hex: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    map_transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reverted: Mapped[bool] = mapped_column(default=False, index=True)
+    revert_action_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    revert_transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    audit_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revert_audit_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audit_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    revert_audit_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    payload_readable: Mapped[bool] = mapped_column(default=False)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class Immunization(Base):
     __tablename__ = "immunizations"
     id: Mapped[int] = mapped_column(primary_key=True)

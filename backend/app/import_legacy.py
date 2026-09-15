@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, Payer, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, ReceivableActivity, Referral, SecureMessage, ServiceCode, SocialHistory, User, VitalSet, Warehouse
+from .models import Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, ReceivableActivity, Referral, SecureMessage, ServiceCode, SocialHistory, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 
@@ -199,7 +199,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_activities", "front_office_payments", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "clinical_rule_logs", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "background_services", "ip_login_trackers")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -741,6 +741,25 @@ def run(source_url: str, commit: bool = False) -> dict:
                     for key,value in values.items():setattr(existing,key,value)
                     stats["front_office_payments"]["existing"]+=1
                 else:target.add(FrontOfficePayment(legacy_payment_id=row["id"],**values));stats["front_office_payments"]["inserted"]+=1
+            target.flush()
+        if "payment_processing_audit" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM payment_processing_audit ORDER BY date,uuid")).mappings():
+                stats["payment_processing_audits"]["source"]+=1;legacy_uuid=json_value(row["uuid"])
+                existing=target.scalar(select(PaymentProcessingAudit).where(PaymentProcessingAudit.legacy_uuid_hex==legacy_uuid))
+                def readable_payload(raw):
+                    if not isinstance(raw,str):return None
+                    try:
+                        parsed=json.loads(raw);return parsed if isinstance(parsed,dict) else None
+                    except (TypeError,ValueError):return None
+                audit_payload=readable_payload(row["audit_data"]);revert_payload=readable_payload(row["revert_audit_data"])
+                try:amount=Decimal(row["amount"]) if row["amount"] not in (None,"") else None
+                except Exception:amount=None
+                patient=patient_for_legacy(target,row["pid"])
+                values=dict(service=clean(row["service"]),patient_id=patient.id if patient else None,legacy_patient_id=row["pid"],success=bool(row["success"]),action_name=clean(row["action_name"]),amount_text=clean(row["amount"]),amount=amount,ticket=clean(row["ticket"]),transaction_id=clean(row["transaction_id"]),occurred_at=row["date"],map_legacy_uuid_hex=json_value(row["map_uuid"]) if row["map_uuid"] else None,map_transaction_id=clean(row["map_transaction_id"]),reverted=bool(row["reverted"]),revert_action_name=clean(row["revert_action_name"]),revert_transaction_id=clean(row["revert_transaction_id"]),reverted_at=row["revert_date"],audit_ciphertext=json_value(row["audit_data"]),revert_audit_ciphertext=json_value(row["revert_audit_data"]),audit_payload=audit_payload,revert_audit_payload=revert_payload,payload_readable=audit_payload is not None,legacy_payload={key:json_value(value) for key,value in row.items()})
+                if existing:
+                    for key,value in values.items():setattr(existing,key,value)
+                    stats["payment_processing_audits"]["existing"]+=1
+                else:target.add(PaymentProcessingAudit(legacy_uuid_hex=legacy_uuid,**values));stats["payment_processing_audits"]["inserted"]+=1
             target.flush()
         claims=legacy.execute(text("SELECT patient_id,encounter_id,version,payer_id,status,bill_time FROM claims ORDER BY patient_id,encounter_id,version"))
         for row in claims.mappings():

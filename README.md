@@ -128,6 +128,9 @@ end-to-end healthcare workflows:
 - integrated A/R receipt summaries by effective payer, configured payment
   method or check reference, with copays, adjustments, service/deposit date
   semantics, procedure filters and detailed or aggregate exports;
+- payment-gateway audit reporting with transaction, patient, outcome and action
+  filters, sale-to-reversal links, safe failure details, immutable snapshots and
+  lossless preservation of encrypted historical provider evidence;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

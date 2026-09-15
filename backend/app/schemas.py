@@ -658,6 +658,8 @@ class ReportCatalogItem(BaseModel):
 
 
 class ReportRunCreate(BaseModel):
+    occurred_from: datetime | None = None
+    occurred_to: datetime | None = None
     date_from: date | None = None
     date_to: date | None = None
     facility_uuid: str | None = None
@@ -702,6 +704,10 @@ class ReportRunCreate(BaseModel):
     receipt_report_by: str = Field(default="payer", pattern="^(payer|payment_method|check_number)$")
     use_invoice_date: bool = False
     procedure_code: str | None = Field(default=None, max_length=64)
+    payment_service: str | None = Field(default=None, max_length=50)
+    payment_ticket: str | None = Field(default=None, max_length=100)
+    payment_transaction_id: str | None = Field(default=None, max_length=100)
+    payment_action: str | None = Field(default=None, pattern="^(Sale|credit|void)$")
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -709,6 +715,8 @@ class ReportRunCreate(BaseModel):
             raise ValueError("date_to must be on or after date_from")
         if self.age_from is not None and self.age_to is not None and self.age_to < self.age_from:
             raise ValueError("age_to must be on or after age_from")
+        if self.occurred_from and self.occurred_to and self.occurred_to < self.occurred_from:
+            raise ValueError("occurred_to must be on or after occurred_from")
         return self
 
 
