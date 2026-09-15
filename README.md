@@ -152,6 +152,10 @@ end-to-end healthcare workflows:
   dispensing, stock movements, destruction records, and lossless legacy import;
 - administration of facilities, practitioners and warehouses, with explicit
   facility/warehouse assignments enforced by scheduling and inventory APIs;
+- audited staff invitations and lifecycle controls, a deliberately allowlisted
+  non-secret configuration registry, persistent locale and translation
+  catalogs consumed by the React navigation with LTR/RTL support, and
+  validated, immutable-version content templates with safe preview;
 - a permission-aware report catalog with reproducible stored runs, totals,
   integrity checksums, searchable execution history and authenticated CSV
   exports, including facility-scoped clinical-decision evaluation history,
@@ -188,8 +192,8 @@ end-to-end healthcare workflows:
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
 forms, advanced demographic fields, recurrence rules, broader portal workflows,
-remaining specialized workflows, advanced inventory, production integrations, administrative
-tools, and background services are still being implemented. The authoritative
+remaining specialized workflows, advanced inventory, production integrations,
+extension compatibility, and production operations are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
 
@@ -216,6 +220,9 @@ A capability is considered verified only when its data mapping, API, UI,
 authorization, tests, and legacy behavior comparison are accounted for.
 External services requiring vendor credentials are tracked separately from
 implementation work.
+
+Administration behavior and its security boundaries are documented in
+[Platform administration, localization, and templates](docs/PLATFORM_ADMINISTRATION.md).
 
 ## Getting started
 

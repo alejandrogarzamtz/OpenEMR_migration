@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from sqlalchemy import select
 from app.db import SessionLocal
-from app.import_legacy import clean, event_datetime, import_clinical_rule_log, import_social_history, json_value, legacy_consent_decision, parse_legacy_person_name, questionnaire_items, stable_legacy_row_keys, valid_dob
+from app.import_legacy import SAFE_LEGACY_GLOBALS, clean, event_datetime, import_clinical_rule_log, import_social_history, json_value, legacy_consent_decision, legacy_setting_value, legacy_template_text, parse_legacy_person_name, questionnaire_items, stable_legacy_row_keys, valid_dob
 from app.models import ClinicalRuleLog, SocialHistory
 
 
@@ -25,6 +25,10 @@ def test_legacy_value_normalization():
     assert parse_legacy_person_name("Ada Byron") == ("Ada", "Byron")
     assert parse_legacy_person_name("Byron, Ada") == ("Ada", "Byron")
     assert parse_legacy_person_name("") == ("Unknown", "Unknown")
+    assert legacy_setting_value("date_display_format", "2") == "DD/MM/YYYY"
+    assert legacy_setting_value("date_display_format", "9") is None
+    assert legacy_template_text("Résumé".encode()) == "Résumé"
+    assert "smtp_password" not in SAFE_LEGACY_GLOBALS and "oauth_key" not in SAFE_LEGACY_GLOBALS
 
 
 def test_legacy_multiset_row_keys_are_stable_and_preserve_duplicates():

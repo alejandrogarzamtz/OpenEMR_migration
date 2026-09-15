@@ -8,6 +8,7 @@ from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import QuestionnaireDefinition, User
 from .security import password_hash
+from .services.platform_administration import seed_platform_administration
 
 QUESTIONNAIRES = {
     "PHQ-9": {
@@ -46,6 +47,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if settings.database_url == "sqlite://":
         Base.metadata.create_all(engine)
     with SessionLocal() as db:
+        seed_platform_administration(db)
         if settings.bootstrap_admin_email and settings.bootstrap_admin_password:
             if not db.scalar(select(User).where(User.email == settings.bootstrap_admin_email)):
                 db.add(

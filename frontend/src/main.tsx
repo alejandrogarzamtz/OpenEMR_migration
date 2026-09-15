@@ -45,6 +45,7 @@ type Prescription = { uuid:string; drug_name:string; dosage_instructions:string;
 type ClinicalForm = { uuid:string; encounter_uuid:string; form_type:string; title:string; content:Record<string,unknown>; status:string; authored_at:string; signed_at?:string; locked:boolean; signature_count:number; released_to_patient_at?:string };
 type EncounterSummary={uuid:string;occurred_at:string;chief_complaint?:string;locked:boolean;signature_count:number};
 type Summary = { patient:Patient; problems:Item[]; allergies:Item[]; medications:Item[]; encounters:EncounterSummary[]; labOrders:LabOrder[]; labResults:LabResult[]; documents:ClinicalDocument[]; coverages:Coverage[]; charges:Charge[]; claims:Claim[]; immunizations:Immunization[]; vitals:Vitals[]; prescriptions:Prescription[]; clinicalForms:ClinicalForm[] };
+type Localization={organization_name:string;default_locale:string;locale:{code:string;name:string;rtl:boolean};locales:{code:string;name:string;rtl:boolean}[];translations:Record<string,string>};
 
 function Login({ done }:{ done:(token:string)=>void }) {
   const [error,setError]=useState("");
@@ -79,6 +80,7 @@ function App(){
   const [selected,setSelected]=useState<Summary|null>(null);
   const [error,setError]=useState("");
   const [creatingPatient,setCreatingPatient]=useState(false);
+  const [localization,setLocalization]=useState<Localization|null>(null);
   const [section,setSection]=useState<"patients"|"appointments"|"flow"|"inventory"|"communications"|"education"|"security"|"administration"|"reports">("patients");
 
   function refreshAccessToken(){
@@ -86,6 +88,11 @@ function App(){
     return refreshInFlight.current;
   }
   const api=createApiClient({baseUrl:API,getToken:()=>token,refreshAccessToken,onUnauthorized:()=>setToken("")});
+  async function loadLocalization(code=localStorage.getItem("openrm.locale")||""){
+    try{const value=await api<Localization>(`/api/v1/localization/bootstrap${code?`?locale=${encodeURIComponent(code)}`:""}`);setLocalization(value);document.documentElement.lang=value.locale.code;document.documentElement.dir=value.locale.rtl?"rtl":"ltr";}catch{/* Keep usable built-in labels if localization is unavailable. */}
+  }
+  function chooseLocale(code:string){localStorage.setItem("openrm.locale",code);void loadLocalization(code);}
+  const t=(key:string,fallback:string)=>localization?.translations[key]??fallback;
   async function logout(){try{await api("/api/v1/auth/logout",{method:"POST"});}finally{setToken("");}}
   async function loadPatients(search=query){setPatients((await api(`/api/v1/patients?q=${encodeURIComponent(search)}`)).items);}
   async function createPatient(patient:PatientInput){
@@ -156,11 +163,12 @@ function App(){
   }
   useEffect(()=>{if(token){setAuthReady(true);return;}void refreshAccessToken().finally(()=>setAuthReady(true));},[]);
   useEffect(()=>{if(token)void loadPatients("");},[token]);
+  useEffect(()=>{void loadLocalization();},[]);
   if(!authReady)return <main className="login"><p>Verificando sesión…</p></main>;
   if(!token)return <Login done={setToken}/>;
   return <div className="shell">
-    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>Pacientes</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>Agenda</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>Flujo</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>Inventario</button><button className={section==="communications"?"active":""} onClick={()=>setSection("communications")}>Mensajes</button><button className={section==="education"?"active":""} onClick={()=>setSection("education")}>Educación</button><button className={section==="reports"?"active":""} onClick={()=>setSection("reports")}>Reportes</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>Administración</button><button className={section==="security"?"active":""} onClick={()=>setSection("security")}>Seguridad</button></nav><button className="logout" onClick={()=>void logout()}>Salir</button></aside>
-    <main><header><div><p className="eyebrow">ATENCIÓN CLÍNICA</p><h1>{section==="patients"?"Pacientes":section==="appointments"?"Agenda":section==="flow"?"Flujo de pacientes":section==="inventory"?"Inventario":section==="communications"?"Mensajes seguros":section==="education"?"Educación del paciente":section==="security"?"Seguridad":section==="reports"?"Reportes":"Administración"}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>Nuevo paciente</button>}</header>
+    <aside><div className="brand">OR</div><nav><button className={section==="patients"?"active":""} onClick={()=>setSection("patients")}>{t("nav.patients","Pacientes")}</button><button className={section==="appointments"?"active":""} onClick={()=>setSection("appointments")}>{t("nav.appointments","Agenda")}</button><button className={section==="flow"?"active":""} onClick={()=>setSection("flow")}>{t("nav.flow","Flujo")}</button><button className={section==="inventory"?"active":""} onClick={()=>setSection("inventory")}>{t("nav.inventory","Inventario")}</button><button className={section==="communications"?"active":""} onClick={()=>setSection("communications")}>{t("nav.messages","Mensajes")}</button><button className={section==="education"?"active":""} onClick={()=>setSection("education")}>{t("nav.education","Educación")}</button><button className={section==="reports"?"active":""} onClick={()=>setSection("reports")}>{t("nav.reports","Reportes")}</button><button className={section==="administration"?"active":""} onClick={()=>setSection("administration")}>{t("nav.administration","Administración")}</button><button className={section==="security"?"active":""} onClick={()=>setSection("security")}>{t("nav.security","Seguridad")}</button></nav>{localization&&<select aria-label="Interface language" value={localization.locale.code} onChange={event=>chooseLocale(event.target.value)}>{localization.locales.map(item=><option key={item.code} value={item.code}>{item.name}</option>)}</select>}<button className="logout" onClick={()=>void logout()}>{t("action.logout","Salir")}</button></aside>
+    <main><header><div><p className="eyebrow">{t("header.clinical_care","ATENCIÓN CLÍNICA")}</p><h1>{section==="patients"?t("nav.patients","Pacientes"):section==="appointments"?t("nav.appointments","Agenda"):section==="flow"?t("nav.flow","Flujo de pacientes"):section==="inventory"?t("nav.inventory","Inventario"):section==="communications"?t("nav.messages","Mensajes seguros"):section==="education"?t("nav.education","Educación del paciente"):section==="security"?t("nav.security","Seguridad"):section==="reports"?t("nav.reports","Reportes"):t("nav.administration","Administración")}</h1></div>{section==="patients"&&<button onClick={()=>setCreatingPatient(true)}>{t("action.new_patient","Nuevo paciente")}</button>}</header>
       {error&&<p className="error">{error}</p>}
       {section==="appointments"?<AppointmentBoard api={api} patients={patients}/>:section==="flow"?<PatientFlowBoard api={api}/>:section==="inventory"?<InventoryWorkspace api={api}/>:section==="communications"?<CommunicationWorkspace api={api} patients={patients}/>:section==="education"?<PatientEducationWorkspace api={api}/>:section==="security"?<SecurityWorkspace api={api}/>:section==="administration"?<AdministrationWorkspace api={api}/>:section==="reports"?<ReportWorkspace api={api}/>:<>
       {creatingPatient&&<PatientForm onSubmit={createPatient} onCancel={()=>setCreatingPatient(false)}/>}

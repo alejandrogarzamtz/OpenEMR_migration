@@ -11,12 +11,14 @@ import hashlib
 import json
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import AmcTrackingEvent, Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InsuranceType, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, PatientTransaction, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, QualityMeasureItem, QualityMeasureReport, QuestionnaireDefinition, QuestionnaireResponse, ReceivableActivity, ReceivableSession, ReferenceOption, Referral, RegulatoryMetricEvent, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, User, VitalSet, Warehouse
+from .models import AmcTrackingEvent, Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, ContentTemplate, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InsuranceType, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, LocaleCatalog, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, PatientTransaction, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, QualityMeasureItem, QualityMeasureReport, QuestionnaireDefinition, QuestionnaireResponse, ReceivableActivity, ReceivableSession, ReferenceOption, Referral, RegulatoryMetricEvent, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, SystemSetting, Translation, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
+from .services.platform_administration import SETTING_DEFINITIONS, seed_platform_administration
 
 TYPE_MAP = {"medical_problem": "problem", "allergy": "allergy", "medication": "medication", "contraceptive": "contraceptive"}
 APPOINTMENT_STATUS_MAP = {"x": "cancelled", "%": "cancelled", "?": "no-show", "@": "arrived", "~": "arrived", "<": "in-progress", ">": "fulfilled", "$": "fulfilled", "^": "pending", "AVM": "confirmed", "SMS": "confirmed", "EMAIL": "confirmed"}
@@ -34,6 +36,13 @@ TYPED_PATIENT_FIELDS = {
     "allow_patient_portal", "hipaa_allowemail", "hipaa_allowsms", "hipaa_voice", "hipaa_mail",
     "hipaa_notice", "hipaa_message", "allow_imm_reg_use", "allow_imm_info_share",
     "allow_health_info_ex", "completed_ad", "deceased_date", "deceased_reason",
+}
+SAFE_LEGACY_GLOBALS = {
+    "openemr_name": "organization.name",
+    "practice_name": "organization.name",
+    "gbl_time_zone": "organization.timezone",
+    "date_display_format": "localization.date_format",
+    "language_default": "localization.default_locale",
 }
 
 
@@ -125,6 +134,23 @@ def parsed_json(value, fallback):
     if isinstance(value, (dict, list)): return value
     try:return json.loads(value) if value else fallback
     except (TypeError, ValueError):return fallback
+
+
+def legacy_template_text(value) -> str:
+    if value is None: return ""
+    if isinstance(value, str): return value
+    return bytes(value).decode("utf-8", errors="replace")
+
+
+def legacy_setting_value(name: str, value: object) -> object | None:
+    raw = clean(value)
+    if raw is None: return None
+    if name == "date_display_format": return {"0": "YYYY-MM-DD", "1": "MM/DD/YYYY", "2": "DD/MM/YYYY"}.get(str(raw))
+    if name == "gbl_time_zone":
+        try: ZoneInfo(str(raw))
+        except ZoneInfoNotFoundError: return None
+    if name in {"openemr_name", "practice_name"} and len(str(raw)) > 120: return None
+    return raw
 
 
 def questionnaire_items(payload) -> list[dict]:
@@ -221,10 +247,55 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "reference_options", "insurance_types", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "syndromic_submissions", "clinical_rule_logs", "amc_tracking_events", "quality_measure_reports", "quality_measure_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "patient_transactions", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_sessions", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "questionnaire_definitions", "questionnaire_responses", "background_services", "ip_login_trackers", "regulatory_metric_events")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "reference_options", "system_settings", "locale_catalogs", "translations", "content_templates", "insurance_types", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "syndromic_submissions", "clinical_rule_logs", "amc_tracking_events", "quality_measure_reports", "quality_measure_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "patient_transactions", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_sessions", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "questionnaire_definitions", "questionnaire_responses", "background_services", "ip_login_trackers", "regulatory_metric_events")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
+        seed_platform_administration(target); target.flush()
+        if "lang_languages" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM lang_languages ORDER BY lang_id")).mappings():
+                stats["locale_catalogs"]["source"] += 1
+                item = target.scalar(select(LocaleCatalog).where(LocaleCatalog.legacy_language_id == row["lang_id"])) or target.scalar(select(LocaleCatalog).where(LocaleCatalog.code == row["lang_code"]))
+                if item:
+                    item.legacy_language_id = row["lang_id"]; item.name = clean(row.get("lang_description")) or row["lang_code"]; item.rtl = bool(row.get("lang_is_rtl")); item.legacy_payload = {key:json_value(value) for key,value in row.items()}; stats["locale_catalogs"]["existing"] += 1
+                else:
+                    target.add(LocaleCatalog(code=row["lang_code"],name=clean(row.get("lang_description")) or row["lang_code"],rtl=bool(row.get("lang_is_rtl")),legacy_language_id=row["lang_id"],legacy_payload={key:json_value(value) for key,value in row.items()})); stats["locale_catalogs"]["inserted"] += 1
+            target.flush()
+        if {"lang_definitions", "lang_constants"}.issubset(legacy_tables):
+            sql = "SELECT d.def_id,d.lang_id,d.cons_id,d.definition,c.constant_name FROM lang_definitions d JOIN lang_constants c ON c.cons_id=d.cons_id ORDER BY d.def_id"
+            for row in legacy.execute(text(sql)).mappings():
+                stats["translations"]["source"] += 1; locale = target.scalar(select(LocaleCatalog).where(LocaleCatalog.legacy_language_id == row["lang_id"])); key = clean(row.get("constant_name")); value = row.get("definition")
+                if not locale or not key or value is None: stats["translations"]["rejected"] += 1; continue
+                item = target.scalar(select(Translation).where(Translation.legacy_definition_id == row["def_id"])) or target.scalar(select(Translation).where(Translation.locale_id == locale.id,Translation.key == key))
+                if item:
+                    item.value=str(value);item.legacy_definition_id=row["def_id"];item.legacy_payload={field:json_value(raw) for field,raw in row.items()};stats["translations"]["existing"]+=1
+                else:
+                    target.add(Translation(locale_id=locale.id,key=key,value=str(value),legacy_definition_id=row["def_id"],legacy_payload={field:json_value(raw) for field,raw in row.items()}));stats["translations"]["inserted"]+=1
+        if "lang_custom" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM lang_custom ORDER BY lang_code,constant_name")).mappings():
+                stats["translations"]["source"]+=1;locale=target.scalar(select(LocaleCatalog).where(LocaleCatalog.code==row["lang_code"]));key=clean(row.get("constant_name"))
+                if not locale or not key or row.get("definition") is None:stats["translations"]["rejected"]+=1;continue
+                item=target.scalar(select(Translation).where(Translation.locale_id==locale.id,Translation.key==key))
+                if item:item.value=str(row["definition"]);item.customized=True;stats["translations"]["existing"]+=1
+                else:target.add(Translation(locale_id=locale.id,key=key,value=str(row["definition"]),customized=True,legacy_payload={field:json_value(raw) for field,raw in row.items()}));stats["translations"]["inserted"]+=1
+        if "globals" in legacy_tables:
+            for row in legacy.execute(text("SELECT gl_name,gl_index,gl_value FROM globals ORDER BY gl_name,gl_index")).mappings():
+                key=SAFE_LEGACY_GLOBALS.get(row["gl_name"])
+                if not key:continue
+                stats["system_settings"]["source"]+=1;value=legacy_setting_value(row["gl_name"],row.get("gl_value"));item=target.scalar(select(SystemSetting).where(SystemSetting.key==key))
+                if row["gl_name"]=="language_default" and value is not None:
+                    locale=target.scalar(select(LocaleCatalog).where(LocaleCatalog.name==value))
+                    if not locale and str(value).startswith("English"):locale=target.scalar(select(LocaleCatalog).where(LocaleCatalog.code=="en"))
+                    value=locale.code if locale else None
+                if value is None:stats["system_settings"]["rejected"]+=1;continue
+                item.value=value;item.legacy_name=row["gl_name"];item.legacy_index=row["gl_index"];item.legacy_payload={field:json_value(raw) for field,raw in row.items()};stats["system_settings"]["existing"]+=1
+        if "document_templates" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM document_templates ORDER BY id")).mappings():
+                stats["content_templates"]["source"]+=1
+                if target.scalar(select(ContentTemplate.id).where(ContentTemplate.legacy_template_id==row["id"])):stats["content_templates"]["existing"]+=1;continue
+                content=legacy_template_text(row.get("template_content"));payload={field:json_value(raw) for field,raw in row.items() if field!="template_content"};payload["content_sha256"]=hashlib.sha256(content.encode()).hexdigest()
+                target.add(ContentTemplate(key=f"legacy-document-{row['id']}",locale_code="en",name=clean(row.get("template_name")) or f"Legacy document {row['id']}",category="document",content=content or " ",content_type=clean(row.get("mime")) if clean(row.get("mime")) in {"text/plain","text/html"} else "text/plain",allowed_variables=[],active=str(row.get("status") or "").lower() not in {"inactive","deleted"},created_at=row.get("modified_date") or datetime.now(timezone.utc),legacy_template_id=row["id"],legacy_payload=payload));stats["content_templates"]["inserted"]+=1
+        target.flush()
         patient_rows = list(legacy.execute(text("SELECT * FROM patient_data ORDER BY pid")).mappings())
         for row in patient_rows:
             stats["patients"]["source"] += 1

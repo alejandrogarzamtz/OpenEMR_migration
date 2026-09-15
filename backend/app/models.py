@@ -35,6 +35,72 @@ class ReferenceOption(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    key: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    value_type: Mapped[str] = mapped_column(String(20))
+    value: Mapped[object] = mapped_column(JSON)
+    description: Mapped[str] = mapped_column(String(500))
+    version: Mapped[int] = mapped_column(default=1)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    legacy_name: Mapped[str | None] = mapped_column(String(63), nullable=True, index=True)
+    legacy_index: Mapped[int | None] = mapped_column(nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class LocaleCatalog(Base):
+    __tablename__ = "locale_catalogs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    rtl: Mapped[bool] = mapped_column(default=False)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    legacy_language_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class Translation(Base):
+    __tablename__ = "translations"
+    __table_args__ = (UniqueConstraint("locale_id", "key", name="uq_translation_locale_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    locale_id: Mapped[int] = mapped_column(ForeignKey("locale_catalogs.id"), index=True)
+    key: Mapped[str] = mapped_column(String(500), index=True)
+    value: Mapped[str] = mapped_column(Text)
+    customized: Mapped[bool] = mapped_column(default=False, index=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    legacy_definition_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class ContentTemplate(Base):
+    __tablename__ = "content_templates"
+    __table_args__ = (UniqueConstraint("key", "locale_code", "version", name="uq_content_template_version"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    key: Mapped[str] = mapped_column(String(120), index=True)
+    locale_code: Mapped[str] = mapped_column(String(16), default="en", index=True)
+    version: Mapped[int] = mapped_column(default=1)
+    name: Mapped[str] = mapped_column(String(255))
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(String(50), default="text/plain")
+    allowed_variables: Mapped[list[str]] = mapped_column(JSON, default=list)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("content_templates.id"), nullable=True)
+    legacy_template_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class BulkExportJob(Base):
     """Persisted FHIR asynchronous bulk-data export result."""
     __tablename__ = "bulk_export_jobs"
