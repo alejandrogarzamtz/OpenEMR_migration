@@ -711,6 +711,13 @@ class ReportRunCreate(BaseModel):
     parked_only: bool = False
     financial_reporting_only: bool = False
     reportable_code_ids: list[int] = Field(default_factory=list, max_length=500)
+    patient_list_option: str | None = Field(default=None, pattern="^(demos|allergs|probs|meds|prescripts|comms|insurers|encounts|observs|procs|results)$")
+    insurance_legacy_id: int | None = Field(default=None, ge=1)
+    encounter_type: str | None = Field(default=None, max_length=100)
+    observation_description: str | None = Field(default=None, max_length=250)
+    procedure_diagnosis: str | None = Field(default=None, max_length=250)
+    patient_list_sort: str | None = Field(default=None, max_length=64)
+    patient_list_sort_order: str = Field(default="asc", pattern="^(asc|desc)$")
 
     @model_validator(mode="after")
     def validate_range(self):

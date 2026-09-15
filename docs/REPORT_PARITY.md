@@ -42,7 +42,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `patient_edu_web_lookup` | MIGRATED — configurable ordered resource catalog, validated single-placeholder HTTP(S) templates, URL-encoded audited searches, administration, React workflow, snapshot and CSV |
 | `patient_flow_board_report` | MIGRATED |
 | `patient_list` | MIGRATED |
-| `patient_list_creation` | PENDING |
+| `patient_list_creation` | MIGRATED — eleven patient cohort modes with source-specific dates/providers, wildcard and demographic filters, per-mode ACL, stable identity, deterministic sorting, snapshots and CSV |
 | `payment_processing_report` | MIGRATED — gateway transaction audit, patient/service/ticket/transaction/action filters, success/error state, sale/reversal links, encrypted-source disclosure, snapshots and CSV; live Sphere void/credit requires a configured gateway |
 | `prepayment_balance_report` | MIGRATED — standalone prepayment sessions, live non-deleted allocations, open/unapplied threshold, optional check dates and patient, parked-global filter, exact monetary totals, snapshots and CSV |
 | `prescriptions_report` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 39 migrated, 9 pending/embedded**.
+Current accounting: **48 cataloged, 40 migrated, 8 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -87,6 +87,16 @@ multiplied by units, payments and adjustments reduce encounter balances, and
 only the residual portion of a partially applied session reduces the grand
 balance. Detail rows retain both the displayed original payment and its applied
 and balance effects so totals remain auditable rather than inferred.
+
+`patient_list_creation` reproduces all eleven legacy selection modes rather than
+collapsing them into a generic demographic list. Each mode applies its original
+date source and detail shape across demographics, issues, medications,
+prescriptions, communication consent, primary insurance, encounters, custom
+observation forms, procedure orders and laboratory results. Provider filters and
+permissions follow the selected source; SQL `%` and `_` wildcards, multi-valued
+race/ethnicity, unique-patient totals and user-selected deterministic ordering
+are preserved. Runs are immutable, checksum-protected cohorts that can be
+retrieved or exported again without silently recomputing membership.
 
 `cdr_log` preserves raw `value` and `new_value` text exactly, including empty
 or malformed historical JSON, so a report never rewrites clinical evidence.

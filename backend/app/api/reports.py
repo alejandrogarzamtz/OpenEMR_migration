@@ -42,6 +42,9 @@ def list_reports(user: User=Depends(current_user)):
 @router.post("/reports/{report_key}/runs",response_model=ReportRunOut,status_code=status.HTTP_201_CREATED)
 def run_report(report_key: str,body: ReportRunCreate,db: Session=Depends(get_db),user: User=Depends(current_user)):
     spec=spec_for(report_key); authorize(user,spec["permission"]); parameters=body.model_dump(); public_parameters=body.model_dump(mode="json")
+    if report_key=="patient_list_creation":
+        option_permission={"demos":"patients:demo:read","prescripts":"patients:rx:read","encounts":"encounters:relaxed:read","observs":"encounters:coding_a:read","procs":"encounters:coding_a:read","results":"patients:lab:read"}.get(body.patient_list_option or "demos","patients:med:read")
+        authorize(user,option_permission)
     if body.facility_uuid:
         facility=db.scalar(select(Facility).where(Facility.uuid==body.facility_uuid))
         if not facility: raise HTTPException(status_code=404,detail="Facility not found")

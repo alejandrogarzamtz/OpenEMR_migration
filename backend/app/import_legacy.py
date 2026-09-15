@@ -614,6 +614,7 @@ def run(source_url: str, commit: bool = False) -> dict:
         if "procedure_type" in legacy_tables:
             for definition in legacy.execute(text("SELECT procedure_code,lab_id,standard_code FROM procedure_type ORDER BY procedure_type_id")).mappings():
                 procedure_standards.setdefault((clean(definition["procedure_code"]), definition["lab_id"] or 0), clean(definition["standard_code"]))
+        procedure_provider_names={row["ppid"]:clean(row["name"]) for row in legacy.execute(text("SELECT ppid,name FROM procedure_providers ORDER BY ppid")).mappings()} if "procedure_providers" in legacy_tables else {}
         first_lines = {}
         for line in order_lines: first_lines.setdefault(line["procedure_order_id"], line)
         orders = legacy.execute(text("SELECT * FROM procedure_order ORDER BY procedure_order_id"))
@@ -634,7 +635,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 specimen_volume=clean(row["specimen_volume"]), clinical_history=clean(row["clinical_hx"]),
                 external_id=clean(row["external_id"]), order_diagnosis=clean(row["order_diagnosis"]),
                 procedure_order_type=clean(row["procedure_order_type"]),
-                legacy_payload={key: json_value(value) for key,value in row.items()})
+                legacy_payload={key: json_value(value) for key,value in row.items()}|{"lab_name":procedure_provider_names.get(row["lab_id"])})
             if existing:
                 for key,value in values.items(): setattr(existing,key,value)
                 stats["lab_orders"]["existing"] += 1
@@ -871,6 +872,9 @@ def run(source_url: str, commit: bool = False) -> dict:
                 stats["pharmacies"]["existing"]+=1
             else: target.add(Pharmacy(legacy_pharmacy_id=row["id"],**values));stats["pharmacies"]["inserted"]+=1
         target.flush()
+        prescription_option_titles={}
+        if "list_options" in legacy_tables:
+            for row in legacy.execute(text("SELECT list_id,option_id,title FROM list_options WHERE list_id IN ('drug_units','drug_form','drug_interval') ORDER BY list_id,seq")).mappings():prescription_option_titles[(row["list_id"],str(row["option_id"]))]=clean(row["title"])
         prescriptions=legacy.execute(text("SELECT * FROM prescriptions ORDER BY id"))
         for row in prescriptions.mappings():
             stats["prescriptions"]["source"]+=1
@@ -886,7 +890,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 prescription_guid=clean(row["prescriptionguid"]),erx_source=row["erx_source"] or 0,erx_uploaded=bool(row["erx_uploaded"]),erx_drug_info=clean(row["drug_info_erx"]),
                 external_id=clean(row["external_id"]),prn=clean(row["prn"]),ntx=row["ntx"],rtx=row["rtx"],transaction_date=row["txDate"],usage_category=clean(row["usage_category"]),
                 usage_category_title=clean(row["usage_category_title"]),request_intent=clean(row["request_intent"]),request_intent_title=clean(row["request_intent_title"]),
-                diagnosis=clean(row["diagnosis"]),created_by_legacy_id=row["created_by"],updated_by_legacy_id=row["updated_by"],legacy_payload={key:json_value(value) for key,value in row.items()})
+                diagnosis=clean(row["diagnosis"]),created_by_legacy_id=row["created_by"],updated_by_legacy_id=row["updated_by"],legacy_payload={key:json_value(value) for key,value in row.items()}|{"unit_title":prescription_option_titles.get(("drug_units",str(row["unit"]))),"form_title":prescription_option_titles.get(("drug_form",str(row["form"]))),"interval_title":prescription_option_titles.get(("drug_interval",str(row["interval"])))})
             if existing:
                 for key,value in values.items():setattr(existing,key,value)
                 stats["prescriptions"]["existing"]+=1

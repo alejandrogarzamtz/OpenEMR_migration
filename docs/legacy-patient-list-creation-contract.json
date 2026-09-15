@@ -1,0 +1,19 @@
+{
+  "report_sha256": "e1a1b5815639d1bc722474fed92f8d0553cb20800232b4b571117d959eff7de9",
+  "required_tokens": [
+    "Patient List Creation",
+    "Demographics",
+    "Allergies",
+    "Problems",
+    "Medications",
+    "Prescriptions",
+    "Communication",
+    "Insurance Companies",
+    "Encounters",
+    "Observations",
+    "Procedures",
+    "Lab Results",
+    "Total Number of Patients",
+    "patient_list_custom.csv"
+  ]
+}

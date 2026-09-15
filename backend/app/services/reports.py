@@ -13,7 +13,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -172,6 +172,117 @@ def clinical_report(db: Session,user: User,params: dict):
     sort_keys += ["legacy_patient_id"]
     output.sort(key=lambda row:tuple((row.get(key) is None,str(row.get(key) or "")) for key in sort_keys))
     return columns,output,{"rows":len(output),"patients":len({row["patient_uuid"] for row in output})}
+
+
+def patient_list_creation_report(db: Session,user: User,params: dict):
+    """Build the legacy patient-list modes as deterministic, immutable cohorts."""
+    import re
+    option=params.get("patient_list_option") or "demos";today=datetime.now(timezone.utc).date()
+    start=params.get("date_from") or date(today.year,1,1);end=params.get("date_to") or today
+    def dated(raw):
+        if raw is None:return False
+        day=raw.date() if isinstance(raw,datetime) else raw
+        return start<=day<=end and day<=today
+    def matches(raw,pattern):
+        if not pattern:return True
+        expression="".join(".*" if char=="%" else "." if char=="_" else re.escape(char) for char in str(pattern))
+        return re.fullmatch(expression,str(raw or ""),re.I) is not None
+    def patient_name(patient):return ", ".join(filter(None,(patient.last_name,patient.first_name)))
+    def practitioner_name(item):return " ".join(filter(None,(item.first_name,item.last_name))) if item else None
+    def patient_age(patient):return today.year-patient.date_of_birth.year-((today.month,today.day)<(patient.date_of_birth.month,patient.date_of_birth.day))
+
+    patients=list(db.scalars(select(Patient).where(Patient.merged_into_id.is_(None)).order_by(Patient.legacy_pid,Patient.id)))
+    if params.get("_patient_id"):patients=[item for item in patients if item.id==params["_patient_id"]]
+    patient_ids=[item.id for item in patients];assignments={}
+    if patient_ids:
+        for item in db.scalars(select(PatientProviderAssignment).where(PatientProviderAssignment.patient_id.in_(patient_ids),PatientProviderAssignment.role=="primary").order_by(PatientProviderAssignment.assigned_at.desc().nullslast(),PatientProviderAssignment.id.desc())):
+            current=assignments.get(item.patient_id)
+            if current is None or (item.status=="active" and current.status!="active"):assignments[item.patient_id]=item
+    scope=facility_scope(db,user)
+    def allowed(patient):
+        assignment=assignments.get(patient.id);age=patient_age(patient)
+        if scope is not None and (not assignment or assignment.facility_id not in scope):return False
+        if option in {"demos","allergs","probs","meds","comms","insurers"} and params.get("provider_legacy_id") and (not assignment or assignment.legacy_practitioner_id!=params["provider_legacy_id"]):return False
+        if params.get("age_from") is not None and age<params["age_from"]:return False
+        if params.get("age_to") is not None and age>params["age_to"]:return False
+        if params.get("gender") and patient.sex!=params["gender"]:return False
+        for field in ("race","ethnicity"):
+            expected=params.get(field);actual=getattr(patient,field) or ""
+            if expected and expected not in actual.strip("|").split("|"):return False
+        return True
+    patients=[item for item in patients if allowed(item)]
+    practitioners={item.legacy_user_id:item for item in db.scalars(select(Practitioner).where(Practitioner.legacy_user_id.is_not(None)))}
+    payers={item.id:item for item in db.scalars(select(Payer))}
+    columns_by_option={
+        "demos":["patient_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","patient_ethnic","patient_race","users_provider"],
+        "allergs":["other_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","patient_ethnic","users_provider","allergy","pr_diagnosis"],
+        "probs":["other_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","patient_ethnic","users_provider","problem","pr_diagnosis"],
+        "meds":["other_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","patient_ethnic","users_provider","medication","pr_diagnosis"],
+        "prescripts":["other_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","rx_drug","rx_medicine_units","rx_directions","rx_quantity","rx_refills"],
+        "comms":["patient_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","patient_ethnic","users_provider","communications"],
+        "insurers":["patient_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","patient_ethnic","users_provider","ins_name"],
+        "encounts":["other_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","users_provider","enc_type","enc_reason","enc_facility","enc_discharge"],
+        "observs":["other_date","patient_name","patient_id","patient_uuid","patient_age","patient_sex","users_provider","obs_code","obs_description","obs_type","obs_value","obs_units","obs_comments"],
+        "procs":["other_date","patient_name","patient_id","patient_uuid","users_provider","pr_lab","pr_status","prc_procedure","pr_diagnosis","prc_diagnoses"],
+        "results":["other_date","result_facility","patient_id","patient_uuid","result_description","result_result","result_units","result_range","result_abnormal","result_comments","result_document_id"],
+    }
+    rows=[]
+    for patient in patients:
+        assignment=assignments.get(patient.id);payload=patient.legacy_payload or {}
+        base={"patient_date":value(patient.created_at),"patient_name":patient_name(patient),"patient_id":patient.legacy_pid,"patient_uuid":patient.uuid,"patient_age":patient_age(patient),"patient_sex":patient.sex,"patient_ethnic":patient.ethnicity,"patient_race":patient.race,"users_provider":assignment.practitioner_name if assignment else None}
+        if option=="demos" and dated(patient.created_at):rows.append(base)
+        elif option in {"allergs","probs","meds"}:
+            category={"allergs":"allergy","probs":"problem","meds":"medication"}[option]
+            for item in db.scalars(select(ClinicalItem).where(ClinicalItem.patient_id==patient.id,ClinicalItem.category==category).order_by(ClinicalItem.recorded_at,ClinicalItem.id)):
+                when=item.recorded_at or item.created_at
+                if dated(when) and matches(item.code,params.get("procedure_diagnosis")):rows.append(base|{"other_date":value(when),category:item.title,"pr_diagnosis":item.code})
+        elif option=="prescripts":
+            for item in db.scalars(select(Prescription).where(Prescription.patient_id==patient.id).order_by(Prescription.legacy_recorded_at,Prescription.id)):
+                when=item.prescribed_at or item.legacy_recorded_at or item.modified_at
+                if not dated(when) or not matches(item.drug_name,params.get("drug_name")):continue
+                provider=practitioners.get(item.provider_legacy_id);legacy=item.legacy_payload or {};directions=" ".join(filter(None,(item.dosage,"in" if legacy.get("form_title") else None,legacy.get("form_title"),legacy.get("interval_title")))) or item.dosage_instructions
+                rows.append(base|{"other_date":value(when),"users_provider":practitioner_name(provider),"rx_drug":item.drug_name,"rx_medicine_units":"".join(filter(None,(item.size,legacy.get("unit_title") or (str(item.unit_legacy_id) if item.unit_legacy_id else None)))),"rx_directions":directions,"rx_quantity":item.quantity,"rx_refills":item.refills})
+        elif option=="comms":
+            flags=[label for label,enabled in (("Email",patient.allow_email),("SMS",patient.allow_sms),("Mail Message",str(payload.get("hipaa_mail") or "").upper()=="YES"),("Voice Message",str(payload.get("hipaa_voice") or "").upper()=="YES")) if enabled]
+            requested=params.get("communication");mapping={"allow_email":"Email","allow_sms":"SMS","allow_mail":"Mail Message","allow_voice":"Voice Message"}
+            if dated(patient.created_at) and flags and (not requested or mapping[requested] in flags):rows.append(base|{"communications":", ".join(flags)})
+        elif option=="insurers":
+            for coverage in db.scalars(select(Coverage).where(Coverage.patient_id==patient.id,Coverage.priority=="primary").order_by(Coverage.id)):
+                payer=payers.get(coverage.payer_id)
+                if dated(patient.created_at) and (not params.get("insurance_legacy_id") or (payer and payer.legacy_payer_id==params["insurance_legacy_id"])):rows.append(base|{"ins_name":payer.name if payer else None})
+        elif option=="encounts":
+            for item in db.scalars(select(Encounter).where(Encounter.patient_id==patient.id).order_by(Encounter.occurred_at,Encounter.id)):
+                if not dated(item.occurred_at) or (scope is not None and item.facility_id not in scope) or (params.get("provider_legacy_id") and item.legacy_provider_id!=params["provider_legacy_id"]):continue
+                legacy=item.legacy_payload or {};enc_type=legacy.get("encounter_type_code") or item.type
+                if params.get("encounter_type") and str(enc_type)!=params["encounter_type"]:continue
+                rows.append(base|{"other_date":value(item.occurred_at),"users_provider":item.provider_name,"enc_type":legacy.get("encounter_type_description") or item.type,"enc_reason":item.chief_complaint,"enc_facility":item.facility_name,"enc_discharge":legacy.get("discharge_disposition")})
+        elif option=="observs":
+            for form in db.scalars(select(ClinicalForm).where(ClinicalForm.patient_id==patient.id,ClinicalForm.source_formdir=="observation").order_by(ClinicalForm.authored_at,ClinicalForm.id)):
+                for observation in (form.content or {}).get("rows",[]):
+                    when=observation.get("date") or form.authored_at
+                    if isinstance(when,str):
+                        try:when=datetime.fromisoformat(when.replace("Z","+00:00"))
+                        except ValueError:when=form.authored_at
+                    if not dated(when):continue
+                    code=observation.get("code");description=observation.get("description")
+                    if params.get("observation_description") and not (matches(code,params["observation_description"]) or matches(description,params["observation_description"])):continue
+                    provider=next((item for item in practitioners.values() if item.username==observation.get("user")),None)
+                    if params.get("provider_legacy_id") and (not provider or provider.legacy_user_id!=params["provider_legacy_id"]):continue
+                    rows.append(base|{"other_date":value(when),"users_provider":practitioner_name(provider) or base["users_provider"],"obs_code":code,"obs_description":description,"obs_type":observation.get("ob_type"),"obs_value":observation.get("ob_value"),"obs_units":observation.get("ob_unit"),"obs_comments":observation.get("observation")})
+        elif option=="procs":
+            for order,line in db.execute(select(LabOrder,ProcedureOrderLine).outerjoin(ProcedureOrderLine,ProcedureOrderLine.order_id==LabOrder.id).where(LabOrder.patient_id==patient.id).order_by(LabOrder.ordered_at,LabOrder.id,ProcedureOrderLine.sequence)):
+                if not dated(order.ordered_at) or (params.get("provider_legacy_id") and order.provider_legacy_id!=params["provider_legacy_id"]):continue
+                if params.get("procedure_diagnosis") and not (matches(order.order_diagnosis,params["procedure_diagnosis"]) or (line and matches(line.diagnoses,params["procedure_diagnosis"]))):continue
+                provider=practitioners.get(order.provider_legacy_id);legacy=order.legacy_payload or {}
+                rows.append(base|{"other_date":value(order.ordered_at),"users_provider":practitioner_name(provider),"pr_lab":legacy.get("lab_name"),"pr_status":order.status,"prc_procedure":line.name if line else order.name,"pr_diagnosis":order.order_diagnosis,"prc_diagnoses":line.diagnoses if line else None})
+        elif option=="results":
+            for result,order in db.execute(select(LabResult,LabOrder).join(LabOrder,LabResult.order_id==LabOrder.id).where(LabOrder.patient_id==patient.id).order_by(LabResult.observed_at,LabResult.id)):
+                diagnosis_pattern=params.get("procedure_diagnosis");line_diagnoses=db.scalars(select(ProcedureOrderLine.diagnoses).where(ProcedureOrderLine.order_id==order.id)).all() if diagnosis_pattern else []
+                if not dated(result.observed_at) or not result.value or (params.get("provider_legacy_id") and order.provider_legacy_id!=params["provider_legacy_id"]) or (diagnosis_pattern and not (matches(order.order_diagnosis,diagnosis_pattern) or any(matches(item,diagnosis_pattern) for item in line_diagnoses))):continue
+                rows.append(base|{"other_date":value(result.observed_at),"result_facility":result.facility,"result_description":result.name,"result_result":result.value,"result_units":result.unit,"result_range":result.reference_range,"result_abnormal":result.interpretation,"result_comments":result.comments,"result_document_id":result.legacy_document_id})
+    columns=columns_by_option[option];sort=params.get("patient_list_sort");sort=sort if sort in columns else ("patient_date" if option in {"demos","comms","insurers"} else "other_date")
+    rows.sort(key=lambda row:(row.get(sort) is None,str(row.get(sort) or ""),row.get("patient_id") or 0),reverse=params.get("patient_list_sort_order")=="desc")
+    return columns,rows,{"rows":len(rows),"patients":len({row["patient_uuid"] for row in rows}),"option":option}
 
 
 def appointment_encounter_report(db: Session,user: User,params: dict):
@@ -829,6 +940,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     if key not in IMPLEMENTED: raise HTTPException(status_code=501,detail="Legacy report is cataloged but not yet migrated")
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
     if key == "clinical_reports": return clinical_report(db,user,params)
+    if key == "patient_list_creation": return patient_list_creation_report(db,user,params)
     if key == "appt_encounter_report": return appointment_encounter_report(db,user,params)
     if key == "collections_report": return collections_report(db,user,params)
     if key == "front_receipts_report": return front_receipts_report(db,user,params)

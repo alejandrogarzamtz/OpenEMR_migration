@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import User
+from app.models import ClinicalForm, Encounter, LabOrder, Patient, User
 from app.security import password_hash
 
 
@@ -16,7 +17,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==39
+        assert sum(item["migrated"] for item in catalog.json())==40
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -78,6 +79,35 @@ def test_clinical_report_multidimensional_golden_contract():
         assert client.post("/api/v1/reports/clinical_reports/runs",headers=headers,json={"age_from":50,"age_to":20}).status_code==422
 
 
+def test_patient_list_creation_modes_filters_snapshots_and_csv():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        patient_response=client.post("/api/v1/patients",headers=headers,json={"first_name":"Cohort","last_name":"Builder","date_of_birth":"1985-06-01","sex":"female","race":"race-a","ethnicity":"ethnicity-a","email":"cohort-builder-report@example.com","allow_email":True})
+        assert patient_response.status_code==201,patient_response.text
+        patient=patient_response.json()
+        encounter=client.post("/api/v1/encounters",headers=headers,json={"patient_uuid":patient["uuid"],"occurred_at":"2026-06-15T09:00:00Z","type":"AMB","chief_complaint":"Preventive visit"}).json()
+        client.post(f"/api/v1/patients/{patient['uuid']}/clinical-items",headers=headers,json={"category":"allergy","title":"Penicillin","code":"Z88.0"})
+        client.post(f"/api/v1/patients/{patient['uuid']}/prescriptions",headers=headers,json={"encounter_uuid":encounter["uuid"],"prescribed_at":"2026-06-15T10:00:00Z","drug_name":"Amoxicillin","dosage_instructions":"One daily","quantity":"10","refills":1})
+        order=client.post(f"/api/v1/patients/{patient['uuid']}/lab-orders",headers=headers,json={"encounter_uuid":encounter["uuid"],"ordered_at":"2026-06-15T10:30:00Z","code":"718-7","name":"Hemoglobin","order_diagnosis":"Z00.00"}).json()
+        client.post(f"/api/v1/lab-orders/{order['uuid']}/results",headers=headers,json={"observed_at":"2026-06-15T11:00:00Z","code":"718-7","name":"Hemoglobin","value":"13.7","unit":"g/dL","facility":"Community Lab"})
+        with SessionLocal() as db:
+            db_patient=db.scalar(select(Patient).where(Patient.uuid==patient["uuid"]));db_encounter=db.scalar(select(Encounter).where(Encounter.uuid==encounter["uuid"]))
+            db_order=db.scalar(select(LabOrder).where(LabOrder.uuid==order["uuid"]));db_order.order_diagnosis="Z00.00"
+            db.add(ClinicalForm(patient_id=db_patient.id,encounter_id=db_encounter.id,form_type="custom",title="Observation",source_formdir="observation",authored_at=db_encounter.occurred_at,content={"rows":[{"code":"8302-2","description":"Body height","ob_type":"numeric","ob_value":"170","ob_unit":"cm","observation":"Standing"}]}));db.commit()
+        common={"date_from":"2026-01-01","date_to":"2026-12-31","patient_uuid":patient["uuid"]}
+        allergies=client.post("/api/v1/reports/patient_list_creation/runs",headers=headers,json=common|{"patient_list_option":"allergs","procedure_diagnosis":"Z88%"})
+        assert allergies.status_code==201,allergies.text
+        assert allergies.json()["rows"][0]["allergy"]=="Penicillin" and allergies.json()["totals"]=={"rows":1,"patients":1,"option":"allergs"}
+        prescriptions=client.post("/api/v1/reports/patient_list_creation/runs",headers=headers,json=common|{"patient_list_option":"prescripts","drug_name":"Amox%"})
+        assert prescriptions.json()["rows"][0]["rx_drug"]=="Amoxicillin"
+        observations=client.post("/api/v1/reports/patient_list_creation/runs",headers=headers,json=common|{"patient_list_option":"observs","observation_description":"Body%"})
+        assert observations.json()["rows"][0]["obs_value"]=="170"
+        results=client.post("/api/v1/reports/patient_list_creation/runs",headers=headers,json=common|{"patient_list_option":"results","procedure_diagnosis":"Z00%","patient_list_sort_order":"desc"})
+        assert results.json()["rows"][0]["result_result"]=="13.7"
+        csv=client.get(f"/api/v1/report-runs/{results.json()['uuid']}/export.csv",headers=headers)
+        assert csv.status_code==200 and "result_document_id" in csv.text.splitlines()[0]
+
+
 def test_report_execution_enforces_each_catalog_permission():
     with TestClient(app) as client:
         with SessionLocal() as db:
@@ -87,3 +117,8 @@ def test_report_execution_enforces_each_catalog_permission():
         assert client.get("/api/v1/reports",headers=headers).status_code==200
         assert client.post("/api/v1/reports/patient_list/runs",headers=headers,json={}).status_code==403
         assert client.post("/api/v1/reports/inventory_list/runs",headers=headers,json={}).status_code==403
+        with SessionLocal() as db:
+            db.add(User(email="patient-list-med-only@example.com",password_hash=password_hash.hash("report-password"),role="viewer",permissions=["patients:med:read"]));db.commit()
+        med_token=client.post("/api/v1/auth/token",json={"email":"patient-list-med-only@example.com","password":"report-password"}).json()["access_token"]
+        med_headers={"Authorization":f"Bearer {med_token}"}
+        assert client.post("/api/v1/reports/patient_list_creation/runs",headers=med_headers,json={"patient_list_option":"prescripts"}).status_code==403
