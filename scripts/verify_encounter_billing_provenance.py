@@ -17,7 +17,8 @@ REQUIRED={
 def main():
     importer=(ROOT/"backend/app/import_legacy.py").read_text()
     for table in REQUIRED:
-        if f'SELECT * FROM {table}' not in importer:raise SystemExit(f"{table}: complete-row import missing")
+        complete=f'SELECT * FROM {table}' in importer or (table=="ar_activity" and 'SELECT a.*,' in importer)
+        if not complete:raise SystemExit(f"{table}: complete-row import missing")
     mapped=("authorized=bool(row[\"authorized\"])","billed=bool(row[\"billed\"])","active=bool(row[\"activity\"])","justification=clean(row[\"justify\"])","account_code=clean(row[\"account_code\"])","source_formdir=formdir","registry_payload={key:json_value(value) for key,value in row.items()}","legacy_payload={key:json_value(value) for key,value in row.items()}")
     if any(token not in importer for token in mapped):raise SystemExit("encounter/billing typed provenance mapping is incomplete")
     database=Path(os.environ.get("OPENRM_LEGACY_ROOT",ROOT/"openemr-legacy"))/"sql/database.sql"

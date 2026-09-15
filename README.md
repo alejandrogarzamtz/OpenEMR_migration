@@ -119,6 +119,9 @@ end-to-end healthcare workflows:
 - appointment/encounter reconciliation that identifies missing visits and
   appointments, billing authorization/justification/fee errors and copays with
   facility isolation, practitioner totals and reproducible exports;
+- integrated accounts-receivable collections reporting with patient/insurance
+  responsibility, effective coverage, payment-session provenance, configurable
+  aging buckets, facility scope, immutable snapshots and authenticated CSV;
 - resource-aware appointment creation, filtering, conflict detection, status
   transitions, cancellation, and legacy appointment import;
 - a live patient-flow board with immutable arrival, room, and status history

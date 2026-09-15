@@ -713,11 +713,17 @@ def run(source_url: str, commit: bool = False) -> dict:
                 target.add(Charge(legacy_billing_id=row["id"],**values));stats["charges"]["inserted"] += 1
         target.flush()
         if "ar_activity" in legacy_tables:
-            for row in legacy.execute(text("SELECT * FROM ar_activity ORDER BY pid,encounter,sequence_no")).mappings():
+            session_columns="NULL AS session_payer_id,NULL AS session_reference,NULL AS session_check_date,NULL AS session_deposit_date,NULL AS session_payment_method"
+            session_join=""
+            if "ar_session" in legacy_tables:
+                session_columns="s.payer_id AS session_payer_id,s.reference AS session_reference,s.check_date AS session_check_date,s.deposit_date AS session_deposit_date,s.payment_method AS session_payment_method"
+                session_join="LEFT JOIN ar_session s ON s.session_id=a.session_id"
+            for row in legacy.execute(text(f"SELECT a.*,{session_columns} FROM ar_activity a {session_join} ORDER BY a.pid,a.encounter,a.sequence_no")).mappings():
                 stats["receivable_activities"]["source"]+=1
                 existing=target.scalar(select(ReceivableActivity).where(ReceivableActivity.legacy_patient_id==row["pid"],ReceivableActivity.legacy_encounter_id==row["encounter"],ReceivableActivity.legacy_sequence==row["sequence_no"]))
                 patient=patient_for_legacy(target,row["pid"]);encounter=target.scalar(select(Encounter).where(Encounter.legacy_encounter_id==row["encounter"]))
-                values=dict(patient_id=patient.id if patient else None,encounter_id=encounter.id if encounter else None,payer_type=row["payer_type"],account_code=clean(row["account_code"]) or "",code_system=clean(row["code_type"]),code=clean(row["code"]),modifier=clean(row["modifier"]),pay_amount=row["pay_amount"] or 0,adjustment_amount=row["adj_amount"] or 0,posted_at=row["post_time"],deleted_at=row["deleted"],legacy_payload={key:json_value(value) for key,value in row.items()})
+                payer=target.scalar(select(Payer).where(Payer.legacy_payer_id==row["session_payer_id"])) if row["session_payer_id"] else None
+                values=dict(patient_id=patient.id if patient else None,encounter_id=encounter.id if encounter else None,legacy_session_id=row["session_id"] or None,payer_type=row["payer_type"],payer_id=payer.id if payer else None,legacy_payer_id=row["session_payer_id"] or None,account_code=clean(row["account_code"]) or "",code_system=clean(row["code_type"]),code=clean(row["code"]),modifier=clean(row["modifier"]),pay_amount=row["pay_amount"] or 0,adjustment_amount=row["adj_amount"] or 0,posted_at=row["post_time"],payment_reference=clean(row["session_reference"]),check_date=row["session_check_date"],deposit_date=row["session_deposit_date"],payment_method=clean(row["session_payment_method"]),deleted_at=row["deleted"],legacy_payload={key:json_value(value) for key,value in row.items()})
                 if existing:
                     for key,value in values.items():setattr(existing,key,value)
                     stats["receivable_activities"]["existing"]+=1

@@ -22,4 +22,9 @@ describe("ReportWorkspace",()=>{
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Appointments and Encounters"));fireEvent.change(screen.getByLabelText("Facility UUID"),{target:{value:"00000000-0000-0000-0000-000000000701"}});fireEvent.click(screen.getByLabelText("Provider totals only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("Doctor One");
     const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.facility_uuid).toBe("00000000-0000-0000-0000-000000000701");expect(request.include_details).toBe(false);
   });
+  it("submits collections responsibility and aging controls",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"collections_report",title:"Collections Report",category:"financial",permission:"acct:rep_a:read",legacy_path:"interface/reports/collections_report.php",migrated:true}]).mockResolvedValueOnce({uuid:"r4",report_key:"collections_report",parameters:{},columns:["insurance","balance"],rows:[{insurance:"Example Health",balance:"75.00"}],totals:{balance:"75.00"},row_count:1,checksum:"abcdef0123456789",created_at:"2026-01-01T00:00:00Z"});
+    render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Collections Report"));fireEvent.change(screen.getByLabelText("Category"),{target:{value:"Due Ins"}});fireEvent.change(screen.getByLabelText("Age by"),{target:{value:"last_activity"}});fireEvent.change(screen.getByLabelText("Days per column"),{target:{value:"45"}});fireEvent.click(screen.getByLabelText("Positive debt only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("Example Health");
+    const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.collection_category).toBe("Due Ins");expect(request.age_by).toBe("last_activity");expect(request.age_increment_days).toBe(45);expect(request.with_debt_only).toBe(true);
+  });
 });

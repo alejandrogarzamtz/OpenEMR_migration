@@ -690,6 +690,15 @@ class ReportRunCreate(BaseModel):
     sort_patient_name: bool = False
     sort_patient_age: bool = False
     include_details: bool = True
+    collection_category: str | None = Field(default=None, pattern="^(Due Ins|Ins Summary|Due Pt|All|Credits)$")
+    age_by: str = Field(default="service_date", pattern="^(service_date|last_activity)$")
+    age_columns: int = Field(default=3, ge=0, le=49)
+    age_increment_days: int = Field(default=30, ge=1, le=3650)
+    as_of_date: date | None = None
+    payer_legacy_id: int | None = Field(default=None, ge=1)
+    provider_legacy_id: int | None = Field(default=None, ge=1)
+    with_debt_only: bool = False
+    include_zero_balances: bool = False
 
     @model_validator(mode="after")
     def validate_range(self):

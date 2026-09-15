@@ -17,7 +17,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `chart_location_activity` | MIGRATED — patient-scoped, date-filtered append-only physical chart location/custody history with totals and CSV |
 | `charts_checked_out` | MIGRATED — current checkout state derived from each patient's latest custody event, including named external custodians |
 | `clinical_reports` | MIGRATED |
-| `collections_report` | PENDING |
+| `collections_report` | MIGRATED — integrated A/R responsibility, effective payer/policy selection, charges, product sales, payments, adjustments, aging buckets, patient and insurance modes, facility ACL, snapshots and CSV |
 | `cqm` | PENDING |
 | `criteria.tab` | EMBEDDED / PENDING — criteria UI included by the legacy billing report, not an independently executable report; parity belongs to the unfinished billing-report builder |
 | `custom_report_range` | PENDING |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | PENDING |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 29 migrated, 19 pending/embedded**.
+Current accounting: **48 cataloged, 30 migrated, 18 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -93,6 +93,15 @@ PCP entries. Results include stable modern identifiers, explicit diagnostic
 messages, practitioner subtotals and grand totals, facility ACL, immutable
 snapshots and CSV. Encounter provider/facility snapshots and complete source
 rows are rehydrated on repeat imports rather than only applied to new records.
+
+`collections_report` applies the legacy integrated-A/R responsibility rule from
+encounter statement count, closed insurance level and coverage effective on the
+service date. It reconciles active service charges, product sales, non-voided
+payments and adjustments; supports patient, insurer, insurer-summary, credit and
+all-balance modes; and computes configurable service-date or last-activity aging
+as of an explicit date. Payment-session payer, reference, check/deposit date and
+method are preserved as typed provenance while the complete source activity row
+remains retained. Broad report reads are constrained by facility grants.
 
 `message_list` reports the normalized secure-message history without exposing
 message bodies in broad report exports. It retains the legacy date, author,
