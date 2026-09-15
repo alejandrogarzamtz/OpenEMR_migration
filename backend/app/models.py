@@ -3,7 +3,7 @@ import hashlib
 import json
 from uuid import uuid4
 from decimal import Decimal
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text, UniqueConstraint, event
+from sqlalchemy import JSON, BigInteger, Date, DateTime, ForeignKey, LargeBinary, Numeric, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -304,6 +304,7 @@ class AmcTrackingEvent(Base):
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"),index=True)
     object_category: Mapped[str] = mapped_column(String(255),default="",index=True)
     legacy_object_id: Mapped[int] = mapped_column(default=0,index=True)
+    legacy_sequence: Mapped[int | None] = mapped_column(nullable=True,index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc),index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),nullable=True,index=True)
     summary_provided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),nullable=True)
@@ -607,6 +608,43 @@ class ReportRun(Base):
     checksum: Mapped[str] = mapped_column(String(64))
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class QualityMeasureReport(Base):
+    """Typed, lossless representation of a legacy CQM/AMC calculation."""
+    __tablename__ = "quality_measure_reports"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    legacy_report_id: Mapped[int] = mapped_column(BigInteger,index=True,unique=True)
+    report_type: Mapped[str] = mapped_column(String(31), index=True)
+    status: Mapped[str | None] = mapped_column(String(31), nullable=True, index=True)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    plan: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    organize_mode: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    patient_provider_relationship: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    labs_manual: Mapped[str | None] = mapped_column(String(31), nullable=True)
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    data: Mapped[list] = mapped_column(JSON, default=list)
+    legacy_fields: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class QualityMeasureItem(Base):
+    """One preserved patient-level result from legacy report_itemized."""
+    __tablename__ = "quality_measure_items"
+    __table_args__ = (UniqueConstraint("report_id", "sequence", name="uq_quality_measure_item_report_sequence"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("quality_measure_reports.id"), index=True)
+    sequence: Mapped[int] = mapped_column()
+    itemized_test_id: Mapped[int] = mapped_column(index=True)
+    numerator_label: Mapped[str] = mapped_column(String(25), default="")
+    pass_status: Mapped[int] = mapped_column(index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True, index=True)
+    legacy_patient_id: Mapped[int] = mapped_column(BigInteger,index=True)
+    rule_id: Mapped[str | None] = mapped_column(String(31), nullable=True, index=True)
+    item_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    legacy_payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class PortalAccount(Base):

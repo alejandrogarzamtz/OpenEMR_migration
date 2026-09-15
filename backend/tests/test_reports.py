@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import AmcTrackingEvent, Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, Referral, ServiceCode, User
+from app.models import AmcTrackingEvent, Charge, ClinicalForm, ClinicalItem, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, QualityMeasureItem, QualityMeasureReport, Referral, ServiceCode, User
 from app.security import password_hash
 
 
@@ -20,7 +20,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==44
+        assert sum(item["migrated"] for item in catalog.json())==45
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -201,6 +201,23 @@ def test_amc_tracking_lists_and_completes_referral_and_encounter_evidence():
         encounter_run=client.post("/api/v1/reports/amc_tracking/runs",headers=headers,json={"date_from":"2026-09-01","date_to":"2026-09-01","amc_rule":"provide_sum_pat_amc"})
         encounter_row=next(item for item in encounter_run.json()["rows"] if item["source_uuid"]==encounter["uuid"]);assert encounter_row["legacy_source_id"]==7201
         with SessionLocal() as db:assert db.scalar(select(AmcTrackingEvent).where(AmcTrackingEvent.rule_id=="send_sum_elec_amc")).completed_at is not None
+
+
+def test_amc_full_report_preserves_measure_math_and_patient_evidence():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Quality","last_name":"Evidence","date_of_birth":"1978-04-03","sex":"female"}).json()
+        with SessionLocal() as db:
+            db_patient=db.scalar(select(Patient).where(Patient.uuid==patient["uuid"]))
+            report=QualityMeasureReport(legacy_report_id=99001,report_type="mips",provider="group_calculation",data=[{"is_main":True,"id":"measure-a","pass_filter":10,"pass_target":6,"excluded":1,"percentage":"66.7","itemized_test_id":4},{"is_sub":True,"action_category":"communication","action_item":"summary","pass_target":5,"itemized_test_id":5}],legacy_fields={});db.add(report);db.flush()
+            db.add_all([QualityMeasureItem(report_id=report.id,sequence=1,itemized_test_id=4,numerator_label="numerator",pass_status=1,patient_id=db_patient.id,legacy_patient_id=123,rule_id="measure-a",item_details={"numerator":[{"value":True}]}),QualityMeasureItem(report_id=report.id,sequence=2,itemized_test_id=4,numerator_label="",pass_status=0,patient_id=None,legacy_patient_id=999,rule_id="measure-a",item_details={"denominator":[{"value":True}]})]);db.commit();report_uuid=report.uuid
+        detailed=client.post("/api/v1/reports/amc_full_report/runs",headers=headers,json={"quality_report_uuid":report_uuid})
+        assert detailed.status_code==201,detailed.text
+        payload=detailed.json();assert payload["row_count"]==2 and payload["totals"]["measures"]==2
+        assert payload["rows"][0]["failed"]==3 and payload["rows"][0]["patient"]=="Quality Evidence" and payload["rows"][1]["legacy_patient_id"]==999
+        summary=client.post("/api/v1/reports/amc_full_report/runs",headers=headers,json={"quality_report_uuid":report_uuid,"include_details":False})
+        assert summary.json()["rows"][1]["failed"]==5
+        assert client.post("/api/v1/reports/amc_full_report/runs",headers=headers,json={}).status_code==422
 
 
 def test_report_execution_enforces_each_catalog_permission():

@@ -725,6 +725,8 @@ class ReportRunCreate(BaseModel):
     ippf_columns: list[str] = Field(default_factory=lambda:["total"], max_length=12)
     amc_rule: str = Field(default="send_sum_amc",pattern="^(send_sum_amc|provide_rec_pat_amc|provide_sum_pat_amc)$")
     include_completed: bool = False
+    quality_report_uuid: str | None = Field(default=None,min_length=36,max_length=36)
+    quality_report_type: str | None = Field(default=None,max_length=31)
 
     @model_validator(mode="after")
     def validate_range(self):

@@ -28,6 +28,7 @@ jobs:
       - run: python3 scripts/verify_ippf_daily_provenance.py
       - run: python3 scripts/verify_ippf_statistics_provenance.py
       - run: python3 scripts/verify_amc_tracking_provenance.py
+      - run: python3 scripts/verify_amc_full_report_provenance.py
       - run: python3 scripts/verify_patient_provider_assignments.py
       - run: docker compose build api
       - run: docker compose run --rm api python -m pytest -q

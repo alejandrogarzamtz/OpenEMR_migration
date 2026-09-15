@@ -1,0 +1,11 @@
+{
+  "source": "openemr-legacy/interface/reports/amc_full_report.php",
+  "sha256": "a5664d386faef928e321a755915ff460d783581de96153ca87cf0e807fc46fdd",
+  "required_tokens": [
+    "collectReportDatabase($report_id)",
+    "collectItemizedPatientData($report_id, $row['itemized_test_id'])",
+    "$row['pass_filter'] - $row['pass_target'] - $row['excluded']",
+    "SELECT * FROM `report_itemized`",
+    "item_details"
+  ]
+}
