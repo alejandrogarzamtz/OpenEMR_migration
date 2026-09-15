@@ -67,3 +67,46 @@ def test_portal_compatibility_contract_is_patient_isolated():
 def test_compatibility_routes_reject_wrong_identity_type():
     with TestClient(app) as client:
         assert client.get("/apis/default/api/patient").status_code==403
+
+
+def test_standard_api_clinical_resources_and_encounter_notes():
+    with TestClient(app) as client:
+        headers=staff(client)
+        patient=client.post("/apis/default/api/patient",headers=headers,json={"fname":"Clinical","lname":"Compatibility","DOB":"1985-05-05","sex":"unknown"}).json()["data"]
+        encounter=client.post(f"/apis/default/api/patient/{patient['uuid']}/encounter",headers=headers,json={"date":"2026-09-15T12:00:00Z","reason":"Clinical compatibility"}).json()["data"]
+        base=f"/apis/default/api/patient/{patient['uuid']}/encounter/{encounter['uuid']}"
+
+        soap=client.post(f"{base}/soap_note",headers=headers,json={"subjective":"Headache","objective":"Alert","assessment":"Tension headache","plan":"Hydration"})
+        assert soap.status_code==200,soap.text
+        soap_uuid=soap.json()["data"]["uuid"]
+        assert client.get(f"{base}/soap_note",headers=headers).json()["data"][0]["assessment"]=="Tension headache"
+        assert client.get(f"{base}/soap_note/{soap_uuid}",headers=headers).status_code==200
+        soap_update=client.put(f"{base}/soap_note/{soap_uuid}",headers=headers,json={"subjective":"Improving","plan":"Continue hydration"})
+        assert soap_update.status_code==200 and soap_update.json()["data"]["subjective"]=="Improving"
+
+        vital=client.post(f"{base}/vital",headers=headers,json={"date":"2026-09-15T12:05:00Z","bps":120,"bpd":80,"weight":80,"height":200})
+        assert vital.status_code==200,vital.text
+        vital_uuid=vital.json()["data"]["uuid"]
+        assert vital.json()["data"]["bmi"]==20.0
+        assert client.get(f"{base}/vital",headers=headers).json()["data"][0]["bps"]==120.0
+        assert client.get(f"{base}/vital/{vital_uuid}",headers=headers).status_code==200
+        vital_update=client.put(f"{base}/vital/{vital_uuid}",headers=headers,json={"pulse":72})
+        assert vital_update.status_code==200 and vital_update.json()["data"]["pulse"]==72.0
+
+        created={}
+        for resource,title in {"medical_problem":"Migraine","allergy":"Penicillin","medication":"Ibuprofen","surgery":"Appendectomy","dental_issue":"Caries"}.items():
+            route=f"/apis/default/api/patient/{patient['uuid']}/{resource}"
+            result=client.post(route,headers=headers,json={"title":title,"onset_date":"2026-01-01","note":"Imported-compatible record"})
+            assert result.status_code==200,(resource,result.text)
+            created[resource]=result.json()["data"]["uuid"]
+            assert client.get(route,headers=headers).json()["data"][0]["title"]==title
+            assert client.get(f"{route}/{created[resource]}",headers=headers).status_code==200
+            updated=client.put(f"{route}/{created[resource]}",headers=headers,json={"status":"inactive"})
+            assert updated.status_code==200 and updated.json()["data"]["status"]=="inactive"
+
+        for resource in ("medical_problem","allergy"):
+            assert any(item["patient_uuid"]==patient["uuid"] for item in client.get(f"/apis/default/api/{resource}",headers=headers).json()["data"])
+            assert client.get(f"/apis/default/api/{resource}/{created[resource]}",headers=headers).status_code==200
+        for resource,item_uuid in created.items():
+            assert client.delete(f"/apis/default/api/patient/{patient['uuid']}/{resource}/{item_uuid}",headers=headers).status_code==200
+            assert client.get(f"/apis/default/api/patient/{patient['uuid']}/{resource}/{item_uuid}",headers=headers).status_code==404

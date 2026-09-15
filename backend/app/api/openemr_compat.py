@@ -1,16 +1,19 @@
 """Compatibility contracts for the legacy OpenEMR Standard and Portal APIs."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Appointment, AuditEvent, Encounter, Facility, IdentityAuditEvent, Patient, PortalAccount, Practitioner, User
+from ..models import Appointment, AuditEvent, ClinicalForm, ClinicalItem, Encounter, Facility, IdentityAuditEvent, Patient, PortalAccount, Practitioner, User, VitalSet
 from ..schemas import AppointmentCreate, FacilityCreate, PatientCreate, PractitionerCreate
 from ..security import current_portal_account, current_user, user_has_permission
 from ..services.patients import patient_by_uuid
+from ..services.clinical_forms import ClinicalFormValidationError, validate_clinical_form_content
+from ..services.clinical_signatures import encounter_locked, form_locked
 from .administration import create_facility, create_practitioner, list_facilities, list_practitioners, update_facility
 from .appointments import create_appointment, delete_appointment, get_appointment, list_appointments
 from .patients import create_patient, get_patient, replace_patient
@@ -53,8 +56,24 @@ def legacy_appointment_body(value:dict,patient_uuid:str)->dict:
 
 def datetime_value(value)->datetime:
     if isinstance(value,datetime):return value
-    if value:return datetime.fromisoformat(str(value).replace("Z","+00:00"))
+    if value:
+        try:return datetime.fromisoformat(str(value).replace("Z","+00:00"))
+        except ValueError as error:raise HTTPException(status_code=422,detail="Invalid ISO date-time") from error
     return datetime.now(timezone.utc)
+
+
+def date_value(value)->date|None:
+    if value in (None,""):return None
+    if isinstance(value,datetime):return value.date()
+    if isinstance(value,date):return value
+    try:return date.fromisoformat(str(value)[:10])
+    except ValueError as error:raise HTTPException(status_code=422,detail="Invalid ISO date") from error
+
+
+def encounter_for_patient(db:Session,patient:Patient,encounter_uuid:str)->Encounter:
+    item=db.scalar(select(Encounter).where(Encounter.uuid==encounter_uuid,Encounter.patient_id==patient.id))
+    if not item:raise HTTPException(status_code=404,detail="Encounter not found")
+    return item
 
 
 @router.get("/apis/{site}/api/version")
@@ -195,6 +214,160 @@ def appointment_delete(site:str,patient_uuid:str,appointment_uuid:str,db:Session
     default_site(site);permission(user,"patients","appt","write");item=get_appointment(appointment_uuid,db,user)
     if item.patient_uuid!=patient_uuid:raise HTTPException(status_code=404,detail="Appointment not found for patient")
     delete_appointment(appointment_uuid,db,user);return response([])
+
+
+def soap_data(item:ClinicalForm)->dict:
+    return {**jsonable_encoder(item.content),"uuid":item.uuid,"id":item.uuid,"title":item.title,"status":item.status,"date":jsonable_encoder(item.authored_at)}
+
+
+def soap_content(body:dict)->dict:
+    source=body.get("content") if isinstance(body.get("content"),dict) else body
+    content={key:source[key] for key in ("subjective","objective","assessment","plan") if key in source}
+    try:return validate_clinical_form_content("soap",content)
+    except ClinicalFormValidationError as error:raise HTTPException(status_code=422,detail=str(error)) from error
+
+
+def vital_data(item:VitalSet)->dict:
+    data=jsonable_encoder(item);data.update(id=item.uuid,date=data["observed_at"],bps=data["systolic"],bpd=data["diastolic"],weight=data["weight_kg"],height=data["height_cm"],temperature=data["temperature_c"],pulse=data["heart_rate"],respiration=data["respiratory_rate"])
+    return data
+
+
+VITAL_ALIASES={"date":"observed_at","bps":"systolic","bpd":"diastolic","weight":"weight_kg","height":"height_cm","temperature":"temperature_c","pulse":"heart_rate","respiration":"respiratory_rate"}
+VITAL_FIELDS=("observed_at","systolic","diastolic","weight_kg","height_cm","temperature_c","heart_rate","respiratory_rate","oxygen_saturation","note")
+
+
+def vital_values(body:dict,*,partial:bool=False)->dict:
+    normalized={VITAL_ALIASES.get(key,key):value for key,value in body.items()}
+    values={key:normalized[key] for key in VITAL_FIELDS if key in normalized}
+    if "observed_at" in values:values["observed_at"]=datetime_value(values["observed_at"])
+    elif not partial:values["observed_at"]=datetime.now(timezone.utc)
+    for key in ("systolic","diastolic","weight_kg","height_cm","temperature_c","heart_rate","respiratory_rate","oxygen_saturation"):
+        if key in values:
+            try:values[key]=Decimal(str(values[key])) if values[key] not in (None,"") else None
+            except Exception as error:raise HTTPException(status_code=422,detail=f"{key} must be numeric") from error
+    return values
+
+
+def set_bmi(item:VitalSet):
+    item.bmi=(item.weight_kg/((item.height_cm/Decimal("100"))**2)).quantize(Decimal("0.01")) if item.weight_kg and item.height_cm else None
+
+
+@router.api_route("/apis/{site}/api/patient/{patient_uuid}/encounter/{encounter_uuid}/{resource}",methods=["GET","POST"])
+@router.api_route("/apis/{site}/api/patient/{patient_uuid}/encounter/{encounter_uuid}/{resource}/{item_uuid}",methods=["GET","PUT"])
+async def encounter_clinical_resource(site:str,patient_uuid:str,encounter_uuid:str,resource:str,request:Request,item_uuid:str|None=None,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site)
+    if resource not in {"soap_note","vital"}:raise HTTPException(status_code=404,detail="Clinical resource not found")
+    permission(user,"encounters","notes","write" if request.method in {"POST","PUT"} else "read")
+    patient=patient_by_uuid(db,patient_uuid);encounter=encounter_for_patient(db,patient,encounter_uuid)
+    if resource=="soap_note":
+        query=select(ClinicalForm).where(ClinicalForm.patient_id==patient.id,ClinicalForm.encounter_id==encounter.id,ClinicalForm.form_type=="soap")
+        if item_uuid:query=query.where(ClinicalForm.uuid==item_uuid)
+        if request.method=="GET":
+            if item_uuid:
+                item=db.scalar(query)
+                if not item:raise HTTPException(status_code=404,detail="SOAP note not found")
+                data=soap_data(item)
+            else:data=[soap_data(item) for item in db.scalars(query.order_by(ClinicalForm.authored_at.desc()))]
+            db.add(AuditEvent(actor_id=user.id,action="read" if item_uuid else "search",resource_type="soap_note",resource_id=item_uuid or patient.uuid));db.commit();return response(data)
+        body=await request.json()
+        if request.method=="POST":
+            if encounter_locked(db,encounter.id):raise HTTPException(status_code=423,detail="Encounter is electronically signed and locked")
+            item=ClinicalForm(patient_id=patient.id,encounter_id=encounter.id,author_id=user.id,form_type="soap",title=body.get("title") or "SOAP Note",content=soap_content(body),status=body.get("status") or "draft",authored_at=datetime_value(body.get("authored_at") or body.get("date")))
+            db.add(item);action="create"
+        else:
+            item=db.scalar(query.with_for_update())
+            if not item:raise HTTPException(status_code=404,detail="SOAP note not found")
+            if form_locked(db,item):raise HTTPException(status_code=423,detail="Clinical form is electronically signed and locked")
+            item.content=soap_content(body)
+            if "title" in body:item.title=body["title"]
+            if "status" in body:item.status=body["status"]
+            action="update"
+        db.flush();db.add(AuditEvent(actor_id=user.id,action=action,resource_type="soap_note",resource_id=item.uuid));db.commit();db.refresh(item);return response(soap_data(item))
+    query=select(VitalSet).where(VitalSet.patient_id==patient.id,VitalSet.encounter_id==encounter.id)
+    if item_uuid:query=query.where(VitalSet.uuid==item_uuid)
+    if request.method=="GET":
+        if item_uuid:
+            item=db.scalar(query)
+            if not item:raise HTTPException(status_code=404,detail="Vital set not found")
+            data=vital_data(item)
+        else:data=[vital_data(item) for item in db.scalars(query.order_by(VitalSet.observed_at.desc()))]
+        db.add(AuditEvent(actor_id=user.id,action="read" if item_uuid else "search",resource_type="vitals",resource_id=item_uuid or patient.uuid));db.commit();return response(data)
+    if encounter_locked(db,encounter.id):raise HTTPException(status_code=423,detail="Encounter is electronically signed and locked")
+    body=await request.json()
+    if request.method=="POST":
+        item=VitalSet(patient_id=patient.id,encounter_id=encounter.id,**vital_values(body));db.add(item);action="create"
+    else:
+        item=db.scalar(query.with_for_update())
+        if not item:raise HTTPException(status_code=404,detail="Vital set not found")
+        for key,value in vital_values(body,partial=True).items():setattr(item,key,value)
+        action="update"
+    set_bmi(item);db.flush();db.add(AuditEvent(actor_id=user.id,action=action,resource_type="vitals",resource_id=item.uuid));db.commit();db.refresh(item);return response(vital_data(item))
+
+
+CLINICAL_RESOURCES={"medical_problem":"problem","allergy":"allergy","medication":"medication","surgery":"surgery","dental_issue":"dental"}
+CLINICAL_FIELDS=("title","code_system","code","status","onset_date","end_date","severity","reaction","dosage","note")
+
+
+def clinical_item_data(db:Session,item:ClinicalItem)->dict:
+    patient=db.get(Patient,item.patient_id);data=jsonable_encoder(item);data.update(id=item.uuid,patient_uuid=patient.uuid,text=item.title)
+    return data
+
+
+def clinical_item_values(body:dict,*,partial:bool=False)->dict:
+    normalized=dict(body)
+    if "title" not in normalized:
+        title=normalized.get("text") or normalized.get("diagnosis") or normalized.get("drug")
+        if title is not None:normalized["title"]=title
+    values={key:normalized[key] for key in CLINICAL_FIELDS if key in normalized}
+    if not partial and not values.get("title"):raise HTTPException(status_code=422,detail="title is required")
+    for key in ("onset_date","end_date"):
+        if key in values:values[key]=date_value(values[key])
+    return values
+
+
+@router.get("/apis/{site}/api/{resource}")
+@router.get("/apis/{site}/api/{resource}/{item_uuid}")
+def global_clinical_resource(site:str,resource:str,item_uuid:str|None=None,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site)
+    if resource not in {"medical_problem","allergy"}:raise HTTPException(status_code=404,detail="Clinical resource not found")
+    permission(user,"patients","med");query=select(ClinicalItem).where(ClinicalItem.category==CLINICAL_RESOURCES[resource],ClinicalItem.status!="entered-in-error")
+    if item_uuid:query=query.where(ClinicalItem.uuid==item_uuid)
+    if item_uuid:
+        item=db.scalar(query)
+        if not item:raise HTTPException(status_code=404,detail="Clinical item not found")
+        data=clinical_item_data(db,item)
+    else:data=[clinical_item_data(db,item) for item in db.scalars(query.order_by(ClinicalItem.created_at.desc()).limit(100))]
+    db.add(AuditEvent(actor_id=user.id,action="read" if item_uuid else "search",resource_type=resource,resource_id=item_uuid));db.commit();return response(data)
+
+
+@router.api_route("/apis/{site}/api/patient/{patient_uuid}/{resource}",methods=["GET","POST"])
+@router.api_route("/apis/{site}/api/patient/{patient_uuid}/{resource}/{item_uuid}",methods=["GET","PUT","DELETE"])
+async def patient_clinical_resource(site:str,patient_uuid:str,resource:str,request:Request,item_uuid:str|None=None,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    default_site(site)
+    if resource not in CLINICAL_RESOURCES:raise HTTPException(status_code=404,detail="Clinical resource not found")
+    permission(user,"patients","med","write" if request.method in {"POST","PUT","DELETE"} else "read")
+    patient=patient_by_uuid(db,patient_uuid);category=CLINICAL_RESOURCES[resource];query=select(ClinicalItem).where(ClinicalItem.patient_id==patient.id,ClinicalItem.category==category,ClinicalItem.status!="entered-in-error")
+    if item_uuid:query=query.where(ClinicalItem.uuid==item_uuid)
+    if request.method=="GET":
+        if item_uuid:
+            item=db.scalar(query)
+            if not item:raise HTTPException(status_code=404,detail="Clinical item not found")
+            data=clinical_item_data(db,item)
+        else:data=[clinical_item_data(db,item) for item in db.scalars(query.order_by(ClinicalItem.created_at.desc()))]
+        db.add(AuditEvent(actor_id=user.id,action="read" if item_uuid else "search",resource_type=resource,resource_id=item_uuid or patient.uuid));db.commit();return response(data)
+    if request.method=="DELETE":
+        item=db.scalar(query.with_for_update())
+        if not item:raise HTTPException(status_code=404,detail="Clinical item not found")
+        item.status="entered-in-error";db.add(AuditEvent(actor_id=user.id,action="delete",resource_type=resource,resource_id=item.uuid));db.commit();return response([])
+    body=await request.json()
+    if request.method=="POST":
+        item=ClinicalItem(patient_id=patient.id,category=category,legacy_payload=body,**clinical_item_values(body));db.add(item);action="create"
+    else:
+        item=db.scalar(query.with_for_update())
+        if not item:raise HTTPException(status_code=404,detail="Clinical item not found")
+        for key,value in clinical_item_values(body,partial=True).items():setattr(item,key,value)
+        item.legacy_payload=body;action="update"
+    db.flush();db.add(AuditEvent(actor_id=user.id,action=action,resource_type=resource,resource_id=item.uuid));db.commit();db.refresh(item);return response(clinical_item_data(db,item))
 
 
 def portal_patient(db:Session,account:PortalAccount)->Patient:
