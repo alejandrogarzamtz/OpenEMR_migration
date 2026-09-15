@@ -8,7 +8,7 @@ from ..models import CommunicationDelivery
 
 
 def process_outbox(db:Session,limit:int=100)->dict:
-    rows=list(db.scalars(select(CommunicationDelivery).where(CommunicationDelivery.status=="pending").order_by(CommunicationDelivery.queued_at).limit(limit)))
+    rows=list(db.scalars(select(CommunicationDelivery).where(CommunicationDelivery.status=="pending").order_by(CommunicationDelivery.queued_at).limit(limit).with_for_update(skip_locked=True)))
     result={"processed":0,"sent":0,"failed":0,"deferred":0}
     for item in rows:
         if settings.notification_delivery_mode=="disabled":result["deferred"]+=1;continue

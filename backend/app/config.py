@@ -1,4 +1,7 @@
-from pydantic import Field, SecretStr
+from urllib.parse import urlparse
+
+from cryptography.fernet import Fernet
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,9 +37,43 @@ class Settings(BaseSettings):
     jwt_issuer: str = "openemr-next"
     jwt_audience: str = "openemr-next-api"
     cors_origins: str = "http://localhost:5173"
+    allowed_hosts: str = "localhost,127.0.0.1,testserver"
+    max_request_body_bytes: int = Field(default=25 * 1024 * 1024, ge=65536, le=100 * 1024 * 1024)
+    release: str = "development"
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: SecretStr | None = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [item.strip().rstrip("/") for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def allowed_host_list(self) -> list[str]:
+        return [item.strip() for item in self.allowed_hosts.split(",") if item.strip()]
+
+    @model_validator(mode="after")
+    def production_contract(self):
+        if self.deployment_environment != "production": return self
+        errors=[];jwt_value=self.jwt_secret.get_secret_value()
+        weak={"replace-with-at-least-32-random-characters","local-development-secret-change-me","test-only-secret-that-is-at-least-32-bytes"}
+        if not self.database_url.startswith(("postgresql://","postgresql+psycopg://")):errors.append("DATABASE_URL must use PostgreSQL")
+        if len(jwt_value)<48 or jwt_value in weak:errors.append("JWT_SECRET must be a unique secret of at least 48 characters")
+        if not self.mfa_encryption_key:errors.append("MFA_ENCRYPTION_KEY is required")
+        else:
+            try:Fernet(self.mfa_encryption_key.get_secret_value().encode("ascii"))
+            except Exception:errors.append("MFA_ENCRYPTION_KEY must be a valid Fernet key")
+        if not self.secure_cookies:errors.append("SECURE_COOKIES must be true")
+        for name,value in (("PUBLIC_WEB_URL",self.public_web_url),("API_PUBLIC_URL",self.api_public_url)):
+            if urlparse(value).scheme!="https" or not urlparse(value).hostname:errors.append(f"{name} must be an HTTPS URL")
+        if not self.cors_origin_list or any(origin=="*" or urlparse(origin).scheme!="https" or not urlparse(origin).hostname for origin in self.cors_origin_list):errors.append("CORS_ORIGINS must contain explicit HTTPS origins")
+        public_hosts={urlparse(self.public_web_url).hostname,urlparse(self.api_public_url).hostname}
+        if not self.allowed_host_list or "*" in self.allowed_host_list or not public_hosts.issubset(set(self.allowed_host_list)):errors.append("ALLOWED_HOSTS must explicitly include public web and API hosts")
+        if self.bootstrap_admin_email or self.bootstrap_admin_password:errors.append("bootstrap administrator credentials are forbidden")
+        if not self.smart_oidc_private_key_path:errors.append("SMART_OIDC_PRIVATE_KEY_PATH is required")
+        if self.notification_delivery_mode=="test" or self.payment_provider=="test":errors.append("test delivery/payment adapters are forbidden")
+        if errors:raise ValueError("Invalid production configuration: "+"; ".join(errors))
+        return self
 
 
 settings = Settings()

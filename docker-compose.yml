@@ -56,5 +56,15 @@ services:
     ports: ["5173:5173"]
     depends_on: [api]
 
+  operations-test:
+    profiles: [test]
+    build: ./ops
+    environment:
+      ADMIN_DATABASE_URL: postgresql://openemr:openemr@db:5432/postgres
+    command: [/usr/local/bin/test_backup_restore.sh]
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:

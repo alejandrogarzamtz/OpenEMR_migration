@@ -4,8 +4,9 @@ from hashlib import sha256
 from uuid import uuid4
 import jwt
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from .config import settings
@@ -48,8 +49,9 @@ from .services.extensions import publish_event
 from .security import password_hash
 
 
-app = FastAPI(title="OpenEMR Next API", version="0.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="OpenRM API",version="0.1.0",lifespan=lifespan,docs_url=None if settings.deployment_environment=="production" else "/docs",redoc_url=None if settings.deployment_environment=="production" else "/redoc")
+app.add_middleware(TrustedHostMiddleware,allowed_hosts=settings.allowed_host_list)
+app.add_middleware(CORSMiddleware,allow_origins=settings.cors_origin_list,allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Authorization","Content-Type","X-OpenRM-Extension-Key","X-Request-ID"])
 app.include_router(auth_router)
 app.include_router(appointments_router)
 app.include_router(patients_router)
@@ -78,6 +80,29 @@ app.include_router(fhir_router)
 
 
 @app.middleware("http")
+async def production_security_boundary(request:Request,call_next):
+    rejection=None
+    length=request.headers.get("content-length")
+    if length:
+        try:size=int(length)
+        except ValueError:rejection=JSONResponse(status_code=400,content={"detail":"Invalid Content-Length header"})
+        if rejection is None and size>settings.max_request_body_bytes:rejection=JSONResponse(status_code=413,content={"detail":"Request body is too large"})
+    response=rejection or await call_next(request)
+    response.headers["X-Content-Type-Options"]="nosniff"
+    response.headers["X-Frame-Options"]="DENY"
+    response.headers["Referrer-Policy"]="no-referrer"
+    response.headers["Permissions-Policy"]="camera=(), microphone=(), geolocation=()"
+    if "Cache-Control" not in response.headers:
+        response.headers["Cache-Control"]="no-store"
+    response.headers["X-OpenRM-Release"]=settings.release
+    response.headers["X-Request-ID"]=str(uuid4())
+    if settings.deployment_environment=="production":
+        response.headers["Content-Security-Policy"]="default-src 'none'; frame-ancestors 'none'"
+        response.headers["Strict-Transport-Security"]="max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
 async def record_api_metric(request: Request, call_next):
     response=await call_next(request)
     if request.url.path.startswith("/api/") or request.url.path.startswith("/fhir"):
@@ -101,6 +126,18 @@ async def record_api_metric(request: Request, call_next):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/live")
+def liveness():return {"status":"live","release":settings.release}
+
+
+@app.get("/health/ready")
+def readiness():
+    from .operational import readiness_report
+    report=readiness_report()
+    if report["status"]!="ready":raise HTTPException(status_code=503,detail=report)
+    return report
 
 
 def encounter_out(item: Encounter, patient_uuid: str, appointment_uuid: str | None, db: Session) -> EncounterOut:

@@ -1,0 +1,106 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openrm
+      POSTGRES_USER: openrm
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [openrm-production-db:/var/lib/postgresql/data]
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openrm -d openrm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+
+  migrate:
+    image: ${OPENRM_API_IMAGE:-openrm-api:local}
+    build: {context: ./backend, dockerfile: Dockerfile.production}
+    command: [migrate]
+    environment: &api_environment
+      DEPLOYMENT_ENVIRONMENT: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      MFA_ENCRYPTION_KEY_FILE: /run/secrets/mfa_encryption_key
+      SMART_OIDC_PRIVATE_KEY_PATH: /run/secrets/smart_oidc_private_key
+      SECURE_COOKIES: "true"
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:?required}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:?required}
+      CORS_ORIGINS: ${CORS_ORIGINS:?required}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?required}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?required}
+      RELEASE: ${OPENRM_RELEASE:?required}
+    secrets: &api_secrets [database_url, jwt_secret, mfa_encryption_key, smart_oidc_private_key]
+    networks: [data]
+    depends_on: {db: {condition: service_healthy}}
+    security_opt: [no-new-privileges:true]
+
+  api:
+    image: ${OPENRM_API_IMAGE:-openrm-api:local}
+    build: {context: ./backend, dockerfile: Dockerfile.production}
+    restart: unless-stopped
+    environment: *api_environment
+    secrets: *api_secrets
+    networks: [data, edge]
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.parse,urllib.request; host=urllib.parse.urlparse(os.environ['API_PUBLIC_URL']).hostname; urllib.request.urlopen(urllib.request.Request('http://localhost:8000/health/ready',headers={'Host':host}),timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: ${OPENRM_API_IMAGE:-openrm-api:local}
+    build: {context: ./backend, dockerfile: Dockerfile.production}
+    command: [worker, --interval, "5", --limit, "100"]
+    restart: unless-stopped
+    environment: *api_environment
+    secrets: *api_secrets
+    networks: [data, edge]
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+
+  web:
+    image: ${OPENRM_WEB_IMAGE:-openrm-web:local}
+    build: {context: ./frontend, dockerfile: Dockerfile.production, args: {VITE_API_URL: ""}}
+    restart: unless-stopped
+    ports: ["127.0.0.1:${OPENRM_HTTP_PORT:-8080}:8080"]
+    networks: [edge]
+    depends_on: {api: {condition: service_healthy}}
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    security_opt: [no-new-privileges:true]
+
+  backup:
+    profiles: [operations]
+    build: ./ops
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      AGE_RECIPIENT: ${AGE_RECIPIENT:-}
+    secrets: [database_url]
+    volumes: ["${BACKUP_DIRECTORY:-./backups}:/backups"]
+    networks: [data]
+    depends_on: {db: {condition: service_healthy}}
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["export DATABASE_URL=$$(sed -e 's/[[:space:]]*$$//' $$DATABASE_URL_FILE); exec /usr/local/bin/backup.sh /backups"]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  data: {internal: true}
+  edge: {}
+volumes:
+  openrm-production-db: {}
+secrets:
+  postgres_password: {file: "${POSTGRES_PASSWORD_FILE:?required}"}
+  database_url: {file: "${DATABASE_URL_FILE:?required}"}
+  jwt_secret: {file: "${JWT_SECRET_FILE:?required}"}
+  mfa_encryption_key: {file: "${MFA_ENCRYPTION_KEY_FILE:?required}"}
+  smart_oidc_private_key: {file: "${SMART_OIDC_PRIVATE_KEY_FILE:?required}"}

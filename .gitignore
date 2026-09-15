@@ -4,6 +4,8 @@ __pycache__/
 .ruff_cache/
 node_modules/
 dist/
+backups/
+*.age
 *.pyc
 .DS_Store
 openemr-legacy/

@@ -191,13 +191,17 @@ end-to-end healthcare workflows:
   durable namespaced integration events, HTTPS webhooks with HMAC signatures,
   exponential retries and dead-letter replay, a dependency-free Python SDK,
   and reconciled legacy module inventory without importing secret values;
+- a fail-closed production profile with non-root read-only containers, exact
+  schema readiness, a continuous delivery worker, encrypted backup and guarded
+  restore tooling, reconciliation/cutover evidence, deployment acceptance
+  checks, CodeQL analysis and attested release images;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
 forms, advanced demographic fields, recurrence rules, broader portal workflows,
-remaining specialized workflows, advanced inventory, production integration
-acceptance, and production operations are still being implemented. The authoritative
+remaining specialized workflows, advanced inventory, and organization-specific
+external integration acceptance are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
 
@@ -229,6 +233,8 @@ Administration behavior and its security boundaries are documented in
 [Platform administration, localization, and templates](docs/PLATFORM_ADMINISTRATION.md).
 The external integration contract is documented in
 [Extensions and webhooks](docs/EXTENSIONS.md).
+Production configuration and cutover controls are documented in
+[Production operations and cutover](docs/PRODUCTION.md).
 
 ## Getting started
 
@@ -383,6 +389,8 @@ Start with these documents:
   verification strategy, and credential-dependent blockers;
 - [Extensions and webhooks](docs/EXTENSIONS.md) — manifests, credentials,
   event envelopes, signed delivery, retries, SDK use, and legacy module boundaries;
+- [Production operations and cutover](docs/PRODUCTION.md) — hardened runtime,
+  secrets, backup/restore, reconciliation, acceptance, release and rollback gates;
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged
   delivery approach;
 - [FHIR Notes](docs/FHIR.md) — current standards implementation and limitations.
@@ -428,8 +436,10 @@ development fixtures. Report suspected vulnerabilities privately to repository
 maintainers rather than opening a public issue containing exploit or patient
 information.
 
-The security/compliance parity row remains open until controls are implemented
-and verified across the complete application.
+The repository supplies technical security and deployment controls, but an
+organization must still perform its own risk assessment, access review,
+retention design, incident response, external integration acceptance and
+regulatory validation before using real health data.
 
 ## License and upstream heritage
 

@@ -37,6 +37,10 @@ encryption/key management, backups, disaster recovery, retention, monitoring,
 threat modelling, and regulatory validation. The development credentials are
 not suitable for any real patient data.
 
+The repository's production runtime, encrypted backup/restore, reconciliation,
+acceptance and cutover evidence workflow is defined in [PRODUCTION.md](PRODUCTION.md).
+Those technical gates must pass before organization-specific approval begins.
+
 ## Import and reconciliation
 
 The importer reads OpenEMR without modifying it and is a dry run by default:

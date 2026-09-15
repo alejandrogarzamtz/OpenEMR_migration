@@ -7,7 +7,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: python3 scripts/verify_clinical_form_definitions.py
       - run: python3 scripts/verify_procedure_provenance.py
       - run: python3 scripts/verify_prescription_provenance.py
@@ -35,14 +35,23 @@ jobs:
       - run: python3 scripts/verify_openemr_api_compatibility.py
       - run: python3 scripts/verify_fhir_api_compatibility.py
       - run: python3 scripts/verify_patient_provider_assignments.py
+      - run: python3 scripts/verify_production_bundle.py
       - run: python3 -m unittest discover -s sdk/python/tests
+      - run: python3 -m unittest discover -s scripts/tests
       - run: docker compose build api
+      - run: docker build -t openrm-api-production-test -f backend/Dockerfile.production backend
+      - run: test "$(docker run --rm --entrypoint id openrm-api-production-test -u)" != "0"
+      - run: docker build -t openrm-ops-test -f ops/Dockerfile ops
+      - run: docker compose --profile test run --rm operations-test
+      - run: PUBLIC_WEB_URL=https://ehr.example.org API_PUBLIC_URL=https://ehr.example.org CORS_ORIGINS=https://ehr.example.org ALLOWED_HOSTS=ehr.example.org TRUSTED_PROXY_IPS=172.20.0.0/16 OPENRM_RELEASE=ci POSTGRES_PASSWORD_FILE=/dev/null DATABASE_URL_FILE=/dev/null JWT_SECRET_FILE=/dev/null MFA_ENCRYPTION_KEY_FILE=/dev/null SMART_OIDC_PRIVATE_KEY_FILE=/dev/null docker compose -f docker-compose.production.yml config --quiet
       - run: docker compose run --rm api python -m pytest -q
       - run: docker compose run --rm api sh -c 'alembic upgrade head && alembic check'
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker compose build web
+      - run: docker build -t openrm-web-production-test -f frontend/Dockerfile.production frontend
+      - run: docker run --rm --add-host api:127.0.0.1 openrm-web-production-test nginx -t
       - run: docker compose run --rm --no-deps web npm test -- --run
       - run: docker compose run --rm --no-deps web npm run build

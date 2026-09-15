@@ -1,0 +1,15 @@
+FROM python:3.13-slim AS runtime
+ENV PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+RUN groupadd --system openrm && useradd --system --gid openrm --home-dir /app openrm
+COPY requirements.production.txt .
+RUN pip install --no-cache-dir -r requirements.production.txt
+COPY app app
+COPY alembic.ini .
+COPY alembic alembic
+COPY production-entrypoint.sh /usr/local/bin/openrm-entrypoint
+RUN chmod 0555 /usr/local/bin/openrm-entrypoint && chown -R openrm:openrm /app
+USER openrm
+EXPOSE 8000
+ENTRYPOINT ["openrm-entrypoint"]
+CMD ["api"]
