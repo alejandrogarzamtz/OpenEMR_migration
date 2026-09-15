@@ -33,7 +33,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `inventory_list` | MIGRATED |
 | `inventory_transactions` | MIGRATED |
 | `ip_tracker` | MIGRATED — cumulative/windowed failures, automatic and manual blocking, timing flag, protected reset/update, filters and CSV |
-| `ippf_cyp_report` | PENDING |
+| `ippf_cyp_report` | MIGRATED — typed CYP factors across active MA services and paid medication sales, encounter-date/facility scope, invoice identity, detail/summary totals, snapshots and CSV |
 | `ippf_daily` | PENDING |
 | `ippf_statistics` | PENDING |
 | `message_list` | MIGRATED |
@@ -56,7 +56,7 @@ snapshot, totals and CSV export. All entries remain visible through
 | `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 40 migrated, 8 pending/embedded**.
+Current accounting: **48 cataloged, 41 migrated, 7 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be
@@ -97,6 +97,13 @@ permissions follow the selected source; SQL `%` and `_` wildcards, multi-valued
 race/ethnicity, unique-patient totals and user-selected deterministic ordering
 are preserved. Runs are immutable, checksum-protected cohorts that can be
 retrieved or exported again without silently recomputing membership.
+
+`ippf_cyp_report` retains CYP factors as typed decimal fields on service and
+medication definitions. It combines active `MA` charge lines with non-zero-fee
+drug sales, scopes both through their encounter date and facility, preserves
+invoice and stable patient/encounter identity, rounds factors before extension
+as the source report does, and supports both auditable detail and product-total
+views with immutable CSV-capable snapshots.
 
 `cdr_log` preserves raw `value` and `new_value` text exactly, including empty
 or malformed historical JSON, so a report never rewrites clinical evidence.

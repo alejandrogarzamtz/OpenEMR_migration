@@ -1,0 +1,14 @@
+{
+  "report_sha256": "b8697951b97cf667b26b6ce64ed8e61e79d208e05154962ebe6ad68291c56db1",
+  "required_tokens": [
+    "CYP Report",
+    "c.cyp_factor > 0",
+    "b.code_type = 'MA'",
+    "b.activity = 1",
+    "d.cyp_factor > 0",
+    "WHERE s.fee != 0",
+    "fe.facility_id = ?",
+    "invoice_refno",
+    "ippf_cyp_report.csv"
+  ]
+}

@@ -963,6 +963,7 @@ class InventoryProductCreate(BaseModel):
     size: str | None = Field(default=None, max_length=25)
     unit: str | None = Field(default=None, max_length=31)
     route: str | None = Field(default=None, max_length=31)
+    cyp_factor: Decimal = Field(default=Decimal("0"), ge=0)
     reorder_point: Decimal = Field(default=Decimal("0"), ge=0)
     max_level: Decimal = Field(default=Decimal("0"), ge=0)
     allow_combining: bool = False

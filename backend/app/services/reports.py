@@ -13,7 +13,7 @@ from .access import facility_scope, warehouse_scope
 REPORT_PATHS = [
     "amc_full_report", "amc_tracking", "appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "cqm", "criteria.tab", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "ippf_daily", "ippf_statistics", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report.script", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report",
 ]
-IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
+IMPLEMENTED = {"appointments_report", "appt_encounter_report", "audit_log_tamper_report", "background_services", "cdr_log", "chart_location_activity", "charts_checked_out", "clinical_reports", "collections_report", "custom_report_range", "daily_summary_report", "destroyed_drugs_report", "direct_message_log", "encounters_report", "external_data", "front_receipts_report", "immunization_report", "insurance_allocation_report", "inventory_activity", "inventory_list", "inventory_transactions", "ip_tracker", "ippf_cyp_report", "message_list", "non_reported", "pat_ledger", "patient_edu_web_lookup", "patient_flow_board_report", "patient_list", "patient_list_creation", "payment_processing_report", "prepayment_balance_report", "prescriptions_report", "receipts_by_method_report", "referrals_report", "report_results", "rwt_2026_report", "sales_by_item", "services_by_category", "svc_code_financial_report", "unique_seen_patients_report"}
 PERMISSION_OVERRIDES = {
     "appointments_report":"patients:appt:read", "appt_encounter_report":"acct:rep_a:read",
     "audit_log_tamper_report":"admin:super:read", "background_services":"admin:super:read",
@@ -283,6 +283,44 @@ def patient_list_creation_report(db: Session,user: User,params: dict):
     columns=columns_by_option[option];sort=params.get("patient_list_sort");sort=sort if sort in columns else ("patient_date" if option in {"demos","comms","insurers"} else "other_date")
     rows.sort(key=lambda row:(row.get(sort) is None,str(row.get(sort) or ""),row.get("patient_id") or 0),reverse=params.get("patient_list_sort_order")=="desc")
     return columns,rows,{"rows":len(rows),"patients":len({row["patient_uuid"] for row in rows}),"option":option}
+
+
+def ippf_cyp_report(db: Session,user: User,params: dict):
+    """Calculate couple-years of protection from MA services and paid drug sales."""
+    from decimal import ROUND_HALF_UP
+    today=datetime.now(timezone.utc).date();start=params.get("date_from") or today;end=params.get("date_to") or start
+    scope=facility_scope(db,user);requested=params.get("_facility_id");requested_legacy=params.get("_legacy_facility_id")
+    def allowed(encounter):
+        if not start<=encounter.occurred_at.date()<=end:return False
+        if requested is not None:return encounter.facility_id==requested or (requested_legacy is not None and encounter.legacy_facility_id==requested_legacy)
+        return scope is None or encounter.facility_id in scope
+    encounters={item.id:item for item in db.scalars(select(Encounter).order_by(Encounter.occurred_at,Encounter.id)) if allowed(item)}
+    service_codes={(item.code,item.modifier or ""):item for item in db.scalars(select(ServiceCode).where(ServiceCode.code_type_id==12,ServiceCode.cyp_factor>0))}
+    products={item.id:item for item in db.scalars(select(InventoryProduct).where(InventoryProduct.cyp_factor>0))}
+    lines=[];cent=Decimal("0.01")
+    def append(source,item,when,invoice,quantity,factor,patient_uuid,encounter_uuid):
+        rounded=Decimal(factor).quantize(cent,rounding=ROUND_HALF_UP);result=(rounded*quantity).quantize(cent,rounding=ROUND_HALF_UP)
+        lines.append({"source":source,"item":item,"date":value(when),"invoice":invoice,"quantity":quantity,"cyp":value(rounded),"result":value(result),"patient_uuid":patient_uuid,"encounter_uuid":encounter_uuid})
+    if encounters:
+        encounter_ids=list(encounters);patient_ids={item.patient_id for item in encounters.values()};patients={item.id:item for item in db.scalars(select(Patient).where(Patient.id.in_(patient_ids)))}
+        for charge in db.scalars(select(Charge).where(Charge.encounter_id.in_(encounter_ids),Charge.active.is_(True),Charge.code_system=="MA").order_by(Charge.code,Charge.billed_at,Charge.id)):
+            definition=service_codes.get((charge.code,charge.modifier or ""))
+            if not definition:continue
+            encounter=encounters[charge.encounter_id];patient=patients[charge.patient_id];legacy=encounter.legacy_payload or {};invoice=legacy.get("invoice_refno") or (f"{patient.legacy_pid}.{encounter.legacy_encounter_id}" if patient.legacy_pid is not None and encounter.legacy_encounter_id is not None else f"{patient.uuid}.{encounter.uuid}")
+            append("service",f"{charge.code} {charge.description}".strip(),encounter.occurred_at.date(),invoice,charge.units,definition.cyp_factor,patient.uuid,encounter.uuid)
+        for transaction in db.scalars(select(InventoryTransaction).where(InventoryTransaction.encounter_id.in_(encounter_ids),InventoryTransaction.fee!=0).order_by(InventoryTransaction.product_id,InventoryTransaction.occurred_on,InventoryTransaction.id)):
+            product=products.get(transaction.product_id)
+            if not product:continue
+            encounter=encounters[transaction.encounter_id];patient=patients.get(transaction.patient_id or encounter.patient_id);legacy=encounter.legacy_payload or {};invoice=legacy.get("invoice_refno") or (f"{patient.legacy_pid}.{encounter.legacy_encounter_id}" if patient.legacy_pid is not None and encounter.legacy_encounter_id is not None else f"{patient.uuid}.{encounter.uuid}")
+            append("drug",product.name,encounter.occurred_at.date(),invoice,transaction.quantity,product.cyp_factor,patient.uuid,encounter.uuid)
+    lines.sort(key=lambda row:(0 if row["source"]=="service" else 1,row["item"],row["date"],row["invoice"]))
+    total_quantity=sum(row["quantity"] for row in lines);total_result=sum((Decimal(row["result"]) for row in lines),Decimal("0"))
+    if params.get("include_details",True):return ["source","item","date","invoice","quantity","cyp","result","patient_uuid","encounter_uuid"],lines,{"quantity":total_quantity,"cyp_result":value(total_result.quantize(cent)),"items":len({row["item"] for row in lines})}
+    grouped={}
+    for row in lines:
+        key=(row["item"],row["cyp"]);current=grouped.setdefault(key,{"item":row["item"],"quantity":0,"cyp":row["cyp"],"result":Decimal("0")});current["quantity"]+=row["quantity"];current["result"]+=Decimal(row["result"])
+    summary=[item|{"result":value(item["result"].quantize(cent))} for item in grouped.values()]
+    return ["item","quantity","cyp","result"],summary,{"quantity":total_quantity,"cyp_result":value(total_result.quantize(cent)),"items":len(summary)}
 
 
 def appointment_encounter_report(db: Session,user: User,params: dict):
@@ -941,6 +979,7 @@ def execute_report(db: Session, user: User, key: str, params: dict) -> tuple[lis
     start,end=bounds(params.get("date_from"),params.get("date_to")); status=params.get("status")
     if key == "clinical_reports": return clinical_report(db,user,params)
     if key == "patient_list_creation": return patient_list_creation_report(db,user,params)
+    if key == "ippf_cyp_report": return ippf_cyp_report(db,user,params)
     if key == "appt_encounter_report": return appointment_encounter_report(db,user,params)
     if key == "collections_report": return collections_report(db,user,params)
     if key == "front_receipts_report": return front_receipts_report(db,user,params)

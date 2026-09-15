@@ -832,7 +832,7 @@ def run(source_url: str, commit: bool = False) -> dict:
                 existing=target.scalar(select(ServiceCode).where(ServiceCode.legacy_code_id==row["id"]))
                 if not clean(row["code"]):stats["service_codes"]["rejected"]+=1;continue
                 prices=[{"level":price["pr_level"],"title":price_levels.get(price["pr_level"]),"amount":json_value(price["pr_price"])} for price in legacy.execute(text("SELECT pr_level,pr_price FROM prices WHERE pr_id=:id AND pr_selector='' ORDER BY pr_level"),{"id":row["id"]}).mappings()]
-                values=dict(code_type_id=row["code_type"],code=clean(row["code"]),modifier=clean(row["modifier"]) or "",units=row["units"] or 0,description=clean(row["code_text"]) or clean(row["code"]),category_code=clean(row["superbill"]),category_title=category_titles.get(row["superbill"]),related_codes=clean(row["related_code"]),financial_reporting=bool(row["financial_reporting"]),prices=prices,active=bool(row["active"]),legacy_payload={field:json_value(value) for field,value in row.items()})
+                values=dict(code_type_id=row["code_type"],code=clean(row["code"]),modifier=clean(row["modifier"]) or "",units=row["units"] or 0,description=clean(row["code_text"]) or clean(row["code"]),category_code=clean(row["superbill"]),category_title=category_titles.get(row["superbill"]),related_codes=clean(row["related_code"]),financial_reporting=bool(row["financial_reporting"]),cyp_factor=row["cyp_factor"] or 0,prices=prices,active=bool(row["active"]),legacy_payload={field:json_value(value) for field,value in row.items()})
                 if existing:
                     for key,value in values.items():setattr(existing,key,value)
                     stats["service_codes"]["existing"]+=1
@@ -898,9 +898,13 @@ def run(source_url: str, commit: bool = False) -> dict:
         products = legacy.execute(text("SELECT * FROM drugs ORDER BY drug_id"))
         for row in products.mappings():
             stats["inventory_products"]["source"] += 1
-            if target.scalar(select(InventoryProduct.id).where(InventoryProduct.legacy_drug_id == row["drug_id"])): stats["inventory_products"]["existing"] += 1; continue
             if not clean(row["name"]): stats["inventory_products"]["rejected"] += 1; continue
-            target.add(InventoryProduct(legacy_drug_id=row["drug_id"], name=clean(row["name"]), ndc_number=clean(row["ndc_number"]), drug_code=clean(row["drug_code"]), form=clean(row["form"]), size=clean(row["size"]), unit=clean(row["unit"]), route=clean(row["route"]), reorder_point=row["reorder_point"] or 0, max_level=row["max_level"] or 0, allow_combining=bool(row["allow_combining"]), allow_multiple=bool(row["allow_multiple"]), consumable=bool(row["consumable"]), dispensable=bool(row["dispensable"]), active=bool(row["active"]), legacy_payload={key: json_value(value) for key, value in row.items()})); stats["inventory_products"]["inserted"] += 1
+            existing=target.scalar(select(InventoryProduct).where(InventoryProduct.legacy_drug_id == row["drug_id"]))
+            values=dict(name=clean(row["name"]),ndc_number=clean(row["ndc_number"]),drug_code=clean(row["drug_code"]),form=clean(row["form"]),size=clean(row["size"]),unit=clean(row["unit"]),route=clean(row["route"]),cyp_factor=row["cyp_factor"] or 0,reorder_point=row["reorder_point"] or 0,max_level=row["max_level"] or 0,allow_combining=bool(row["allow_combining"]),allow_multiple=bool(row["allow_multiple"]),consumable=bool(row["consumable"]),dispensable=bool(row["dispensable"]),active=bool(row["active"]),legacy_payload={key:json_value(value) for key,value in row.items()})
+            if existing:
+                for key,value in values.items():setattr(existing,key,value)
+                stats["inventory_products"]["existing"]+=1
+            else:target.add(InventoryProduct(legacy_drug_id=row["drug_id"],**values));stats["inventory_products"]["inserted"]+=1
         target.flush()
         lots = legacy.execute(text("SELECT * FROM drug_inventory ORDER BY inventory_id"))
         for row in lots.mappings():

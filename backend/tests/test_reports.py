@@ -1,9 +1,12 @@
+from datetime import date
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import ClinicalForm, Encounter, LabOrder, Patient, User
+from app.models import Charge, ClinicalForm, Encounter, InventoryProduct, InventoryTransaction, LabOrder, Patient, ServiceCode, User
 from app.security import password_hash
 
 
@@ -17,7 +20,7 @@ def test_report_catalog_snapshots_filters_checksums_and_csv_export():
         headers=admin_headers(client)
         catalog=client.get("/api/v1/reports",headers=headers)
         assert catalog.status_code==200 and len(catalog.json())==48
-        assert sum(item["migrated"] for item in catalog.json())==40
+        assert sum(item["migrated"] for item in catalog.json())==41
         patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"Report","last_name":"Fixture","date_of_birth":"1988-02-03","sex":"unknown"}).json()
         appointment=client.post("/api/v1/appointments",headers=headers,json={"patient_uuid":patient["uuid"],"starts_at":"2027-02-10T10:00:00Z","ends_at":"2027-02-10T10:30:00Z","title":"Annual visit"})
         assert appointment.status_code==201
@@ -106,6 +109,23 @@ def test_patient_list_creation_modes_filters_snapshots_and_csv():
         assert results.json()["rows"][0]["result_result"]=="13.7"
         csv=client.get(f"/api/v1/report-runs/{results.json()['uuid']}/export.csv",headers=headers)
         assert csv.status_code==200 and "result_document_id" in csv.text.splitlines()[0]
+
+
+def test_ippf_cyp_report_combines_services_and_paid_drug_sales():
+    with TestClient(app) as client:
+        headers=admin_headers(client)
+        patient=client.post("/api/v1/patients",headers=headers,json={"first_name":"CYP","last_name":"Fixture","date_of_birth":"1992-01-02","sex":"female"}).json()
+        encounter=client.post("/api/v1/encounters",headers=headers,json={"patient_uuid":patient["uuid"],"occurred_at":"2026-07-01T09:00:00Z","type":"AMB"}).json()
+        with SessionLocal() as db:
+            db_patient=db.scalar(select(Patient).where(Patient.uuid==patient["uuid"]));db_encounter=db.scalar(select(Encounter).where(Encounter.uuid==encounter["uuid"]))
+            service=ServiceCode(code_type_id=12,code="CYP-TEST",modifier="",description="Contraceptive service",cyp_factor=Decimal("2.5000"),active=True);product=InventoryProduct(name="CYP test product",cyp_factor=Decimal("0.2500"));db.add_all([service,product]);db.flush()
+            db.add_all([Charge(patient_id=db_patient.id,encounter_id=db_encounter.id,code_system="MA",code="CYP-TEST",description="Contraceptive service",units=2,unit_price=Decimal("1.00"),active=True),InventoryTransaction(product_id=product.id,patient_id=db_patient.id,encounter_id=db_encounter.id,transaction_type="dispense",occurred_on=date(2026,7,1),quantity=4,fee=Decimal("10.00"))]);db.commit()
+        details=client.post("/api/v1/reports/ippf_cyp_report/runs",headers=headers,json={"date_from":"2026-07-01","date_to":"2026-07-01"})
+        assert details.status_code==201,details.text
+        payload=details.json();assert payload["row_count"]==2 and payload["totals"]=={"quantity":6,"cyp_result":"6.00","items":2}
+        assert {row["source"]:row["result"] for row in payload["rows"]}=={"service":"5.00","drug":"1.00"}
+        summary=client.post("/api/v1/reports/ippf_cyp_report/runs",headers=headers,json={"date_from":"2026-07-01","date_to":"2026-07-01","include_details":False})
+        assert summary.json()["columns"]==["item","quantity","cyp","result"] and summary.json()["row_count"]==2
 
 
 def test_report_execution_enforces_each_catalog_permission():
