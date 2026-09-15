@@ -53,10 +53,10 @@ snapshot, totals and CSV export. All entries remain visible through
 | `rwt_2026_report` | PENDING |
 | `sales_by_item` | MIGRATED |
 | `services_by_category` | MIGRATED — active service catalog, superbill categories, code-type/category filters, modifiers, units, related codes and multi-level prices |
-| `svc_code_financial_report` | PENDING |
+| `svc_code_financial_report` | MIGRATED — fee-code units, billed, live applied payment, adjustment and balance totals; facility/provider ACL scope, important-code flag/filter, snapshots and CSV |
 | `unique_seen_patients_report` | MIGRATED |
 
-Current accounting: **48 cataloged, 34 migrated, 14 pending/embedded**.
+Current accounting: **48 cataloged, 35 migrated, 13 pending/embedded**.
 
 `criteria.tab` and `report.script` are included implementation assets rather
 than standalone routes. They remain explicitly accounted for, but must not be

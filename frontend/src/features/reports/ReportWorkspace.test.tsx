@@ -47,4 +47,9 @@ describe("ReportWorkspace",()=>{
     render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Prepayment Balance Report"));fireEvent.change(screen.getByLabelText("Patient UUID"),{target:{value:"00000000-0000-0000-0000-000000000951"}});fireEvent.click(screen.getByLabelText("Parked in global only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("PRE-1");
     const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.patient_uuid).toContain("951");expect(request.parked_only).toBe(true);
   });
+  it("submits service-code financial scope and important-code filter",async()=>{
+    const api=vi.fn().mockResolvedValueOnce([{key:"svc_code_financial_report",title:"Svc Code Financial Report",category:"financial",permission:"acct:rep_a:read",legacy_path:"interface/reports/svc_code_financial_report.php",migrated:true}]).mockResolvedValueOnce({uuid:"r9",report_key:"svc_code_financial_report",parameters:{},columns:["procedure_code","balance_amount"],rows:[{procedure_code:"99213",balance_amount:"30.00"}],totals:{balance_amount:"30.00"},row_count:1,checksum:"abcdef0123456789",created_at:"2026-01-01T00:00:00Z"});
+    render(<ReportWorkspace api={api as any}/>);fireEvent.click(await screen.findByText("Svc Code Financial Report"));fireEvent.change(screen.getByLabelText("Provider legacy ID"),{target:{value:"968"}});fireEvent.click(screen.getByLabelText("Important codes only"));fireEvent.click(screen.getByText("Run report"));await screen.findByText("99213");
+    const request=JSON.parse(String((api.mock.calls[1][1] as RequestInit).body));expect(request.provider_legacy_id).toBe(968);expect(request.financial_reporting_only).toBe(true);
+  });
 });

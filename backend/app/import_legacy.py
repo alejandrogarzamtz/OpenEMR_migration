@@ -788,12 +788,16 @@ def run(source_url: str, commit: bool = False) -> dict:
         if "codes" in legacy_tables:
             category_titles={row["option_id"]:clean(row["title"]) for row in legacy.execute(text("SELECT option_id,title FROM list_options WHERE list_id='superbill' AND activity=1")).mappings()}
             price_levels={row["option_id"]:clean(row["title"]) for row in legacy.execute(text("SELECT option_id,title FROM list_options WHERE list_id='pricelevel' AND activity=1 ORDER BY seq")).mappings()}
-            for row in legacy.execute(text("SELECT id,code_type,code,modifier,units,code_text,superbill,related_code,active FROM codes ORDER BY id")).mappings():
+            for row in legacy.execute(text("SELECT * FROM codes ORDER BY id")).mappings():
                 stats["service_codes"]["source"]+=1
-                if target.scalar(select(ServiceCode.id).where(ServiceCode.legacy_code_id==row["id"])):stats["service_codes"]["existing"]+=1;continue
+                existing=target.scalar(select(ServiceCode).where(ServiceCode.legacy_code_id==row["id"]))
                 if not clean(row["code"]):stats["service_codes"]["rejected"]+=1;continue
                 prices=[{"level":price["pr_level"],"title":price_levels.get(price["pr_level"]),"amount":json_value(price["pr_price"])} for price in legacy.execute(text("SELECT pr_level,pr_price FROM prices WHERE pr_id=:id AND pr_selector='' ORDER BY pr_level"),{"id":row["id"]}).mappings()]
-                target.add(ServiceCode(legacy_code_id=row["id"],code_type_id=row["code_type"],code=clean(row["code"]),modifier=clean(row["modifier"]) or "",units=row["units"] or 0,description=clean(row["code_text"]) or clean(row["code"]),category_code=clean(row["superbill"]),category_title=category_titles.get(row["superbill"]),related_codes=clean(row["related_code"]),prices=prices,active=bool(row["active"]),legacy_payload={field:json_value(value) for field,value in row.items()}));stats["service_codes"]["inserted"]+=1
+                values=dict(code_type_id=row["code_type"],code=clean(row["code"]),modifier=clean(row["modifier"]) or "",units=row["units"] or 0,description=clean(row["code_text"]) or clean(row["code"]),category_code=clean(row["superbill"]),category_title=category_titles.get(row["superbill"]),related_codes=clean(row["related_code"]),financial_reporting=bool(row["financial_reporting"]),prices=prices,active=bool(row["active"]),legacy_payload={field:json_value(value) for field,value in row.items()})
+                if existing:
+                    for key,value in values.items():setattr(existing,key,value)
+                    stats["service_codes"]["existing"]+=1
+                else:target.add(ServiceCode(legacy_code_id=row["id"],**values));stats["service_codes"]["inserted"]+=1
         cvx_names={}
         if "codes" in legacy_tables and "code_types" in legacy_tables:
             for row in legacy.execute(text("SELECT c.code,c.code_text,c.code_text_short FROM codes c JOIN code_types ct ON ct.ct_id=c.code_type WHERE ct.ct_key='CVX' ORDER BY c.id")).mappings():
