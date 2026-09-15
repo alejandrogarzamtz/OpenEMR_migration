@@ -70,8 +70,8 @@ the modern rendering contract.
 
 ## Boundaries
 
-This domain does not provide module lifecycle or extension hooks; those belong
-to the extension-compatibility phase. Production secret management, backup and
-restore, disaster recovery, and operational acceptance remain deployment and
-security work. Template preview is not a legal-signature or document-delivery
-claim.
+Module lifecycle and integration hooks are provided through the separate,
+out-of-process [extension and webhook contract](EXTENSIONS.md). Production
+secret management, backup and restore, disaster recovery, and operational
+acceptance remain deployment and security work. Template preview is not a
+legal-signature or document-delivery claim.

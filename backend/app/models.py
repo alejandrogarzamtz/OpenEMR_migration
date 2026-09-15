@@ -101,6 +101,71 @@ class ContentTemplate(Base):
     legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class ExtensionPackage(Base):
+    __tablename__ = "extension_packages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    key: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    version: Mapped[str] = mapped_column(String(50))
+    api_version: Mapped[str] = mapped_column(String(20), default="v1")
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    homepage_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="installed", index=True)
+    installed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    credential_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    legacy_module_id: Mapped[int | None] = mapped_column(unique=True, nullable=True)
+    legacy_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class IntegrationEvent(Base):
+    __tablename__ = "integration_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    event_type: Mapped[str] = mapped_column(String(160), index=True)
+    schema_version: Mapped[str] = mapped_column(String(20), default="1")
+    source_extension_id: Mapped[int | None] = mapped_column(ForeignKey("extension_packages.id"), nullable=True, index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class WebhookSubscription(Base):
+    __tablename__ = "webhook_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    extension_id: Mapped[int | None] = mapped_column(ForeignKey("extension_packages.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    endpoint_url: Mapped[str] = mapped_column(String(1000))
+    event_types: Mapped[list[str]] = mapped_column(JSON)
+    encrypted_secret: Mapped[bytes] = mapped_column(LargeBinary)
+    active: Mapped[bool] = mapped_column(default=True, index=True)
+    max_attempts: Mapped[int] = mapped_column(default=8)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (UniqueConstraint("subscription_id", "event_id", name="uq_webhook_delivery_subscription_event"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    subscription_id: Mapped[int] = mapped_column(ForeignKey("webhook_subscriptions.id"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("integration_events.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_status: Mapped[int | None] = mapped_column(nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+
 class BulkExportJob(Base):
     """Persisted FHIR asynchronous bulk-data export result."""
     __tablename__ = "bulk_export_jobs"

@@ -187,13 +187,17 @@ end-to-end healthcare workflows:
 - the complete 80-route legacy FHIR contract family, persisted FHIR Bulk Data
   exports for system, patient, and group scopes, `$docref`, C-CDA clinical
   summaries, and patient-scoped EHI packages with checksum manifests;
+- an audited extension registry with strict manifests and credential rotation,
+  durable namespaced integration events, HTTPS webhooks with HMAC signatures,
+  exponential retries and dead-letter replay, a dependency-free Python SDK,
+  and reconciled legacy module inventory without importing secret values;
 - audit events around implemented reads and mutations;
 - containerized PostgreSQL, API, and web development services.
 
 These capabilities do not imply full OpenEMR parity. Specialized clinical
 forms, advanced demographic fields, recurrence rules, broader portal workflows,
-remaining specialized workflows, advanced inventory, production integrations,
-extension compatibility, and production operations are still being implemented. The authoritative
+remaining specialized workflows, advanced inventory, production integration
+acceptance, and production operations are still being implemented. The authoritative
 status is maintained in [Functional Parity](docs/FUNCTIONAL_PARITY.md) and the
 generated [Legacy API Inventory](docs/LEGACY_API_INVENTORY.md).
 
@@ -223,6 +227,8 @@ implementation work.
 
 Administration behavior and its security boundaries are documented in
 [Platform administration, localization, and templates](docs/PLATFORM_ADMINISTRATION.md).
+The external integration contract is documented in
+[Extensions and webhooks](docs/EXTENSIONS.md).
 
 ## Getting started
 
@@ -375,6 +381,8 @@ Start with these documents:
   idempotency, token handling, accounting, and processor boundaries;
 - [Integrations](docs/INTEGRATIONS.md) — external systems, configuration,
   verification strategy, and credential-dependent blockers;
+- [Extensions and webhooks](docs/EXTENSIONS.md) — manifests, credentials,
+  event envelopes, signed delivery, retries, SDK use, and legacy module boundaries;
 - [Migration Strategy](docs/MIGRATION.md) — architectural decisions and staged
   delivery approach;
 - [FHIR Notes](docs/FHIR.md) — current standards implementation and limitations.

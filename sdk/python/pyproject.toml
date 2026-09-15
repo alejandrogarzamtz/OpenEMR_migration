@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openrm-extension-sdk"
+version = "0.1.0"
+description = "Dependency-free Python client and webhook verifier for OpenRM extensions"
+requires-python = ">=3.11"
+license = {text = "GPL-3.0-or-later"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 from .db import Base, engine as target_engine
-from .models import AmcTrackingEvent, Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, ContentTemplate, Coverage, Document, Encounter, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InsuranceType, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, LocaleCatalog, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, PatientTransaction, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, QualityMeasureItem, QualityMeasureReport, QuestionnaireDefinition, QuestionnaireResponse, ReceivableActivity, ReceivableSession, ReferenceOption, Referral, RegulatoryMetricEvent, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, SystemSetting, Translation, User, VitalSet, Warehouse
+from .models import AmcTrackingEvent, Appointment, BackgroundService, BillingCodeType, CarePlan, CarePlanOutcome, CareTeam, CareTeamMember, ChartLocationEvent, Charge, Claim, ClinicalForm, ClinicalFormDocumentLink, ClinicalFormResultLink, ClinicalItem, ClinicalRuleLog, ClinicalSignature, ClinicalTask, CommunicationDelivery, ContentTemplate, Coverage, Document, Encounter, ExtensionPackage, ExternalEncounter, ExternalProcedure, Facility, FrontOfficePayment, Immunization, InsuranceType, InventoryLot, InventoryProduct, InventoryTransaction, IpLoginTracker, LabOrder, LabResult, LocaleCatalog, MessageThread, Patient, PatientConsent, PatientCustomFieldDefinition, PatientCustomFieldValue, PatientEducationResource, PatientEmployment, PatientFlowEpisode, PatientFlowEvent, PatientPhoto, PatientPreference, PatientProviderAssignment, PatientRelatedPerson, PatientTransaction, Payer, PaymentProcessingAudit, Pharmacy, PortalAccount, Practitioner, PractitionerFacilityAccess, PreferenceValueSet, Prescription, ProcedureOrderLine, ProcedureReport, QualityMeasureItem, QualityMeasureReport, QuestionnaireDefinition, QuestionnaireResponse, ReceivableActivity, ReceivableSession, ReferenceOption, Referral, RegulatoryMetricEvent, SecureMessage, ServiceCode, SocialHistory, SyndromicSubmission, SystemSetting, Translation, User, VitalSet, Warehouse
 from .security import password_hash
 from .services.clinical_signatures import clinical_form_hash, encounter_hash, signature_hash
 from .services.platform_administration import SETTING_DEFINITIONS, seed_platform_administration
@@ -153,6 +153,18 @@ def legacy_setting_value(name: str, value: object) -> object | None:
     return raw
 
 
+def extension_key(value: object, legacy_id: int) -> str:
+    normalized="".join(character.lower() if character.isalnum() else "-" for character in str(value or "legacy-module")).strip("-")
+    normalized="-".join(filter(None,normalized.split("-")))
+    return (normalized or f"legacy-module-{legacy_id}")[:120]
+
+
+def legacy_module_configuration_evidence(row) -> dict:
+    evidence={field:json_value(raw) for field,raw in row.items() if field!="field_value"}
+    evidence["value_sha256"]=hashlib.sha256(str(row.get("field_value") or "").encode()).hexdigest()
+    return evidence
+
+
 def questionnaire_items(payload) -> list[dict]:
     result=[]
     type_map={"integer":"integer","boolean":"boolean","choice":"choice","open-choice":"choice","string":"string","text":"string"}
@@ -247,7 +259,7 @@ def reconcile_patient_demographics(patient_rows, target: Session) -> dict:
 def run(source_url: str, commit: bool = False) -> dict:
     source = create_engine(source_url)
     Base.metadata.create_all(target_engine)
-    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "reference_options", "system_settings", "locale_catalogs", "translations", "content_templates", "insurance_types", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "syndromic_submissions", "clinical_rule_logs", "amc_tracking_events", "quality_measure_reports", "quality_measure_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "patient_transactions", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_sessions", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "questionnaire_definitions", "questionnaire_responses", "background_services", "ip_login_trackers", "regulatory_metric_events")
+    names = ("patients", "patient_related_people", "patient_consents", "patient_employments", "patient_custom_field_definitions", "patient_custom_field_values", "patient_photos", "reference_options", "system_settings", "locale_catalogs", "translations", "content_templates", "extension_packages", "insurance_types", "patient_education_resources", "social_histories", "facilities", "warehouses", "practitioners", "practitioner_facility_access", "patient_provider_assignments", "care_teams", "care_team_members", "preference_value_sets", "treatment_preferences", "care_experience_preferences", "appointments", "clinical_items", "syndromic_submissions", "clinical_rule_logs", "amc_tracking_events", "quality_measure_reports", "quality_measure_items", "encounters", "external_encounters", "external_procedures", "patient_flow_episodes", "patient_flow_events", "chart_location_events", "referrals", "patient_transactions", "lab_orders", "procedure_order_lines", "procedure_reports", "lab_results", "documents", "payers", "coverages", "billing_code_types", "charges", "receivable_sessions", "receivable_activities", "front_office_payments", "payment_processing_audits", "claims", "service_codes", "immunizations", "vitals", "pharmacies", "prescriptions", "inventory_products", "inventory_lots", "inventory_transactions", "care_plans", "care_plan_outcomes", "clinical_forms", "clinical_form_document_links", "clinical_form_result_links", "clinical_signatures", "portal_accounts", "message_threads", "secure_messages", "clinical_tasks", "communication_deliveries", "questionnaire_definitions", "questionnaire_responses", "background_services", "ip_login_trackers", "regulatory_metric_events")
     stats = {name: {"source": 0, "inserted": 0, "existing": 0, "rejected": 0} for name in names}
     with source.connect() as legacy, Session(target_engine) as target:
         legacy_tables = set(inspect(source).get_table_names())
@@ -295,6 +307,27 @@ def run(source_url: str, commit: bool = False) -> dict:
                 if target.scalar(select(ContentTemplate.id).where(ContentTemplate.legacy_template_id==row["id"])):stats["content_templates"]["existing"]+=1;continue
                 content=legacy_template_text(row.get("template_content"));payload={field:json_value(raw) for field,raw in row.items() if field!="template_content"};payload["content_sha256"]=hashlib.sha256(content.encode()).hexdigest()
                 target.add(ContentTemplate(key=f"legacy-document-{row['id']}",locale_code="en",name=clean(row.get("template_name")) or f"Legacy document {row['id']}",category="document",content=content or " ",content_type=clean(row.get("mime")) if clean(row.get("mime")) in {"text/plain","text/html"} else "text/plain",allowed_variables=[],active=str(row.get("status") or "").lower() not in {"inactive","deleted"},created_at=row.get("modified_date") or datetime.now(timezone.utc),legacy_template_id=row["id"],legacy_payload=payload));stats["content_templates"]["inserted"]+=1
+        if "modules" in legacy_tables:
+            for row in legacy.execute(text("SELECT * FROM modules ORDER BY mod_id")).mappings():
+                stats["extension_packages"]["source"]+=1
+                if target.scalar(select(ExtensionPackage.id).where(ExtensionPackage.legacy_module_id==row["mod_id"])):stats["extension_packages"]["existing"]+=1;continue
+                hooks=[];configuration=[];acl=[];acl_users=[];acl_groups=[];settings=[]
+                if "modules_hooks_settings" in legacy_tables:
+                    hooks=[{field:json_value(raw) for field,raw in item.items()} for item in legacy.execute(text("SELECT * FROM modules_hooks_settings WHERE mod_id=:id ORDER BY id"),{"id":row["mod_id"]}).mappings()]
+                if "module_configuration" in legacy_tables:
+                    configuration=[legacy_module_configuration_evidence(item) for item in legacy.execute(text("SELECT * FROM module_configuration WHERE module_id=:id ORDER BY module_config_id"),{"id":row["mod_id"]}).mappings()]
+                if "module_acl_sections" in legacy_tables:
+                    acl=[{field:json_value(raw) for field,raw in item.items()} for item in legacy.execute(text("SELECT * FROM module_acl_sections WHERE module_id=:id ORDER BY section_id"),{"id":row["mod_id"]}).mappings()]
+                if "module_acl_user_settings" in legacy_tables:
+                    acl_users=[{field:json_value(raw) for field,raw in item.items()} for item in legacy.execute(text("SELECT * FROM module_acl_user_settings WHERE module_id=:id ORDER BY user_id,section_id"),{"id":row["mod_id"]}).mappings()]
+                if "module_acl_group_settings" in legacy_tables:
+                    acl_groups=[{field:json_value(raw) for field,raw in item.items()} for item in legacy.execute(text("SELECT * FROM module_acl_group_settings WHERE module_id=:id ORDER BY group_id,section_id"),{"id":row["mod_id"]}).mappings()]
+                if "modules_settings" in legacy_tables:
+                    settings=[{field:json_value(raw) for field,raw in item.items()} for item in legacy.execute(text("SELECT * FROM modules_settings WHERE mod_id=:id ORDER BY fld_type,obj_name,path"),{"id":row["mod_id"]}).mappings()]
+                key=extension_key(row.get("mod_directory") or row.get("mod_name"),row["mod_id"])
+                if target.scalar(select(ExtensionPackage.id).where(ExtensionPackage.key==key)):key=f"{key[:100]}-legacy-{row['mod_id']}"
+                manifest={"key":key,"name":clean(row.get("mod_ui_name")) or clean(row.get("mod_name")) or key,"version":clean(row.get("sql_version")) or "0.0.0","api_version":"legacy","capabilities":[],"events":[],"legacy":{"hooks":hooks,"configuration_evidence":configuration,"acl_sections":acl,"acl_user_settings":acl_users,"acl_group_settings":acl_groups,"module_settings":settings,"relative_link":clean(row.get("mod_relative_link"))}}
+                target.add(ExtensionPackage(key=key,name=manifest["name"],version=manifest["version"],api_version="legacy",description=clean(row.get("mod_description")),manifest=manifest,status="enabled" if row.get("mod_active") else "disabled",installed_at=row.get("date") or datetime.now(timezone.utc),legacy_module_id=row["mod_id"],legacy_payload={field:json_value(raw) for field,raw in row.items()}));stats["extension_packages"]["inserted"]+=1
         target.flush()
         patient_rows = list(legacy.execute(text("SELECT * FROM patient_data ORDER BY pid")).mappings())
         for row in patient_rows:

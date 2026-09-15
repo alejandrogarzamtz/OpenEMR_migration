@@ -39,10 +39,12 @@ from .api.openemr_compat import router as openemr_compat_router
 from .api.ehi import router as ehi_router
 from .api.engagement import router as engagement_router
 from .api.platform_administration import router as platform_administration_router
+from .api.extensions import router as extensions_router
 from .bootstrap import lifespan
 from .services.patients import patient_by_uuid
 from .services.clinical_signatures import create_encounter_signature, create_signature, encounter_locked, encounter_signatures, form_locked, form_signatures, verify_encounter_signature_chain, verify_signature_chain
 from .services.clinical_forms import ClinicalFormValidationError, FORM_DEFINITIONS, validate_clinical_form_content
+from .services.extensions import publish_event
 from .security import password_hash
 
 
@@ -70,6 +72,7 @@ app.include_router(openemr_compat_router)
 app.include_router(ehi_router)
 app.include_router(engagement_router)
 app.include_router(platform_administration_router)
+app.include_router(extensions_router)
 app.include_router(fhir_extended_router)
 app.include_router(fhir_router)
 
@@ -87,6 +90,8 @@ async def record_api_metric(request: Request, call_next):
         try:
             with SessionLocal() as db:
                 db.add(RegulatoryMetricEvent(source_key=f"modern:api:{uuid4()}",metric_type="api-request",occurred_at=datetime.now(timezone.utc),success=response.status_code<400,actor_kind="user" if actor_kind=="staff" else "patient" if actor_kind=="portal" else None,resource=resource,legacy_payload={"method":request.method,"path":request.url.path,"status_code":response.status_code}))
+                if request.method in {"POST","PUT","PATCH","DELETE"} and response.status_code < 400 and request.url.path != "/api/v1/admin/webhooks/process":
+                    publish_event(db,"api.mutation",{"method":request.method,"route":resource,"status_code":response.status_code,"actor_kind":actor_kind})
                 db.commit()
         except Exception:
             pass
