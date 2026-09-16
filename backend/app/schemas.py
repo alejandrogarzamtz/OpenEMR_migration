@@ -688,7 +688,6 @@ class ReportCatalogItem(BaseModel):
     title: str
     category: str
     permission: str
-    legacy_path: str
     migrated: bool
     migration_status: str
 

@@ -461,7 +461,9 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
 .report-viewer { min-width: 0; padding: 0; overflow: hidden; }
 .report-viewer-heading { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; padding: 1.4rem 1.5rem; border-bottom: 1px solid var(--line); }
 .report-viewer-heading h2 { margin: 0; }
-.report-viewer-heading > small { max-width: 48%; color: var(--ink-500); overflow-wrap: anywhere; text-align: right; }
+.report-availability { flex: 0 0 auto; padding: 0.42rem 0.68rem; border-radius: 999px; font-size: 0.72rem; font-weight: 800; }
+.report-availability.available { background: var(--success-50); color: var(--success-700); }
+.report-availability.pending { background: var(--warning-50); color: var(--warning-700); }
 .report-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0; padding: 1.5rem; background: var(--surface-soft); }
 .report-filters > p, .report-filters > fieldset { grid-column: 1 / -1; margin: 0; }
 .report-filters > label:has(> input[type="checkbox"]) { min-height: 44px; display: flex; align-items: center; align-self: end; gap: 0.5rem; padding: 0.65rem 0.75rem; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
@@ -621,7 +623,6 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
   .communication-workspace .portal-access-grid { padding-inline: 1rem; }
   .portal-access-form fieldset { grid-template-columns: 1fr; }
   .report-viewer-heading { align-items: flex-start; flex-direction: column; gap: 0.5rem; padding-inline: 1rem; }
-  .report-viewer-heading > small { max-width: none; text-align: left; }
   .report-filters { grid-template-columns: 1fr; padding-inline: 1rem; }
   .report-filters > p, .report-filters > fieldset, .report-filters > button:last-child { grid-column: auto; }
   .report-filters > button:last-child { width: 100%; }

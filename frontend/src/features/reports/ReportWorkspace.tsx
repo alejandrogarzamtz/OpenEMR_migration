@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { ApiRequest } from "../../api/client";
 
-type CatalogItem={key:string;title:string;category:string;permission:string;legacy_path:string;migrated:boolean;migration_status?:"migrated"|"embedded"|"pending"};
+type CatalogItem={key:string;title:string;category:string;permission:string;migrated:boolean;migration_status?:"migrated"|"embedded"|"pending"};
 type ReportRun={uuid:string;report_key:string;parameters:Record<string,unknown>;columns:string[];rows:Record<string,unknown>[];totals:Record<string,unknown>;row_count:number;checksum:string;created_at:string};
 
 export function ReportWorkspace({api}:{api:ApiRequest}){
@@ -23,7 +23,7 @@ export function ReportWorkspace({api}:{api:ApiRequest}){
   const categories=[...new Set(catalog.map(item=>item.category))];
   return <section className="report-workspace">
     <section className="card report-catalog"><header className="report-catalog-heading"><div><p className="eyebrow">REPORTS</p><h2>Report catalog</h2></div><span>{catalog.length}</span></header><div className="report-catalog-list">{categories.map(category=><section key={category}><h3>{category}</h3>{catalog.filter(item=>item.category===category).map(item=><button key={item.key} className={selected?.key===item.key?"report-item selected":"report-item"} onClick={()=>{setSelected(item);setRun(null);setError("");}}><span>{item.title}</span><small>{item.migrated?"Available":item.migration_status==="embedded"?"Embedded component":"Migration pending"}</small></button>)}</section>)}</div></section>
-    <section className="card report-viewer">{selected?<><header className="report-viewer-heading"><div><p className="eyebrow">{selected.category}</p><h2>{selected.title}</h2></div><small>{selected.legacy_path}</small></header>{selected.migrated?<form className="report-filters" onSubmit={execute}>
+    <section className="card report-viewer">{selected?<><header className="report-viewer-heading"><div><p className="eyebrow">{selected.category}</p><h2>{selected.title}</h2></div><span className={`report-availability ${selected.migrated?"available":"pending"}`}>{selected.migrated?"Available":"Planned"}</span></header>{selected.migrated?<form className="report-filters" onSubmit={execute}>
       <label>From<input name="date_from" type="date"/></label><label>To<input name="date_to" type="date"/></label><label>Status<input name="status"/></label><label>Warehouse<input name="warehouse_code"/></label>
       {selected.key==="chart_location_activity"&&<label>Patient UUID<input name="patient_uuid" required/></label>}
       {selected.key==="appt_encounter_report"&&<><label>Facility UUID<input name="facility_uuid"/></label><label><input name="summary_only" type="checkbox"/> Provider totals only</label></>}
