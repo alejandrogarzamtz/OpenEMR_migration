@@ -304,11 +304,44 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
 .flow-card form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 1rem; }
 .flow-card form button { grid-column: 1 / -1; justify-self: center; min-width: 130px; }
 .inventory-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; align-items: start; }
-.inventory-grid.selected { grid-template-columns: minmax(480px, 1fr) minmax(320px, 400px); }
-.inventory-detail { padding: 1.25rem; }
-.inventory-detail > h2 { padding: 0; border: 0; }
-.lot-row { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 1rem; padding: 0.8rem 0; border-top: 1px solid var(--line); }
+.inventory-grid.selected { grid-template-columns: minmax(280px, 340px) minmax(580px, 1fr); }
+.inventory-form { padding: 0; }
+.inventory-form-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; padding: 1.35rem 1.5rem 1.1rem; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, var(--surface), var(--brand-50)); }
+.inventory-form-heading h2 { margin: 0; }
+.inventory-form-heading > p { max-width: 460px; margin: 0; color: var(--ink-500); font-size: 0.86rem; text-align: right; }
+.inventory-product-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: end; gap: 1rem; padding: 1.4rem 1.5rem; }
+.inventory-product-grid label { min-width: 0; display: grid; gap: 0.45rem; }
+.inventory-product-grid .inventory-product-name { grid-column: span 5; }
+.inventory-product-grid > label:not(.inventory-product-name):not(.inventory-combine) { grid-column: span 2; }
+.inventory-product-grid .inventory-combine { grid-column: span 3; min-height: 44px; justify-content: center; padding: 0.65rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.inventory-form-actions { display: flex; justify-content: center; padding: 1rem 1.5rem 1.35rem; border-top: 1px solid var(--line); background: var(--surface-soft); }
+.inventory-form-actions button { min-width: 190px; }
+.inventory-products { overflow-x: auto; }
+.inventory-list-heading, .inventory-lots-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.2rem 1.35rem; border-bottom: 1px solid var(--line); }
+.inventory-list-heading h2, .inventory-lots-heading h3 { margin: 0; }
+.inventory-list-heading > span, .inventory-lots-heading > span { min-width: 28px; padding: 0.25rem 0.55rem; border-radius: 999px; background: var(--brand-100); color: var(--brand-700); font-size: 0.72rem; font-weight: 800; text-align: center; }
+.inventory-grid.selected .inventory-products table { min-width: 0; }
+.inventory-grid.selected .inventory-products th:nth-child(2), .inventory-grid.selected .inventory-products td:nth-child(2) { display: none; }
+.inventory-detail { padding: 0; overflow: hidden; }
+.inventory-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; padding: 1.35rem 1.5rem; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, var(--surface), var(--brand-50)); }
+.inventory-detail-heading h2 { margin: 0.15rem 0 0.25rem; }
+.inventory-detail-heading p:last-child { margin: 0; color: var(--ink-500); font-size: 0.84rem; }
+.inventory-detail-heading .close { width: 40px; min-height: 40px; flex: 0 0 40px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink-700); font-size: 1.4rem; box-shadow: none; }
+.inventory-lot-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem 1rem; padding: 1.4rem 1.5rem; }
+.inventory-lot-form h3 { grid-column: 1 / -1; margin: 0 0 0.2rem; }
+.inventory-lot-form label { min-width: 0; display: grid; gap: 0.4rem; }
+.inventory-lot-form button { grid-column: 1 / -1; min-width: 180px; justify-self: center; margin-top: 0.35rem; }
+.inventory-lots-heading { padding-block: 1rem; border-top: 1px solid var(--line); }
+.inventory-lots { padding: 0 1.5rem 1.4rem; }
+.lot-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.3rem 1rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+.lot-row:first-child { border-top: 0; }
+.lot-row > div { min-width: 0; display: grid; gap: 0.2rem; }
 .lot-row small { grid-column: 1 / -1; color: var(--ink-500); }
+.lot-row > span { align-self: start; padding: 0.3rem 0.55rem; border-radius: 999px; background: var(--brand-100); color: var(--brand-700); font-size: 0.74rem; font-weight: 800; }
+.inventory-empty { min-height: 170px; display: grid; place-items: center; align-content: center; gap: 0.35rem; padding: 2rem; color: var(--ink-500); text-align: center; }
+.inventory-empty > span { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--brand-100); color: var(--brand-700); font-size: 1.25rem; }
+.inventory-empty strong { color: var(--ink-900); }
+.inventory-empty p { margin: 0; font-size: 0.84rem; }
 .low-stock { color: var(--danger-700); font-weight: 800; }
 
 /* Communication */
@@ -405,12 +438,16 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
   .admin-columns { grid-template-columns: repeat(2, minmax(280px, 1fr)); }
   .workspace.detail-open, .inventory-grid.selected { grid-template-columns: minmax(0, 1fr); }
   .patient-drawer { position: relative; top: auto; max-height: none; order: -1; }
+  .inventory-grid.selected .inventory-products th:nth-child(2), .inventory-grid.selected .inventory-products td:nth-child(2) { display: table-cell; }
 }
 
 @media (max-width: 1100px) {
   .appointment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .appointment-patient, .appointment-start, .appointment-end, .appointment-title, .appointment-provider, .appointment-facility, .appointment-room { grid-column: auto; }
   .appointment-patient { grid-column: 1 / -1; }
+  .inventory-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inventory-product-grid .inventory-product-name, .inventory-product-grid > label:not(.inventory-product-name):not(.inventory-combine), .inventory-product-grid .inventory-combine { grid-column: auto; }
+  .inventory-product-grid .inventory-product-name { grid-column: 1 / -1; }
 }
 
 @media (max-width: 960px) {
@@ -453,6 +490,11 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
   .appointment-grid { grid-template-columns: 1fr; padding-inline: 1rem; }
   .appointment-patient { grid-column: auto; }
   .appointment-form-actions button { width: 100%; }
+  .inventory-form-heading { align-items: flex-start; flex-direction: column; gap: 0.6rem; }
+  .inventory-form-heading > p { text-align: left; }
+  .inventory-product-grid, .inventory-lot-form { grid-template-columns: 1fr; padding-inline: 1rem; }
+  .inventory-product-grid .inventory-product-name, .inventory-lot-form h3, .inventory-lot-form button { grid-column: auto; }
+  .inventory-form-actions button, .inventory-lot-form button { width: 100%; }
   .patient-drawer { padding-inline: 1rem; }
   .patient-detail-heading { margin-inline: -1rem; padding-inline: 1rem; }
   .file-upload-form { grid-template-columns: 1fr; }
