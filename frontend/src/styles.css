@@ -266,6 +266,34 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
 /* Appointments, flow and inventory */
 .appointments, .inventory-workspace { display: grid; gap: 1.25rem; }
 .appointments > .card:not(.appointment-form), .inventory-grid > .card { overflow-x: auto; }
+.appointment-form { padding: 0; }
+.appointment-form-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; padding: 1.35rem 1.5rem 1.1rem; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, var(--surface), var(--brand-50)); }
+.appointment-form-heading h2 { margin: 0; }
+.appointment-form-heading > p { max-width: 470px; margin: 0; color: var(--ink-500); font-size: 0.86rem; text-align: right; }
+.appointment-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1rem; padding: 1.4rem 1.5rem 1.5rem; }
+.appointment-grid label { min-width: 0; display: grid; align-content: start; gap: 0.45rem; }
+.appointment-grid input, .appointment-grid select { min-width: 0; width: 100%; }
+.appointment-patient, .appointment-start, .appointment-end { grid-column: span 4; }
+.appointment-title, .appointment-provider, .appointment-facility, .appointment-room { grid-column: span 3; }
+.appointment-form-actions { display: flex; justify-content: center; padding: 1rem 1.5rem 1.35rem; border-top: 1px solid var(--line); background: var(--surface-soft); }
+.appointment-form-actions button { min-width: 190px; }
+.appointment-list { overflow: hidden !important; }
+.appointment-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--line); }
+.appointment-list-heading h2 { margin: 0; }
+.appointment-list-heading > span { padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--brand-100); color: var(--brand-700); font-size: 0.75rem; font-weight: 800; }
+.appointment-table { overflow-x: auto; }
+.appointment-table table { min-width: 840px; }
+.appointment-status { display: inline-flex; align-items: center; padding: 0.3rem 0.6rem; border-radius: 999px; background: var(--surface-muted); color: var(--ink-700); font-size: 0.72rem; font-weight: 800; text-transform: capitalize; }
+.appointment-status.status-fulfilled { background: var(--success-50); color: var(--success-700); }
+.appointment-status.status-cancelled, .appointment-status.status-no-show { background: var(--danger-50); color: var(--danger-700); }
+.appointment-status.status-arrived, .appointment-status.status-checked-in, .appointment-status.status-in-progress { background: var(--brand-100); color: var(--brand-700); }
+.appointment-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+.appointment-actions button { margin: 0; white-space: nowrap; }
+.appointment-actions .danger-action { color: var(--danger-700); }
+.appointment-empty { min-height: 190px; display: grid; place-items: center; align-content: center; gap: 0.4rem; padding: 2rem; color: var(--ink-500); text-align: center; }
+.appointment-empty > span { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: var(--brand-100); color: var(--brand-700); font-size: 1.35rem; }
+.appointment-empty strong { color: var(--ink-900); }
+.appointment-empty p { margin: 0; font-size: 0.86rem; }
 .board-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.2rem 1.35rem; border-bottom: 1px solid var(--line); }
 .board-heading h2, .board-heading p { margin-bottom: 0; }
 .flow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; padding: 1.25rem; }
@@ -379,6 +407,12 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
   .patient-drawer { position: relative; top: auto; max-height: none; order: -1; }
 }
 
+@media (max-width: 1100px) {
+  .appointment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .appointment-patient, .appointment-start, .appointment-end, .appointment-title, .appointment-provider, .appointment-facility, .appointment-room { grid-column: auto; }
+  .appointment-patient { grid-column: 1 / -1; }
+}
+
 @media (max-width: 960px) {
   .shell { grid-template-columns: 230px minmax(0, 1fr); }
   .app-sidebar { padding-inline: 0.8rem; }
@@ -414,6 +448,11 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
   .flow-card form { grid-template-columns: 1fr; }
   .flow-card form button { grid-column: 1; width: 100%; }
   .recovery-codes ul { columns: 1; }
+  .appointment-form-heading { align-items: flex-start; flex-direction: column; gap: 0.6rem; }
+  .appointment-form-heading > p { text-align: left; }
+  .appointment-grid { grid-template-columns: 1fr; padding-inline: 1rem; }
+  .appointment-patient { grid-column: auto; }
+  .appointment-form-actions button { width: 100%; }
   .patient-drawer { padding-inline: 1rem; }
   .patient-detail-heading { margin-inline: -1rem; padding-inline: 1rem; }
   .file-upload-form { grid-template-columns: 1fr; }
