@@ -486,12 +486,44 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
 .report-empty > p { max-width: 380px; margin: 0; }
 
 /* Administration */
-.admin-columns { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap: 1.25rem; align-items: start; }
-.admin-panel { padding: 1.25rem; }
-.admin-panel > h2:first-child { padding: 0 0 0.85rem; }
-.admin-panel article { display: grid; gap: 0.3rem; }
+.admin-workspace { display: grid; gap: 1.25rem; }
+.admin-hub-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; padding: 0.2rem 0 0.25rem; }
+.admin-hub-heading h2 { margin: 0.25rem 0 0.35rem; font-size: clamp(1.55rem, 2.5vw, 2.2rem); }
+.admin-hub-heading p { max-width: 720px; margin: 0; color: var(--ink-500); }
+.admin-hub-summary { min-width: 150px; display: grid; justify-items: end; gap: 0.1rem; }
+.admin-hub-summary strong { color: var(--brand-700); font-size: 2rem; line-height: 1; }
+.admin-hub-summary span { color: var(--ink-500); font-size: 0.75rem; font-weight: 700; }
+.admin-mode-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+.admin-mode-tabs button { min-width: 0; min-height: 94px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.9rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink-700); text-align: left; box-shadow: 0 8px 22px rgba(19, 64, 51, 0.04); }
+.admin-mode-tabs button:hover { border-color: var(--brand-300); transform: translateY(-1px); }
+.admin-mode-tabs button.active { border-color: var(--brand-600); background: linear-gradient(145deg, var(--brand-50), white); box-shadow: 0 10px 28px rgba(19, 118, 88, 0.1); }
+.admin-mode-number { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--surface-soft); color: var(--ink-500); font-size: 0.72rem; font-weight: 900; }
+.admin-mode-tabs button.active .admin-mode-number { background: var(--brand-600); color: white; }
+.admin-mode-copy { min-width: 0; display: grid; gap: 0.2rem; }
+.admin-mode-copy strong { color: var(--ink-900); font-size: 0.9rem; }
+.admin-mode-copy small { overflow: hidden; color: var(--ink-500); font-size: 0.68rem; line-height: 1.35; }
+.admin-mode-count { min-width: 28px; padding: 0.3rem 0.45rem; border-radius: 999px; background: var(--brand-100); color: var(--brand-800); font-size: 0.7rem; font-weight: 900; text-align: center; }
+.admin-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; padding: 0.85rem 0 0.25rem; border-bottom: 1px solid var(--line); }
+.admin-section-heading > div { display: flex; align-items: baseline; gap: 0.7rem; }
+.admin-section-heading h3 { margin: 0; font-size: 1.25rem; }
+.admin-section-heading p { margin: 0; color: var(--ink-500); font-size: 0.82rem; text-align: right; }
+.admin-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
+.admin-panel { min-width: 0; padding: 1.5rem; }
+.admin-panel > h2:first-child { margin-bottom: 0.3rem; padding: 0 0 0.9rem; }
+.admin-panel > p { color: var(--ink-500); font-size: 0.82rem; line-height: 1.55; }
+.admin-panel .quick-add { gap: 0.75rem; margin: 1rem 0 1.25rem; padding: 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.admin-panel .quick-add > button { width: 100%; margin-top: 0.15rem; }
+.admin-panel .quick-add label { display: grid; gap: 0.4rem; }
+.admin-panel article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.3rem 0.6rem; align-items: center; }
+.admin-panel article strong, .admin-panel article small { min-width: 0; overflow-wrap: anywhere; }
+.admin-panel article small { grid-column: 1 / -1; }
 .admin-panel article small { color: var(--ink-500); }
 .admin-panel article button { min-height: 34px; justify-self: start; margin: 0.2rem 0.25rem 0 0; padding: 0.45rem 0.7rem; font-size: 0.75rem; }
+.admin-integrations { grid-template-columns: 1fr; }
+.admin-integration-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.admin-integration-forms .quick-add { align-content: start; }
+.admin-integration-forms h3 { margin: 0 0 0.25rem; }
+.admin-record-list { display: grid; gap: 0.1rem; margin: 0.9rem 0; }
 
 /* Security */
 .security-workspace, .portal-security { max-width: 760px; margin-inline: auto; padding: clamp(1.3rem, 4vw, 2rem); }
@@ -552,6 +584,7 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
 }
 
 @media (max-width: 1100px) {
+  .admin-mode-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .appointment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .appointment-patient, .appointment-start, .appointment-end, .appointment-title, .appointment-provider, .appointment-facility, .appointment-room { grid-column: auto; }
   .appointment-patient { grid-column: 1 / -1; }
@@ -589,6 +622,10 @@ td button { min-height: 34px; margin: 0.12rem; padding: 0.45rem 0.7rem; font-siz
   .communication-section-heading > p, .portal-access-heading > p { text-align: left; }
   .communication-hub-heading { align-items: flex-start; flex-direction: column; gap: 0.55rem; }
   .communication-hub-heading > p { text-align: left; }
+  .admin-hub-heading, .admin-section-heading { align-items: flex-start; flex-direction: column; gap: 0.55rem; }
+  .admin-hub-summary { justify-items: start; }
+  .admin-section-heading p { text-align: left; }
+  .admin-mode-tabs, .admin-integration-forms { grid-template-columns: 1fr; }
   .app-header .primary-action, .portal-header > button { width: 100%; }
   .page-description { font-size: 0.86rem; }
   .toolbar { align-items: stretch; flex-direction: column; }
